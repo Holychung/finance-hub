@@ -1,0 +1,5 @@
+Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+DEBIT,09/14/2026,"Payment to Chase card ending in 9012 09/14",-1800.00,LOAN_PMT,58420.15,,
+DEBIT,09/10/2026,"Zelle payment to HARBOR SUPPLY CO JPM0000test",-260.00,CHASE_TO_PARTNERFI,60220.15,,
+DEBIT,09/08/2026,"Payment to Chase card ending in 9012 09/08",-3400.00,LOAN_PMT,60480.15,,
+CREDIT,09/01/2026,"PAYROLL DIRECT DEP",9750.00,ACH_CREDIT,63880.15,,

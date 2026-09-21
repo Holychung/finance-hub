@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finance Hub — 離線帳本</title>
+<!-- The same mark as the sidebar's, so the tab matches the app. An emoji
+     favicon renders as a different picture on every OS and sits oddly on a
+     dark-only app; this is the one drawing, at two sizes. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2374b4e8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 21h18'/%3E%3Cpath d='M5 21V10l7-5 7 5v11'/%3E%3Cpath d='M9 21v-6h6v6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- The nav, the brand and the badge are the only markup written by hand: they
+     exist before the first render and must not blink. Their icons are inline
+     here rather than in core.js's ICONS, which holds the ones a template
+     draws — an entry there with no caller would be kept in step with nothing. -->
+<aside class="sidebar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M9 21v-6h6v6"/></svg>
+    <span>Finance Hub<small>離線帳本</small></span>
+  </div>
+  <nav id="nav">
+    <a href="/overview" data-view="overview"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>總覽</a>
+    <a href="/accounts" data-view="accounts"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>帳戶</a>
+    <a href="/transactions" data-view="transactions"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>交易</a>
+    <a href="/import" data-view="import"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/></svg>匯入</a>
+    <a href="/holdings" data-view="holdings"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 17 5-6 4 4 5-8 4 5"/></svg>持股</a>
+    <a href="/spending" data-view="spending"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M12 3a9 9 0 0 1 9 9h-9z"/></svg>消費</a>
+    <a href="/coverage" data-view="coverage"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18"/><path d="M8 4V2M16 4V2"/><path d="M7 13h2M12 13h2M17 13h2M7 17h2M12 17h2"/></svg>完整度</a>
+    <a href="/settings" data-view="settings"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>設定</a>
+  </nav>
+  <div id="nav-accounts"></div>
+  <div class="sidebar-foot">
+    <div class="local-badge" id="local-badge">
+      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> 本機執行
+    </div>
+    <div class="muted small" id="db-where">資料存在這台電腦</div>
+    <!-- Filled in only on the demo, by showProfile(). AGPL §13 wants the
+         source of the running version offered prominently to a network user,
+         and the sidebar is the one thing on every view. It stays empty on a
+         local ledger: the source is already on that machine. -->
+    <div class="small" id="source-offer"></div>
+  </div>
+</aside>
+
+<main id="main">
+  <div class="loading">載入中…</div>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="modal-title"></h3>
+      <button class="icon-btn" data-close-modal>✕</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- Plain classic scripts, in dependency order, because there is no build step
+     and never will be. They share one global scope, so a name declared twice
+     is a SyntaxError at load; test/html.test.js checks for that. html.js first
+     (everything builds markup with it), app.js last (it boots the router). A
+     new view goes in the middle, and into APP_ROUTES in server/index.js. -->
+<script src="/html.js"></script>
+<!--
+  shared/ is the domain logic Node and the browser load from the same files:
+  csv.js parses a statement identically in both, and money.js does the
+  arithmetic. sha1.js first, because csv.js reads the fingerprint hash off the
+  global when there is no require() to call. All three are self-contained
+  IIFEs, so nothing here lands in the script scope the view files share.
+-->
+<script src="/shared/sha1.js"></script>
+<script src="/shared/money.js"></script>
+<script src="/shared/csv.js"></script>
+<script src="/shared/rules.js"></script>
+<script src="/shared/spending.js"></script>
+<script src="/shared/export.js"></script>
+<script src="/shared/demo-seed.js"></script>
+<!--
+  Both storage adapters, then the one line that picks between them. Shipping
+  both in one index.html is deliberate: a second copy of this markup for the
+  hosted build would drift, and there is no build step to generate one from
+  the other.
+-->
+<script src="/storage-http.js"></script>
+<script src="/storage-demo.js"></script>
+<script src="/storage.js"></script>
+<script src="/core.js"></script>
+<script src="/charts.js"></script>
+<script src="/tables.js"></script>
+<script src="/forms.js"></script>
+<script src="/view-overview.js"></script>
+<script src="/view-accounts.js"></script>
+<script src="/view-account.js"></script>
+<script src="/view-transactions.js"></script>
+<script src="/view-import.js"></script>
+<script src="/view-holdings.js"></script>
+<script src="/view-spending.js"></script>
+<script src="/view-coverage.js"></script>
+<script src="/view-settings.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

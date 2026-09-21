@@ -1,0 +1,6 @@
+# Statement samples are byte-exact copies of a bank's export format, and the
+# line ending is part of that format — Citi and Capital One ship LF, other
+# exports ship CRLF, and parseCsv has to cope with both. Letting git normalise
+# them on checkout would quietly delete the thing the fixture exists to pin
+# down, on whichever machine has core.autocrlf set.
+test/fixtures/*.csv -text

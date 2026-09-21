@@ -1,0 +1,46 @@
+# Your actual financial data. Never commit this.
+#
+# The ledger now lives in ~/.finance-hub/, outside any checkout — the strongest
+# protection is that it is not in the working tree at all. These entries stay
+# as a net for a pre-move checkout, a stray copy, and anything the app or a
+# migration leaves behind.
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Every CSV, not just the export filenames. A bank statement saved into the
+# repo to try something out is the likeliest way real transactions get staged,
+# and it arrives named stmt.csv or eStmt_2025-04-01_1234.csv, matching nothing
+# specific.
+*.csv
+
+# The one exception, and it is a directory rather than a pattern on purpose: a
+# statement you just downloaded lands in ~/Downloads, never in test/fixtures/.
+# Everything in there is invented content in a real bank's shape — see its
+# README. githooks/pre-commit carries the same exception, and api.test.js
+# fails if a .csv in there is not read by a test, so one dropped in and
+# forgotten does not sit there quietly.
+!test/fixtures/*.csv
+
+# Local backups and exports
+*.json.bak
+finance_backup*.json
+
+# Phase 2 broker credentials (Shioaji certificates, IBKR Flex tokens). Nothing
+# reads these yet; the entry exists so the first one to arrive is already
+# ignored rather than ignored a commit too late.
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+
+.DS_Store
+node_modules/
+
+# What `scripts/pack-demo.js` writes. Every file in there is a copy of one
+# that is already committed, so committing the output would be two copies of
+# the frontend in one repo — and the one nobody edits is the one that gets
+# served. Rebuild it instead; it takes milliseconds.
+dist/

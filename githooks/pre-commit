@@ -1,0 +1,66 @@
+#!/bin/sh
+#
+# Refuses to commit anything that looks like real financial data.
+#
+# .gitignore is one layer and it only stops what nobody asked for: `git add -f`
+# walks straight past it, and a file that is already tracked is never consulted
+# again. This is the second, independent layer — it reads what is actually
+# staged, so it catches the forced add and the file that slipped in earlier.
+#
+# Enable once per clone (hooks are not themselves committed into .git):
+#
+#   git config core.hooksPath githooks
+#
+# Deliberate escape hatch, when you really do mean it:
+#
+#   git commit --no-verify
+
+staged=$(git diff --cached --name-only --diff-filter=AM)
+[ -z "$staged" ] && exit 0
+
+# test/fixtures/*.csv is the one place a CSV may be committed: invented rows in
+# a real bank's shape, so the parser has the actual bytes to work against. The
+# exception is by path and nothing inspects the content, so the rule that keeps
+# it honest is social and lives in test/fixtures/README.md — a statement you
+# downloaded goes nowhere near that directory. api.test.js is the mechanical
+# half: a .csv in there that no test reads fails the suite.
+checkable=$(printf '%s\n' "$staged" | grep -v '^test/fixtures/[^/]*\.csv$')
+
+blocked=$(printf '%s\n' "$checkable" | grep -E '(^|/)data/|\.db$|\.db-wal$|\.db-shm$|\.csv$|(^|/)\.env($|\.)|\.pfx$|\.p12$')
+
+if [ -n "$blocked" ]; then
+  echo ""
+  echo "  擋下來了：這次 commit 裡有看起來是真實財務資料或憑證的檔案。"
+  echo ""
+  printf '    %s\n' $blocked
+  echo ""
+  echo "  這個 repo 是公開你自己的程式碼，不是存你的帳。資料在 ~/.finance-hub/。"
+  echo ""
+  echo "    取消暫存：   git restore --staged <檔案>"
+  echo "    真的要進版控：git commit --no-verify"
+  echo ""
+  exit 1
+fi
+
+# Second, separate check, with its own message: a lockfile is not leaked data,
+# it is a supply chain arriving. test/deps.test.js catches this too, but only
+# when the suite is run — this catches it at the moment it would be recorded.
+deps=$(printf '%s\n' "$staged" | grep -E '(^|/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|yarn\.lock|bun\.lockb)$|(^|/)node_modules/')
+
+if [ -n "$deps" ]; then
+  echo ""
+  echo "  擋下來了：這次 commit 會讓這個 repo 開始有依賴。"
+  echo ""
+  printf '    %s\n' $deps
+  echo ""
+  echo "  這是一本離線的帳，靠的是 Node 內建模組和沒有供應鏈。"
+  echo "  需要某個函式庫的話，把那四十行寫出來，或說它做不到。"
+  echo "  理由在 CLAUDE.md「Hard rules」。"
+  echo ""
+  echo "    取消暫存：   git restore --staged <檔案>"
+  echo "    真的要進版控：git commit --no-verify"
+  echo ""
+  exit 1
+fi
+
+exit 0

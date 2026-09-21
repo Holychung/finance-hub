@@ -1,0 +1,843 @@
+/* Finance Hub — one token block, and every rule below built out of it.
+   Colour, spacing, type size, radius and control height come from the ladders
+   in :root and nowhere else; a value that appears twice is a token that was
+   missing. Written literally, on purpose: 1px hairlines, one-off layout
+   dimensions (sidebar width, breakpoints, grid minmax, chart height) and
+   optical letter-spacing tied to a single size. The only !important is the
+   reduced-motion override, which has to outrank every transition it cancels.
+   The ratio beside a colour is its measured contrast against the surfaces it
+   is used on — recompute it if you change the colour.
+   See CLAUDE.md "Styling" for the rules these encode. */
+
+:root {
+  /* Dark is the whole app, not a preference. Declaring it lets the browser
+     render date pickers, scrollbars and autofill dark too, which no amount of
+     our own CSS can reach. A light theme would be one more block redefining
+     these same names — which is the point of keeping the layer complete. */
+  color-scheme: dark;
+
+  /* -- surfaces ------------------------------------------------------- */
+  --bg:          #121110;
+  --surface:     #1a1917;
+  --surface-2:   #232120;  /* table head, inset, bar track */
+  --surface-3:   #272524;  /* hover — 1.15:1, seen without shouting */
+  --line:        #332f2b;  /* hairline between rows */
+  --line-strong: #736c63;  /* 3.4:1 — anything whose border identifies it */
+
+  /* -- ink ------------------------------------------------------------ */
+  --ink:   #efebe4;  /* 14.8:1 */
+  --ink-2: #b7b0a6;  /*  8.2:1 */
+  --ink-3: #968e82;  /*  4.9:1 at worst, on --surface-2 */
+
+  /* -- brand: everything interactive, and nothing else ---------------- */
+  --brand:       #74b4e8;  /* 7.9:1 */
+  --brand-solid: #2c6fa8;  /* --brand-ink on it: 5.3:1 */
+  --brand-ink:   #ffffff;
+  --brand-tint:  #1a2733;  /* --brand on it: 6.8:1 */
+  --brand-line:  #2f4a61;
+
+  /* -- money. No affordance may borrow these. ------------------------- */
+  --up:        #5fd991;  /* 9.9:1 */
+  --up-tint:   #16281e;  /* --up on it: 8.7:1 */
+  --up-line:   #24422f;
+  --down:      #f4837e;  /* 7.0:1 — also hard failure, never a resting control */
+  --down-tint: #2b1a19;  /* --down on it: 6.6:1 */
+  --down-line: #4a2a28;
+
+  /* -- attention ------------------------------------------------------ */
+  --warn:      #e3b155;  /* 8.9:1 */
+  --warn-tint: #2c2517;  /* --warn on it: 7.7:1 */
+  --warn-line: #4a3b1e;
+
+  /* -- chart. A breakdown is assets against liabilities, so it is diverging:
+        these four are the asset pole and --down is the other. One hue, light
+        to dark, because the rows are sorted by size and each already carries
+        its own name and number — colour says how big, not which one. All four
+        clear 3:1 on --surface-2, the bar track. Read from JS, which is why
+        they live here and not in app.js. ------------------------------- */
+  --chart-1: #9bcbee;  /* 9.3:1 */
+  --chart-2: #7fb7e4;  /* 7.5:1 */
+  --chart-3: #649fd2;  /* 5.7:1 */
+  --chart-4: #4b85b6;  /* 4.1:1 */
+
+  /* -- space. A closed 2px ladder: nothing writes 7px or 13px, it picks
+        the nearest rung. An abstract --s-1..7 scale could not express the
+        6px a control needs, which is how a stylesheet ends up with 23
+        different spacings. ---------------------------------------------- */
+  --sp-2:  2px;
+  --sp-4:  4px;
+  --sp-6:  6px;
+  --sp-8:  8px;
+  --sp-12: 12px;
+  --sp-16: 16px;
+  --sp-24: 24px;
+  --sp-32: 32px;
+  --sp-48: 48px;
+
+  /* -- type. 15px body because 13.5px 繁中 is cramped, and 1.7 leading
+        because CJK needs more than the 1.5 a Latin stack wants. --------- */
+  --fs-2xs: 11px;
+  --fs-xs:  12px;
+  --fs-sm:  13px;
+  --fs-md:  15px;
+  --fs-lg:  18px;
+  --fs-xl:  24px;
+  --fs-2xl: 32px;
+  --lh-tight: 1.3;
+  --lh:       1.7;
+  --track-label: .5px;  /* the small uppercase-ish labels */
+
+  /* -- shape, size, motion -------------------------------------------- */
+  --r-1:    6px;    /* controls */
+  --r-2:    10px;   /* cards, panels */
+  --r-full: 999px;  /* pills */
+  /* The leading-edge bar, and it now means exactly one thing: **this row
+     carries a status you did not choose**. A transaction that will not
+     import, a month whose balance check disagreed. It is never used for
+     where you are — navigation and selection are a tinted pill, because a
+     bar beside every active thing turns the sidebar into a column of stripes
+     and stops meaning anything. It is never doubled with an icon that
+     already says the same thing either, which is why `.note` and the todo
+     list dropped theirs. */
+  --marker: 3px;
+  --h-control:    34px;
+  --h-control-sm: 28px;
+  --dur: .12s;
+
+  /* Two elevations, because there are two things that float. */
+  --shadow-1: 0 8px 28px rgb(0 0 0 / .5);    /* toast */
+  --shadow-2: 0 16px 48px rgb(0 0 0 / .5);   /* modal */
+
+  /* -- severity icons, as masks rather than markup ---------------------
+     CLAUDE.md requires a severity to be told apart by its icon as well as
+     its tint, and there are 24 `.note` call sites across nine files. Put the
+     icon in the markup and it is 24 chances to forget one; put it here and a
+     notice cannot be written without it — the same reason the html`` tag
+     escapes by default. A mask takes its colour from whatever the variant
+     already sets, so each shape is defined once and serves both `.note` and
+     `.todo-item`. Action icons are content, not a property of a container,
+     and stay inline SVG via icon() in core.js.
+     The stroke colour inside is irrelevant: a mask reads alpha only. ---- */
+  --icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5'/%3E%3Cpath d='M12 7.5v.01'/%3E%3C/svg%3E");
+  --icon-warn: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z'/%3E%3Cpath d='M12 9v4'/%3E%3Cpath d='M12 17v.01'/%3E%3C/svg%3E");
+  --icon-err:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v6'/%3E%3Cpath d='M12 16.5v.01'/%3E%3C/svg%3E");
+  --icon-ok:   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='m8.5 12.5 2.5 2.5 4.5-5'/%3E%3C/svg%3E");
+
+  /* PingFang TC ahead of Noto Sans TC: Noto is common on a dev machine and
+     would otherwise outrank the native macOS face for every CJK glyph. */
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+          "Noto Sans TC", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font: var(--fs-md) / var(--lh) var(--sans);
+}
+
+body { display: flex; }
+
+/* One focus rule for the whole app. Nothing below may write `outline: none`
+   without a replacement in the same declaration — buttons and links used to
+   have no focus style at all, which made keyboard use invisible. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+}
+
+/* ---------- sidebar ---------- */
+
+.sidebar {
+  width: 208px;
+  flex: 0 0 208px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-16) var(--sp-12);
+  gap: var(--sp-24);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.brand {
+  display: flex; align-items: center; gap: var(--sp-8);
+  font-weight: 700; font-size: var(--fs-md);
+  padding: 0 var(--sp-8);
+}
+.brand-mark { color: var(--brand); flex: 0 0 auto; }
+/* The name alone says what the app is called and nothing about what it is.
+   The subtitle is a label, not a nav item: dim, small, and never a link. */
+.brand span { display: flex; flex-direction: column; line-height: var(--lh-tight); }
+.brand small {
+  font-size: var(--fs-2xs);
+  font-weight: 400;
+  color: var(--ink-3);
+  letter-spacing: var(--track-label);
+}
+
+#nav { display: flex; flex-direction: column; gap: var(--sp-2); }
+#nav a {
+  display: flex; align-items: center; gap: var(--sp-8);
+  padding: var(--sp-8) var(--sp-12);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: var(--fs-sm);
+  transition: background var(--dur), color var(--dur);
+}
+#nav a > svg { flex: 0 0 auto; }
+#nav a:hover { background: var(--surface-3); color: var(--ink); }
+/* Where you are is a tinted pill, and that is all: the background, the brand
+   ink and the weight are three signals already, and `aria-current="page"` is
+   the fourth for anyone not looking at it. */
+#nav a.active {
+  background: var(--brand-tint);
+  color: var(--brand);
+  font-weight: 600;
+}
+
+/* Accounts in the chrome: one row each, balance always visible. The list can
+   outgrow the viewport once there are a dozen accounts, so it scrolls on its
+   own rather than pushing the profile badge off the bottom. */
+#nav-accounts {
+  display: flex; flex-direction: column; gap: var(--sp-16);
+  overflow-y: auto; min-height: 0;
+  margin: calc(var(--sp-8) * -1) calc(var(--sp-4) * -1) 0; padding: 0 var(--sp-4);
+}
+.nav-group-head {
+  font-size: var(--fs-2xs); letter-spacing: .09em; text-transform: uppercase;
+  font-weight: 600; color: var(--ink-3);
+  padding: 0 var(--sp-12) var(--sp-4);
+}
+.nav-account {
+  display: flex; align-items: baseline; gap: var(--sp-8);
+  padding: var(--sp-6) var(--sp-12); border-radius: var(--r-1);
+  color: var(--ink-2); text-decoration: none; font-size: var(--fs-sm);
+  transition: background var(--dur), color var(--dur);
+}
+.nav-account:hover { background: var(--surface-3); color: var(--ink); }
+.nav-account.active {
+  background: var(--brand-tint); color: var(--brand); font-weight: 600;
+}
+.nav-account-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-account-bal {
+  flex: 0 0 auto; font-family: var(--mono); font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-8); }
+
+/* Neutral, not green: the reassurance is the lock glyph and the words, and
+   green is spoken for. Amber below is a label, which is what amber is for. */
+.local-badge {
+  display: inline-flex; align-items: center; gap: var(--sp-8);
+  font-size: var(--fs-xs); font-weight: 500; color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: var(--sp-6) var(--sp-8); border-radius: var(--r-full); width: fit-content;
+}
+.dot { width: var(--sp-6); height: var(--sp-6); border-radius: 50%; background: var(--ink-3); }
+
+/* The source offer under the badge, on the demo only. Brand because it is a
+   link and everything interactive is brand — and deliberately not `.muted`:
+   AGPL §13 asks for a *prominent* offer, and the one line on the page that a
+   licence requires is not the line to dim. */
+#source-offer:empty { display: none; }
+#source-offer a { color: var(--brand); text-decoration: none; }
+#source-offer a:hover { text-decoration: underline; }
+
+/* A non-personal profile is a different ledger at the same address. Amber
+   makes the badge read as a label rather than as reassurance. */
+.local-badge.profile-alt {
+  color: var(--warn);
+  background: var(--warn-tint);
+  border-color: var(--warn-line);
+}
+.local-badge.profile-alt .dot { background: var(--warn); }
+
+/* ---------- layout ---------- */
+
+#main { flex: 1; min-width: 0; padding: var(--sp-24) var(--sp-32) var(--sp-48); max-width: 1400px; }
+.loading { color: var(--ink-3); padding: var(--sp-32) 0; }
+
+.page-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--sp-16); margin-bottom: var(--sp-24); flex-wrap: wrap;
+}
+.page-head h1 { font-size: var(--fs-xl); font-weight: 700; margin: 0; letter-spacing: -.3px; }
+.page-head .sub { color: var(--ink-3); font-size: var(--fs-sm); }
+
+section { margin-bottom: var(--sp-24); }
+h2.sec {
+  font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3);
+  margin: 0 0 var(--sp-12); letter-spacing: var(--track-label);
+}
+/* A second heading in the same card is starting a new block, not continuing
+   the one above it. This was `style="margin-top:22px"` at the one call site
+   that happened to need it. */
+h2.sec:not(:first-child) { margin-top: var(--sp-24); }
+/* Heading on the left, its context on the right, without a flex row whose
+   `.row > *` rule stretches a pill to the full width of the card. */
+h2.sec.cur-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-12); }
+h2.sec.cur-head .muted { font-weight: 400; font-size: var(--fs-xs); }
+
+.cur-total {
+  font-family: var(--mono); font-size: var(--fs-2xl); font-weight: 700;
+  letter-spacing: -1px; line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+.cur-sub {
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  margin: var(--sp-8) 0 var(--sp-24);
+}
+
+/* ---------- cards ---------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  padding: var(--sp-16);
+}
+/* --- who owns the space between blocks -------------------------------
+   Every one of these replaced a `style="margin-…"` repeated at each call
+   site: 13 notices each remembering their own 12px, four tables their own
+   16px. A block that is followed by something knows it needs air after it;
+   `:last-child` takes it back so a card does not end in a gap. Adjacent
+   margins collapse, so a heading's 12 below and a table's 16 above make 16
+   rather than 28. --------------------------------------------------------- */
+.note, .grid, .table-wrap { margin-bottom: var(--sp-16); }
+.note { margin-bottom: var(--sp-12); }
+.note:last-child, .grid:last-child, .table-wrap:last-child { margin-bottom: 0; }
+.table-wrap:not(:first-child) { margin-top: var(--sp-16); }
+.toolbar:not(:first-child) { margin-top: var(--sp-12); }
+/* A notice that carries its own action, rather than a row of its own. */
+.note > button { margin-left: var(--sp-8); }
+
+/* The one spacing utility: a block needing air above it that has no component
+   of its own to put it in — an aside under a table, the commit row under a
+   preview. One step, deliberately. A second size is how a stylesheet grows
+   back to the 23 different spacings this set replaced. */
+.spaced { margin-top: var(--sp-12); }
+/* A form control the width of a wide screen is not easier to fill in. */
+.constrained { max-width: 420px; }
+
+.grid { display: grid; gap: var(--sp-12); }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+
+.kpi .label { font-size: var(--fs-xs); color: var(--ink-3); margin-bottom: var(--sp-6); }
+.kpi .value {
+  font-size: var(--fs-xl); font-weight: 700; font-family: var(--mono);
+  letter-spacing: -.5px; line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+.kpi .meta { font-size: var(--fs-xs); color: var(--ink-3); margin-top: var(--sp-4); font-family: var(--mono); }
+
+/* ---------- tables ---------- */
+
+table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+thead th {
+  text-align: left; font-weight: 600; font-size: var(--fs-2xs);
+  letter-spacing: var(--track-label);
+  color: var(--ink-3); padding: var(--sp-8);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+thead th:first-child { border-top-left-radius: var(--r-1); }
+thead th:last-child  { border-top-right-radius: var(--r-1); }
+/* `.table-wrap` is the scroll container, so this only engages where one
+   actually scrolls vertically — the 500-row import preview, the FX list. The
+   header needs its own background for this, which it now has. */
+thead th { position: sticky; top: 0; z-index: 1; }
+tbody td { padding: var(--sp-8); border-bottom: 1px solid var(--line); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--surface-3); }
+.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Money, and only money. */
+.pos { color: var(--up); }
+.neg { color: var(--down); }
+
+.dim { color: var(--ink-3); }
+.nowrap { white-space: nowrap; }
+.truncate { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The second line inside a table cell: an account's currency under its name, a
+   merchant's account under the merchant. Its own class rather than borrowing
+   the small-text one, because that class is toggled with `hidden` elsewhere
+   and any `display` on it would outrank the UA's [hidden] rule — the guard in
+   test/html.test.js checks exactly that. */
+.sub-line { display: block; font-size: var(--fs-2xs); color: var(--ink-3); }
+
+.table-wrap { overflow-x: auto; }
+/* A list long enough to need its own scroll — the 500-row import preview, the
+   FX history. One height for both, where it was 460px in one place and 320 in
+   the other for no reason either could state. */
+.table-wrap.scroll { max-height: 420px; overflow-y: auto; }
+/* The checkbox column in a table that selects rows. */
+.col-check { width: 28px; }
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-8);
+  color: var(--ink-3); padding: var(--sp-24) var(--sp-4);
+  text-align: center; font-size: var(--fs-sm);
+}
+/* Icon-only, so each one carries a title and an aria-label. Editing and
+   deleting are the two every table repeats on every row; a rarer action
+   (對帳, 回復) keeps its word, because a picture of it would be a guess. */
+.row-actions button + button { margin-left: var(--sp-4); }
+
+/* ---------- controls ---------- */
+
+button, .btn {
+  font: inherit; font-size: var(--fs-sm); font-weight: 500;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-8);
+  min-height: var(--h-control); padding: 0 var(--sp-12);
+  background: var(--surface-2); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: var(--r-1);
+  cursor: pointer; text-decoration: none; white-space: nowrap;
+  transition: background var(--dur), border-color var(--dur), color var(--dur);
+}
+button:hover, .btn:hover { background: var(--surface-3); border-color: var(--ink-3); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:disabled:hover { background: var(--surface-2); border-color: var(--line-strong); }
+
+button.primary {
+  background: var(--brand-solid); border-color: var(--brand-solid);
+  color: var(--brand-ink); font-weight: 600;
+}
+button.primary:hover:not(:disabled) { background: var(--brand); border-color: var(--brand); color: var(--bg); }
+
+/* Neutral at rest. Red is what a negative amount looks like, so a delete
+   button that is red while idle competes with every number beside it. */
+button.danger { color: var(--ink-2); }
+button.danger:hover {
+  background: var(--down-tint); border-color: var(--down); color: var(--down);
+}
+
+button.sm { min-height: var(--h-control-sm); padding: 0 var(--sp-8); font-size: var(--fs-xs); }
+.icon-btn {
+  background: none; border-color: transparent; color: var(--ink-3);
+  min-height: var(--h-control-sm); padding: 0 var(--sp-6);
+}
+.icon-btn:hover { background: var(--surface-3); border-color: transparent; color: var(--ink); }
+
+input, select, textarea {
+  font: inherit; font-size: var(--fs-sm);
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: var(--r-1);
+  padding: var(--sp-8); width: 100%;
+  transition: border-color var(--dur);
+}
+input:focus, select:focus, textarea:focus { border-color: var(--brand); }
+input[type=checkbox] { width: auto; accent-color: var(--brand); }
+input::placeholder, textarea::placeholder { color: var(--ink-3); }
+
+label.field { display: block; margin-bottom: var(--sp-12); }
+label.field > span {
+  display: block; font-size: var(--fs-xs); font-weight: 500;
+  color: var(--ink-2); margin-bottom: var(--sp-4);
+}
+.row { display: flex; gap: var(--sp-8); flex-wrap: wrap; align-items: flex-end; }
+.row > * { flex: 1 1 150px; min-width: 0; }
+.row > .shrink { flex: 0 0 auto; }
+/* The row's own gap is the spacing; a field keeping its stacked margin as
+   well was `style="margin:0"` at four call sites. */
+.row label.field { margin-bottom: 0; }
+
+/* A modal's buttons, which every form in the app ends with. Was
+   `class="row shrink" style="justify-content:flex-end;gap:8px"` seven times —
+   and inside `.row` those buttons were being stretched by `.row > *` rather
+   than sitting at the end as intended. */
+.modal-foot { display: flex; justify-content: flex-end; gap: var(--sp-8); margin-top: var(--sp-16); }
+
+.toolbar { display: flex; gap: var(--sp-8); flex-wrap: wrap; align-items: center; margin-bottom: var(--sp-12); }
+/* A filter bar reads as a row of equals, so its controls share one width
+   instead of four hand-picked ones, and whichever field is the search grows
+   into what is left. */
+.toolbar > select, .toolbar > input { flex: 0 1 160px; width: auto; min-width: 0; }
+.toolbar > .grow { flex: 1 1 200px; }
+.toolbar.pager { justify-content: center; margin: var(--sp-16) 0 0; }
+
+/* **A pill is a status, and a status is a thing that is not normally true.**
+   停用, 轉帳, 已修復欄位, 重複, 錯誤 — each says something happened to this
+   row. An account's kind and its currency are not statuses: they are the value
+   of the column they sit in, and the header already names it, so a chip around
+   them is the same word said twice in a louder voice. `source` was the worst
+   of them, a chip reading `csv` on every row of a ledger imported from CSV. */
+.pill {
+  display: inline-block; padding: var(--sp-4) var(--sp-8); border-radius: var(--r-full);
+  font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; line-height: var(--lh-tight);
+  background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line);
+}
+.pill.green  { color: var(--up);   border-color: var(--up-line);   background: var(--up-tint); }
+.pill.amber  { color: var(--warn); border-color: var(--warn-line); background: var(--warn-tint); }
+.pill.rose   { color: var(--down); border-color: var(--down-line); background: var(--down-tint); }
+/* Ink only, so it reads lighter than a filled one: 跨幣 qualifies the match
+   beside it rather than announcing itself. */
+.pill.blue   { color: var(--brand); }
+/* Filled, the heaviest a pill gets: 轉帳 changes what the row means. */
+.pill.violet { color: var(--brand); border-color: var(--brand-line); background: var(--brand-tint); }
+
+/* A currency code is a code, not prose. Mono so TWD and USD occupy the same
+   width down a column, and neutral because the amount beside it already shows
+   `NT$` or `$` — colouring it here would be the third telling. */
+.cur { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink-2); }
+
+.muted { color: var(--ink-3); }
+.small { font-size: var(--fs-xs); }
+code {
+  font-family: var(--mono); font-size: .92em;
+  background: var(--surface-2); padding: var(--sp-2) var(--sp-4); border-radius: var(--r-1);
+}
+
+/* Four severities, told apart by their icon and wording as well as their tint:
+   .note explains, .warn proceeds but wants a look, .err is blocked or refused,
+   .ok succeeded. `.err` and `.ok` land with the import and 待辦 work. */
+/* No leading bar here: the icon is already sitting at the left edge saying
+   which severity this is, in the severity's own colour, and a coloured stripe
+   immediately beside it says it a second time without adding a signal. */
+.note {
+  position: relative;
+  background: var(--brand-tint); border: 1px solid var(--brand-line);
+  padding: var(--sp-12); padding-left: calc(var(--sp-12) + 16px + var(--sp-8));
+  border-radius: var(--r-1);
+  font-size: var(--fs-xs); line-height: var(--lh); color: var(--ink-2);
+  --icon: var(--icon-info);
+  --icon-tint: var(--brand);
+}
+.note.warn { background: var(--warn-tint); border-color: var(--warn-line); --icon: var(--icon-warn); --icon-tint: var(--warn); }
+.note.err  { background: var(--down-tint); border-color: var(--down-line); --icon: var(--icon-err);  --icon-tint: var(--down); }
+.note.ok   { background: var(--up-tint);   border-color: var(--up-line);   --icon: var(--icon-ok);   --icon-tint: var(--up); }
+
+/* Absolutely positioned rather than a flex child: a notice's content is
+   whatever the call site wrote — bare text, a <b>, sometimes a button — and
+   making the container a flex row would lay those out side by side. This way
+   every line of a notice stays indented past the icon and nothing else about
+   the content changes. */
+.note::before, .todo-item::before {
+  content: ''; position: absolute; width: 16px; height: 16px;
+  background: var(--icon-tint);
+  mask: var(--icon) center / contain no-repeat;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+}
+.note::before { left: var(--sp-12); top: calc(var(--sp-12) + 2px); }
+
+/* ---------- todo ---------- */
+
+/* The overview's warnings used to be one amber block of `⚠︎` lines: a card
+   whose sign is silently doubling net worth and a pairing that could wait a
+   week read at exactly the same weight, and neither said where to go. One row
+   per item — icon, label, sentence, and the link that resolves it.
+   The icon is what carries severity for a reader who cannot separate the two
+   tints, which is why it is not decoration. */
+/* `overflow: hidden` because the rows run edge to edge and their dividers
+   would otherwise cross the card's rounded corners. */
+.card.todo { padding: 0; overflow: hidden; }
+.todo-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: var(--sp-12) var(--sp-16); border-bottom: 1px solid var(--line);
+}
+.todo-head h2 { margin: 0; font-size: var(--fs-md); font-weight: 700; }
+.todo-item {
+  position: relative;
+  display: flex; align-items: center; gap: var(--sp-12);
+  padding: var(--sp-12) var(--sp-16); padding-left: calc(var(--sp-16) + 16px + var(--sp-12));
+  border-bottom: 1px solid var(--line);
+}
+.todo-item:last-child { border-bottom: none; }
+.todo-item::before { left: var(--sp-16); top: 50%; transform: translateY(-50%); }
+.todo-body { flex: 1 1 auto; min-width: 0; }
+.todo-label { font-size: var(--fs-xs); font-weight: 700; letter-spacing: var(--track-label); }
+.todo-text { margin-top: var(--sp-2); font-size: var(--fs-sm); line-height: var(--lh); }
+.todo-item > .btn { flex: 0 0 auto; }
+
+/* Icon only, same as `.note`: it sits at the left edge in the severity's own
+   colour, and a bar three pixels to its left repeats it rather than adding
+   anything. Severity still survives losing colour, because the glyph differs. */
+.todo-item.err  { --icon: var(--icon-err);  --icon-tint: var(--down); }
+.todo-item.warn { --icon: var(--icon-warn); --icon-tint: var(--warn); }
+.todo-item.err  .todo-label { color: var(--down); }
+.todo-item.warn .todo-label { color: var(--warn); }
+
+/* ---------- chart ---------- */
+
+/* The y labels sit in the gutter, so the plot is inset by their width and the
+   x labels line up under it. Everything but the two paths is HTML: inside a
+   `preserveAspectRatio="none"` SVG the two axes scale differently, and text,
+   round dots and stroke widths all come out wrong. */
+.chart { --chart-gutter: 46px; }
+.chart-plot { position: relative; height: 150px; margin-left: var(--chart-gutter); }
+.chart-plot > svg { width: 100%; height: 100%; display: block; }
+/* The area's fill is not here: each chart generates its own gradient id, so
+   the reference has to be written where the id is. */
+.chart .line { fill: none; stroke: var(--brand); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+/* lineChart() writes the gradient stops with no colour of their own, so this
+   is where the series takes its colour and the palette stays in one file. */
+.chart stop { stop-color: var(--brand); }
+
+.chart-grid {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: 1px solid var(--line); pointer-events: none;
+}
+.chart-y, .chart-x span {
+  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.chart-y {
+  position: absolute; right: 100%; margin-right: var(--sp-8);
+  transform: translateY(-50%);
+}
+/* The series ends at the right edge, so half the dot would hang outside the
+   plot; nudging it in keeps it whole without moving the line it marks. It
+   steps aside while the cursor is on the chart so there is only ever one. */
+.chart-dot {
+  position: absolute; left: 100%; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--brand); box-shadow: 0 0 0 2px var(--surface);
+  transform: translate(-100%, -50%);
+  transition: opacity var(--dur);
+}
+.chart-plot.hovering .chart-dot { opacity: 0; }
+
+/* The hover layer. A chart with twelve points and no way to ask what any of
+   them is, is a picture of a trend rather than a reading of it. Positions
+   come from JS, so they transition rather than jump between months — and the
+   reduced-motion rule at the top of this file cancels that for anyone who
+   asked it to. */
+.chart-cursor, .chart-tip {
+  opacity: 0; pointer-events: none;
+  transition: left var(--dur) ease-out, top var(--dur) ease-out, opacity var(--dur);
+}
+.chart-plot.hovering .chart-cursor,
+.chart-plot.hovering .chart-tip { opacity: 1; }
+.chart-cursor {
+  position: absolute; top: 0; bottom: 0; width: 0;
+  border-left: 1px solid var(--line-strong);
+}
+.chart-cursor-dot {
+  position: absolute; left: 0; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--brand); box-shadow: 0 0 0 2px var(--surface);
+  transform: translate(-50%, -50%);
+  transition: top var(--dur) ease-out;
+}
+.chart-tip {
+  position: absolute; z-index: 2; white-space: nowrap;
+  padding: var(--sp-4) var(--sp-8); border-radius: var(--r-1);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-1);
+  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  transform: translate(-50%, calc(-100% - 12px));
+}
+.chart-tip.at-start { transform: translate(0, calc(-100% - 12px)); }
+.chart-tip.at-end   { transform: translate(-100%, calc(-100% - 12px)); }
+.chart-x {
+  display: flex; justify-content: space-between;
+  margin: var(--sp-4) 0 0 var(--chart-gutter);
+}
+
+/* The keyboard's way in. Closed it is one line; open it is every figure the
+   hover can show. */
+.chart-data { margin-top: var(--sp-12); }
+.chart-data > summary {
+  cursor: pointer; width: fit-content;
+  font-size: var(--fs-xs); color: var(--ink-3);
+  padding: var(--sp-4) var(--sp-6); margin-left: calc(var(--sp-6) * -1);
+  border-radius: var(--r-1);
+}
+.chart-data > summary:hover { color: var(--ink); background: var(--surface-3); }
+.chart-data[open] > summary { margin-bottom: var(--sp-8); }
+
+.bar-row { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); font-size: var(--fs-xs); }
+.bar-row .name { flex: 0 0 120px; color: var(--ink-2); }
+.bar-track { flex: 1; height: var(--sp-8); background: var(--surface-2); border-radius: var(--r-1); overflow: hidden; }
+/* `display` is load-bearing, not cosmetic: .bar-fill is a <span> and
+   .bar-track is a flex *item*, not a flex container, so nothing blockifies
+   the child. Left inline it ignores both the width app.js sets and the height
+   here, and paints its background over a 0×0 box — which is why this bar has
+   never actually appeared. */
+.bar-fill { display: block; height: 100%; border-radius: var(--r-1); }
+.bar-row .val { flex: 0 0 auto; font-family: var(--mono); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+/* A lone entry has no track to sit in, so the name takes the space the bar
+   would have occupied instead of leaving the numbers stranded at the left. */
+.bar-row.solo .name { flex: 1 1 auto; }
+
+/* ---------- import ---------- */
+
+.dropzone {
+  border: 1.5px dashed var(--line-strong); border-radius: var(--r-2);
+  padding: var(--sp-32); text-align: center; color: var(--ink-3);
+  cursor: pointer; transition: border-color var(--dur), background var(--dur);
+}
+.dropzone:hover, .dropzone.over { border-color: var(--brand); background: var(--brand-tint); }
+/* The caption under the filename, tight against it on purpose. */
+.dropzone .small { margin-top: var(--sp-4); }
+
+.step { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-12); }
+.step-no {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--surface-2);
+  border: 1px solid var(--line-strong); color: var(--ink-3);
+  display: grid; place-items: center; font-size: var(--fs-2xs); font-family: var(--mono); flex: 0 0 auto;
+}
+.step.done .step-no { background: var(--brand-solid); border-color: var(--brand-solid); color: var(--brand-ink); }
+.step .step-label { font-size: var(--fs-sm); font-weight: 600; }
+
+.grid-preview { font-family: var(--mono); font-size: var(--fs-2xs); }
+.grid-preview td { padding: var(--sp-4) var(--sp-8); white-space: nowrap; }
+.grid-preview tr.header-row { background: var(--brand-tint); }
+.grid-preview tr.header-row td { color: var(--brand); font-weight: 600; }
+
+/* A row's status is a leading bar plus its own ink, never a dimmed copy of the
+   row. `opacity: .45` dropped duplicate rows to ~3.6:1 — and reading the row
+   is exactly how you judge whether it really is the duplicate it claims. */
+tr.dup   td { color: var(--ink-3); }
+tr.dup   td:first-child { box-shadow: inset var(--marker) 0 0 var(--line-strong); }
+tr.err   td { background: var(--down-tint); }
+tr.err   td:first-child { box-shadow: inset var(--marker) 0 0 var(--down); }
+tr.fixed td { background: var(--warn-tint); }
+tr.fixed td:first-child { box-shadow: inset var(--marker) 0 0 var(--warn); }
+/* Skipped like a duplicate, so it reads back the same way — but an amber bar
+   instead of a neutral one, because a duplicate is finished business and this
+   one is a row to come back for. Not the full --warn-tint of a repair: that
+   is for a number this app changed, and nothing here was touched. */
+tr.pend  td { color: var(--ink-3); }
+tr.pend  td:first-child { box-shadow: inset var(--marker) 0 0 var(--warn); }
+
+/* ---------- modal & toast ---------- */
+
+.modal {
+  position: fixed; inset: 0; background: rgb(0 0 0 / .66);
+  display: grid; place-items: center; z-index: 50; padding: var(--sp-24);
+}
+/* An author `display` beats the UA sheet's `[hidden] { display: none }`, so
+   without this the overlay sits over the whole app from first paint. Any
+   element that sets display and is toggled with `hidden` needs the same. */
+.modal[hidden], .toast[hidden] { display: none; }
+.modal-card {
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-2);
+  width: min(560px, 100%); max-height: 86vh; overflow: auto; padding: var(--sp-24);
+  box-shadow: var(--shadow-2);
+}
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-16); }
+.modal-head h3 { margin: 0; font-size: var(--fs-lg); font-weight: 700; }
+
+.toast {
+  position: fixed; bottom: var(--sp-24); left: 50%; transform: translateX(-50%);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  padding: var(--sp-12) var(--sp-16); border-radius: var(--r-1);
+  font-size: var(--fs-sm); z-index: 60;
+  box-shadow: var(--shadow-1);
+}
+/* One border in the outcome's colour, plus the text in it. A toast is two
+   seconds long and four words wide; a stripe on one edge of that is noise. */
+.toast.ok  { border-color: var(--up);   color: var(--up); }
+.toast.err { border-color: var(--down); color: var(--down); }
+
+/* ---------- coverage grid ---------- */
+
+/* One cell per account-month, and the cell states which of four things it is
+   *in text*: the transaction count, `–` for a month with no rows but a balance
+   check standing in it, `?` for a month the ledger knows nothing about, blank
+   for a month the account did not exist in. Colour only makes it scannable —
+   in greyscale the table still reads, which is the rule for every status in
+   this app. Amber, not red: a gap is "look at this", not a failure. Red is
+   reserved for the leading bar on a month whose balance check disagreed, which
+   is the same marker a rejected import row wears.
+   Ratios are against the surface each cell actually sits on. */
+.cov-table th, .cov-table td { padding: var(--sp-4) var(--sp-6); }
+.cov-year { text-align: center; }
+.cov-mon { text-align: center; font-family: var(--mono); }
+
+/* The grid is wider than the card, so the name travels with the scroll.
+   It needs its own background or the cells slide under transparent text. */
+.cov-name { position: sticky; left: 0; z-index: 1; background: var(--surface); white-space: nowrap; }
+thead .cov-name { background: var(--surface-2); z-index: 2; }
+tbody tr:hover .cov-name { background: var(--surface-3); }
+.cov-name a { color: var(--ink); text-decoration: none; }
+.cov-name a:hover { color: var(--brand); }
+.cov {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  min-width: 26px;
+}
+.cov-data    { background: var(--surface-3); color: var(--ink-2); }   /* 7.2:1 */
+.cov-quiet   { background: var(--surface-2); color: var(--ink-3); }   /* 4.9:1 */
+.cov-gap     { background: var(--warn-tint); color: var(--warn); }    /* 7.7:1 */
+/* Half known. Amber like a gap because it is the same kind of news, but on
+   the plain surface rather than the tint: less of the month is in doubt, so
+   it should read as quieter than a gap, not equal to it. */
+.cov-partial { color: var(--warn); }                                  /* 8.9:1 on --surface */
+.cov-outside { color: var(--ink-3); }
+.cov.off { box-shadow: inset var(--marker) 0 0 var(--down); }
+
+/* The gap cells are the actionable ones, so only they are buttons — a tab stop
+   on all two-hundred-odd cells would make the keyboard route through the grid
+   useless. Fills its cell so the whole square is the target. */
+.cov-btn {
+  display: block; width: 100%; padding: 0;
+  background: none; border: 0; border-radius: 0;
+  color: inherit; font: inherit; cursor: pointer;
+}
+.cov-btn:hover { color: var(--ink); }
+
+.cov-legend {
+  display: flex; flex-wrap: wrap; gap: var(--sp-8) var(--sp-16);
+  margin-top: var(--sp-12);
+  font-size: var(--fs-xs); color: var(--ink-3);
+}
+.cov-legend i {
+  display: inline-block; min-width: 20px; padding: 0 var(--sp-4);
+  margin-right: var(--sp-6); border-radius: var(--r-1);
+  font-style: normal; text-align: center;
+}
+
+/* The range switch: pressed state says which span is on screen. Brand, because
+   it is a control — the grid's own colours mean something else. */
+button[aria-pressed="true"] {
+  background: var(--brand-tint); border-color: var(--brand-line); color: var(--brand);
+}
+
+/* ---------- narrow ---------- */
+
+@media (max-width: 720px) {
+  body { flex-direction: column; }
+  .sidebar {
+    width: 100%; flex: none; height: auto; position: static;
+    flex-direction: row; align-items: center; gap: var(--sp-12);
+    padding: var(--sp-12); overflow-x: auto;
+  }
+  #nav { flex-direction: row; }
+  /* The strip scrolls sideways rather than squeezing what is in it. A flex
+     item shrinks below its content by default, and these are the two holding
+     text: at 390px the brand broke into "Finance / Hub" and every nav label
+     stacked its two characters, doubling the strip's height to make room for
+     words that were never going to fit across anyway. Nothing shrinks now,
+     and the sidebar's own overflow-x carries what does not fit. */
+  .brand, #nav, #nav a { flex: 0 0 auto; }
+  .brand, #nav a { white-space: nowrap; }
+  /* Both are vertical lists; inside a horizontal strip they have nowhere to go. */
+  #nav-accounts, .sidebar-foot { display: none; }
+  /* Same reason the labels are nowrap: a second line here doubles the strip's
+     height, and a subtitle is the first thing that can afford to go. */
+  .brand small { display: none; }
+  #main { padding: var(--sp-16) var(--sp-16) var(--sp-48); }
+}

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>匯入預覽 — Finance Hub 樣式提案 2026-09</title>
+<style>
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif; }
+a { color: #1C5A8A; } a:hover { color: #14476B; }
+body { padding: 24px; background: #2a2a2a; }
+</style>
+</head>
+<body>
+<!-- Exported from the design canvas on 2026-09-21. 提示的嚴重度分級與每列狀態 -->
+<div style="width: 1280px; height: 1140px; box-sizing: border-box; padding: 28px 32px; background: #F7F5F0; color: #1C1A17; display: flex; flex-direction: column; gap: 16px;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;">
+    <div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.3px;">匯入 CSV</h1>
+      <div style="margin-top: 4px; font-size: 13px; color: #6C655D;">statement.csv · 238 行 · 判讀為 UTF-8，分隔符 <span style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;">,</span></div>
+    </div>
+    <div style="font-size: 12.5px; color: #6C655D;">匯入前會自動存一份完整快照到 <span style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px;">~/.finance-hub/backups/</span></div>
+  </div>
+
+  <div style="background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 16px 22px; display: flex; align-items: center;">
+    <div style="display: flex; align-items: center; gap: 10px; flex: 0 0 auto;">
+      <span style="display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #1B5B8C; color: #FFFFFF;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+      </span>
+      <div><div style="font-size: 13px; font-weight: 600;">選擇帳戶</div><div style="font-size: 11.5px; color: #6C655D;">BofA 支票</div></div>
+    </div>
+    <span style="flex-grow: 1; height: 2px; background: #1B5B8C; margin: 0 14px; border-radius: 1px;"></span>
+    <div style="display: flex; align-items: center; gap: 10px; flex: 0 0 auto;">
+      <span style="display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #1B5B8C; color: #FFFFFF;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+      </span>
+      <div><div style="font-size: 13px; font-weight: 600;">選擇檔案</div><div style="font-size: 11.5px; color: #6C655D;">46.2 KB</div></div>
+    </div>
+    <span style="flex-grow: 1; height: 2px; background: #1B5B8C; margin: 0 14px; border-radius: 1px;"></span>
+    <div style="display: flex; align-items: center; gap: 10px; flex: 0 0 auto;">
+      <span style="display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #1B5B8C; color: #FFFFFF;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+      </span>
+      <div><div style="font-size: 13px; font-weight: 600;">欄位對應</div><div style="font-size: 11.5px; color: #6C655D;">自動判讀，可改</div></div>
+    </div>
+    <span style="flex-grow: 1; height: 2px; background: #E4DED4; margin: 0 14px; border-radius: 1px;"></span>
+    <div style="display: flex; align-items: center; gap: 10px; flex: 0 0 auto;">
+      <span style="display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #FFFFFF; border: 2px solid #1B5B8C; color: #1B5B8C; font-size: 12px; font-weight: 700; font-family: ui-monospace, 'SF Mono', Menlo, monospace;">4</span>
+      <div><div style="font-size: 13px; font-weight: 700; color: #1C5A8A;">預覽與確認</div><div style="font-size: 11.5px; color: #6C655D;">現在這一步</div></div>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 16px;">
+    <div style="flex: 0 0 470px; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 16px 18px;">
+      <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.6px; color: #6C655D; margin-bottom: 10px;">檔案原始前幾行</div>
+      <div style="border: 1px solid #E4DED4; border-radius: 6px; overflow: hidden; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px;">
+        <div style="display: flex; padding: 5px 8px; background: #FFFFFF; border-bottom: 1px solid #EFEBE3;"><span style="flex: 0 0 22px; color: #A39C93;">1</span><span style="color: #565048; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Description,,Summary Amt.</span></div>
+        <div style="display: flex; padding: 5px 8px; background: #FFFFFF; border-bottom: 1px solid #EFEBE3;"><span style="flex: 0 0 22px; color: #A39C93;">2</span><span style="color: #565048; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Beginning balance as of 03/01/2026,,"3,482.19"</span></div>
+        <div style="display: flex; padding: 5px 8px; background: #FFFFFF; border-bottom: 1px solid #EFEBE3;"><span style="flex: 0 0 22px; color: #A39C93;">3</span><span style="color: #A39C93;">（空行）</span></div>
+        <div style="display: flex; padding: 5px 8px; background: #E7EFF6; border-bottom: 1px solid #C4D9E9; border-top: 1px solid #C4D9E9;"><span style="flex: 0 0 22px; color: #1C5A8A; font-weight: 700;">4</span><span style="color: #1C5A8A; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Date,Description,Amount,Running Bal.</span><span style="margin-left: auto; padding-left: 8px; flex: 0 0 auto; color: #1C5A8A; font-size: 10px; font-weight: 700;">標題列</span></div>
+        <div style="display: flex; padding: 5px 8px; background: #FFFFFF; border-bottom: 1px solid #EFEBE3;"><span style="flex: 0 0 22px; color: #A39C93;">5</span><span style="color: #565048; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">03/02/2026,"CHECKCARD TRADER JOE'S",-84.21,"3,397.98"</span></div>
+        <div style="display: flex; padding: 5px 8px; background: #FFFFFF;"><span style="flex: 0 0 22px; color: #A39C93;">6</span><span style="color: #565048; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">03/03/2026,"PAYMENT FOR ""APRIL PRACTICE"", THANKS",-118.00,…</span></div>
+      </div>
+
+      <div style="margin-top: 14px; display: flex; gap: 10px;">
+        <label style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 11px; color: #6C655D;">日期欄</span>
+          <select style="font: inherit; font-size: 12.5px; height: 32px; padding: 0 8px; background: #FFFFFF; color: #1C1A17; border: 1px solid #8E887E; border-radius: 6px;"><option>1. Date</option></select>
+        </label>
+        <label style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 11px; color: #6C655D;">金額欄</span>
+          <select style="font: inherit; font-size: 12.5px; height: 32px; padding: 0 8px; background: #FFFFFF; color: #1C1A17; border: 1px solid #8E887E; border-radius: 6px;"><option>3. Amount</option></select>
+        </label>
+        <label style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 11px; color: #6C655D;">餘額欄</span>
+          <select style="font: inherit; font-size: 12.5px; height: 32px; padding: 0 8px; background: #FFFFFF; color: #1C1A17; border: 1px solid #8E887E; border-radius: 6px;"><option>4. Running Bal.</option></select>
+        </label>
+      </div>
+    </div>
+
+    <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px;">
+
+      <div style="display: flex; align-items: flex-start; gap: 11px; background: #FBEDEC; border: 1px solid #EBC7C4; border-left: 3px solid #C0342B; border-radius: 8px; padding: 12px 14px;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#C0342B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: 0 0 auto; margin-top: 1px;" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6"></path><path d="M12 16.5v.01"></path></svg>
+        <div style="flex-grow: 1; min-width: 0;">
+          <div style="font-size: 13px; font-weight: 700; color: #8E241C;">2 行解析不出來，不會被匯入</div>
+          <div style="margin-top: 3px; font-size: 12.5px; line-height: 1.65; color: #6B2C26;">欄位數比標題列多，而且接不回摘要欄。多半是檔案尾端的合計列，或日期／金額欄選錯了。下方紅底的那兩行。</div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: flex-start; gap: 11px; background: #FBF2DE; border: 1px solid #E8D5A8; border-left: 3px solid #C98A1E; border-radius: 8px; padding: 12px 14px;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8A5A00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: 0 0 auto; margin-top: 1px;" aria-hidden="true"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4"></path><path d="M12 17v.01"></path></svg>
+        <div style="flex-grow: 1; min-width: 0;">
+          <div style="font-size: 13px; font-weight: 700; color: #7A4F00;">2 行已自動修復，請確認金額</div>
+          <div style="margin-top: 3px; font-size: 12.5px; line-height: 1.65; color: #6B4A10;">銀行在已經加引號的描述裡又寫了一個裸引號（<span style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px;">for "may recital"</span>），描述中的逗號被當成欄位分隔，後面每一欄都左移。多出來的片段已接回摘要欄（黃底、底線的部分）。</div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: flex-start; gap: 11px; background: #FBF2DE; border: 1px solid #E8D5A8; border-left: 3px solid #C98A1E; border-radius: 8px; padding: 12px 14px;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8A5A00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: 0 0 auto; margin-top: 1px;" aria-hidden="true"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4"></path><path d="M12 17v.01"></path></svg>
+        <div style="flex-grow: 1; min-width: 0;">
+          <div style="font-size: 13px; font-weight: 700; color: #7A4F00;">1 行對不上檔案自己的餘額欄</div>
+          <div style="margin-top: 3px; font-size: 12.5px; line-height: 1.65; color: #6B4A10;">上一行餘額 ＋ 本行金額 ≠ 本行餘額。通常代表檔案漏了幾行，或兩段區間中間有缺口。這些行還是會匯入。</div>
+        </div>
+        <button type="button" style="flex: 0 0 auto; font: inherit; font-size: 12.5px; font-weight: 500; height: 30px; padding: 0 12px; background: #FFFFFF; color: #1C1A17; border: 1px solid #8E887E; border-radius: 6px; cursor: pointer;">只看這行</button>
+      </div>
+
+      <div style="display: flex; align-items: flex-start; gap: 11px; background: #E7EFF6; border: 1px solid #C4D9E9; border-left: 3px solid #1B5B8C; border-radius: 8px; padding: 12px 14px;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1B5B8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: 0 0 auto; margin-top: 1px;" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><path d="M12 7.5v.01"></path></svg>
+        <div style="flex-grow: 1; min-width: 0; font-size: 12.5px; line-height: 1.65; color: #1A4468;">
+          四種提醒現在有<b>三個嚴重度</b>：紅＝這些行不會進來、黃＝會進來但要看一眼、藍＝只是說明。現在全部擠在同一個黃框、同一個 <span style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px;">⚠︎</span> 符號裡，讀者沒辦法知道哪一則需要動作。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 12px;">
+    <div style="flex-grow: 1; flex-basis: 0; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 14px 16px;">
+      <div style="font-size: 12px; color: #6C655D;">將匯入</div>
+      <div style="margin-top: 5px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.5px;">231</div>
+    </div>
+    <div style="flex-grow: 1; flex-basis: 0; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 14px 16px;">
+      <div style="font-size: 12px; color: #6C655D;">重複略過</div>
+      <div style="margin-top: 5px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; color: #6C655D;">5</div>
+    </div>
+    <div style="flex-grow: 1; flex-basis: 0; background: #FFFFFF; border: 1px solid #EBC7C4; border-radius: 10px; padding: 14px 16px;">
+      <div style="font-size: 12px; color: #6C655D;">解析失敗</div>
+      <div style="margin-top: 5px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; color: #C0342B;">2</div>
+    </div>
+    <div style="flex-grow: 1; flex-basis: 0; background: #FFFFFF; border: 1px solid #E8D5A8; border-radius: 10px; padding: 14px 16px;">
+      <div style="font-size: 12px; color: #6C655D;">已修復欄位</div>
+      <div style="margin-top: 5px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; color: #8A5A00;">2</div>
+    </div>
+    <div style="flex-grow: 2; flex-basis: 0; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 14px 16px;">
+      <div style="font-size: 12px; color: #6C655D;">淨額 · 2026-03-02 → 2026-09-18</div>
+      <div style="margin-top: 5px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; color: #C0342B;">−<span style="opacity: 0.72;">$</span>8,412.63</div>
+    </div>
+  </div>
+
+  <section style="background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; overflow: hidden; flex-grow: 1; display: flex; flex-direction: column;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
+      <thead>
+        <tr style="background: #EFEBE3;">
+          <th style="padding: 9px 0 9px 18px; width: 34px;"><input type="checkbox" checked aria-label="全選可匯入的行" style="accent-color: #1B5B8C;"></th>
+          <th style="text-align: right; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; color: #6C655D; padding: 9px 10px; width: 44px;">行</th>
+          <th style="text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; color: #6C655D; padding: 9px 10px; width: 96px;">日期</th>
+          <th style="text-align: right; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; color: #6C655D; padding: 9px 10px; width: 108px;">金額</th>
+          <th style="text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; color: #6C655D; padding: 9px 10px;">摘要</th>
+          <th style="text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; color: #6C655D; padding: 9px 18px; width: 260px;">狀態</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding: 9px 0 9px 18px; border-bottom: 1px solid #E4DED4; box-shadow: inset 3px 0 0 #B8D0AC;"><input type="checkbox" checked aria-label="匯入第 5 行" style="accent-color: #1B5B8C;"></td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #6C655D;">5</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; font-family: ui-monospace, 'SF Mono', Menlo, monospace;">2026-03-02</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; color: #C0342B;">−<span style="opacity: 0.72;">$</span>84.21</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4;">CHECKCARD 0301 TRADER JOE'S #123</td>
+          <td style="padding: 9px 18px; border-bottom: 1px solid #E4DED4;"><span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #EAF2E7; color: #2A6B1E; border: 1px solid #C5DDBC;">新</span></td>
+        </tr>
+
+        <tr style="background: #FBF7EC;">
+          <td style="padding: 9px 0 9px 18px; border-bottom: 1px solid #E8D5A8; box-shadow: inset 3px 0 0 #C98A1E;"><input type="checkbox" checked aria-label="匯入第 6 行" style="accent-color: #1B5B8C;"></td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E8D5A8; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #6C655D;">6</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E8D5A8; font-family: ui-monospace, 'SF Mono', Menlo, monospace;">2026-03-03</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E8D5A8; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; color: #C0342B;">−<span style="opacity: 0.72;">$</span>118.00</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E8D5A8;">PAYMENT FOR "APRIL PRACTICE"<span style="background: #F3E3BC; border-bottom: 2px solid #C98A1E; padding: 1px 2px;"> / THANKS</span></td>
+          <td style="padding: 9px 18px; border-bottom: 1px solid #E8D5A8;">
+            <span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #F6E7C4; color: #7A4F00; border: 1px solid #E0C489;">已修復欄位</span>
+            <span style="margin-left: 6px; font-size: 11.5px; color: #6B4A10;">多出的片段已接回摘要</span>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding: 9px 0 9px 18px; border-bottom: 1px solid #E4DED4; box-shadow: inset 3px 0 0 #B8D0AC;"><input type="checkbox" checked aria-label="匯入第 7 行" style="accent-color: #1B5B8C;"></td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #6C655D;">7</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; font-family: ui-monospace, 'SF Mono', Menlo, monospace;">2026-03-04</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; color: #0B7A45;">+<span style="opacity: 0.72;">$</span>2,840.00</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4;">DIRECT DEPOSIT PAYROLL</td>
+          <td style="padding: 9px 18px; border-bottom: 1px solid #E4DED4;"><span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #EAF2E7; color: #2A6B1E; border: 1px solid #C5DDBC;">新</span></td>
+        </tr>
+
+        <tr style="background: #FCF6F5;">
+          <td style="padding: 9px 0 9px 18px; border-bottom: 1px solid #EBC7C4; box-shadow: inset 3px 0 0 #C0342B;"></td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #EBC7C4; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #6C655D;">12</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #EBC7C4; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #C0342B;">？</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #EBC7C4; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #C0342B;">？</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #EBC7C4; color: #6B2C26;">ZELLE FROM J. LIN "RENT, MARCH" 03/11</td>
+          <td style="padding: 9px 18px; border-bottom: 1px solid #EBC7C4;">
+            <span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #F6DEDC; color: #8E241C; border: 1px solid #E4B6B2;">錯誤</span>
+            <span style="margin-left: 6px; font-size: 11.5px; color: #6B2C26;">欄位數 6，標題列 4；接不回摘要</span>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding: 9px 0 9px 18px; border-bottom: 1px solid #E4DED4; box-shadow: inset 3px 0 0 #CBC3B5;"></td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #6C655D;">18</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #6C655D;">2026-03-09</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; color: #6C655D;">−<span style="opacity: 0.8;">$</span>32.90</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E4DED4; color: #6C655D;">SPOTIFY USA</td>
+          <td style="padding: 9px 18px; border-bottom: 1px solid #E4DED4;">
+            <span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #EFEBE3; color: #565048; border: 1px solid #DED8CD;">重複</span>
+            <span style="margin-left: 6px; font-size: 11.5px; color: #6C655D;">external_id 已存在</span>
+          </td>
+        </tr>
+
+        <tr style="background: #FBF7EC;">
+          <td style="padding: 9px 0 9px 18px; border-bottom: 1px solid #E8D5A8; box-shadow: inset 3px 0 0 #C98A1E;"><input type="checkbox" checked aria-label="匯入第 24 行" style="accent-color: #1B5B8C;"></td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E8D5A8; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #6C655D;">24</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E8D5A8; font-family: ui-monospace, 'SF Mono', Menlo, monospace;">2026-03-14</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E8D5A8; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; color: #C0342B;">−<span style="opacity: 0.72;">$</span>1,204.00</td>
+          <td style="padding: 9px 10px; border-bottom: 1px solid #E8D5A8;">ONLINE BANKING TRANSFER TO CHK 4471</td>
+          <td style="padding: 9px 18px; border-bottom: 1px solid #E8D5A8;">
+            <span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #EAF2E7; color: #2A6B1E; border: 1px solid #C5DDBC;">新</span>
+            <span style="display: inline-block; margin-left: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #F6E7C4; color: #7A4F00; border: 1px solid #E0C489;">餘額差 −$43.00</span>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding: 9px 0 9px 18px; box-shadow: inset 3px 0 0 #B8D0AC;"><input type="checkbox" checked aria-label="匯入第 25 行" style="accent-color: #1B5B8C;"></td>
+          <td style="padding: 9px 10px; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: #6C655D;">25</td>
+          <td style="padding: 9px 10px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;">2026-03-15</td>
+          <td style="padding: 9px 10px; text-align: right; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; color: #C0342B;">−<span style="opacity: 0.72;">$</span>62.18</td>
+          <td style="padding: 9px 10px;">CHECKCARD 0314 SHELL OIL 57444</td>
+          <td style="padding: 9px 18px;"><span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #EAF2E7; color: #2A6B1E; border: 1px solid #C5DDBC;">新</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="margin-top: auto; display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-top: 1px solid #E4DED4; background: #FBFAF7;">
+      <div style="font-size: 12px; line-height: 1.6; color: #565048; flex-grow: 1;">
+        <b style="color: #1C1A17;">重複的行不再用 45% 透明度變淡。</b>那會讓文字掉到 2.4:1，看不清楚它到底寫什麼——而「它寫什麼」正是你要判斷它該不該被當成重複的依據。改成中性色＋左側灰條，全對比可讀。
+      </div>
+      <label style="display: flex; flex-direction: column; gap: 4px; flex: 0 0 200px;">
+        <span style="font-size: 11px; color: #6C655D;">記住這組對應（下次一鍵套用）</span>
+        <input type="text" value="" placeholder="BofA 支票" style="font: inherit; font-size: 13px; height: 34px; padding: 0 10px; background: #FFFFFF; color: #1C1A17; border: 1px solid #8E887E; border-radius: 6px; box-sizing: border-box;">
+      </label>
+      <button type="button" style="align-self: flex-end; font: inherit; font-size: 13.5px; font-weight: 600; height: 34px; padding: 0 18px; background: #1B5B8C; color: #FFFFFF; border: 1px solid #1B5B8C; border-radius: 6px; cursor: pointer;">匯入 231 筆</button>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

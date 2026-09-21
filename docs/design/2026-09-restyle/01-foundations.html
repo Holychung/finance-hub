@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>設計基礎 — Finance Hub 樣式提案 2026-09</title>
+<style>
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif; }
+a { color: #1C5A8A; } a:hover { color: #14476B; }
+body { padding: 24px; background: #2a2a2a; }
+</style>
+</head>
+<body>
+<!-- Exported from the design canvas on 2026-09-21. 色票（含實測對比值）、字級、間距、圖表用色規則 -->
+<div style="width: 1280px; height: 1000px; box-sizing: border-box; padding: 48px 56px; background: #F7F5F0; color: #1C1A17; display: flex; flex-direction: column; gap: 28px;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;">
+    <div>
+      <div style="font-size: 12px; font-weight: 600; letter-spacing: 1.4px; color: #6C655D;">FOUNDATIONS</div>
+      <h1 style="margin: 6px 0 0; font-size: 34px; font-weight: 700; letter-spacing: -0.4px;">設計基礎</h1>
+    </div>
+    <div style="max-width: 560px; font-size: 14px; line-height: 1.7; color: #565048;">
+      現在的樣式把「品牌色」和「金額色」設成同一個綠。按鈕、側欄、圖表線、狀態標籤全都是綠，而綠同時又代表「這個數字是正的」。眼睛因此分不出「這裡可以點」和「這筆賺了」。
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 16px;">
+    <div style="flex-grow: 1; flex-basis: 0; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 20px 22px;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+        <span style="width: 10px; height: 10px; border-radius: 50%; background: #0B7A45;"></span>
+        <span style="width: 10px; height: 10px; border-radius: 50%; background: #C0342B;"></span>
+        <div style="font-size: 15px; font-weight: 700;">規則一：綠與紅只屬於金額</div>
+      </div>
+      <div style="font-size: 13px; line-height: 1.75; color: #565048;">
+        整個介面裡，綠色只出現在「正的錢」，紅色只出現在「負的錢」。品牌色、主要按鈕、作用中的側欄項目、圖表線條一律改用藍。刪除鍵平時是中性灰，只有在滑鼠移上去時才轉紅。
+      </div>
+    </div>
+    <div style="flex-grow: 1; flex-basis: 0; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 20px 22px;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+        <span style="display: inline-block; width: 22px; height: 12px; border-radius: 3px; background: #F7F5F0; border: 1px solid #CBC3B5;"></span>
+        <div style="font-size: 15px; font-weight: 700;">規則二：帳本是紙，不是儀表板</div>
+      </div>
+      <div style="font-size: 13px; line-height: 1.75; color: #565048;">
+        底色改成偏暖的紙白 <span style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;">#F7F5F0</span>，卡片是純白，像攤在桌上的帳頁。高對比讓密集的數字表在白天最好讀。深色主題保留，重新調過，兩套共用同一組 token。
+      </div>
+    </div>
+    <div style="flex-grow: 1; flex-basis: 0; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 20px 22px;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1C5A8A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+        <div style="font-size: 15px; font-weight: 700;">規則三：每個顏色都算過</div>
+      </div>
+      <div style="font-size: 13px; line-height: 1.75; color: #565048;">
+        下面每一格都標了它對背景的對比值。現在的 <span style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;">--text-3</span> 只有 3.68:1（表頭、所有次要文字都在用它），滑過整列的底色只有 1.03:1，等於沒有。新的全部過 4.5:1。
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 20px; flex-grow: 1;">
+
+    <div style="flex-grow: 1; flex-basis: 0; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <div style="font-size: 15px; font-weight: 700;">淺色（預設）</div>
+        <div style="font-size: 12px; color: #6C655D;">Ledger</div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;">
+        <div><div style="height: 46px; border-radius: 6px; background: #F7F5F0; border: 1px solid #E4DED4;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--bg</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">#F7F5F0</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #FFFFFF; border: 1px solid #E4DED4;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--surface</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">#FFFFFF</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #EFEBE3;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--surface-2</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">#EFEBE3</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #8E887E;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--line-2</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">3.5:1 邊框</div></div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;">
+        <div><div style="height: 46px; border-radius: 6px; background: #1C1A17;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--ink</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">15.9:1</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #565048;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--ink-2</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">8.0:1</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #6C655D;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--ink-3</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">5.3:1</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #1B5B8C;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--brand</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">7.2:1</div></div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;">
+        <div><div style="height: 46px; border-radius: 6px; background: #0B7A45;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--up</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">5.4:1 · 只給金額</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #C0342B;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--down</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">5.6:1 · 只給金額</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #8A5A00;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--warn</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">5.9:1</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #E7EFF6; border: 1px solid #CBDCEA;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600;">--brand-tint</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #6C655D;">#E7EFF6</div></div>
+      </div>
+    </div>
+
+    <div style="flex-grow: 1; flex-basis: 0; background: #1A1917; border: 1px solid #332F2B; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <div style="font-size: 15px; font-weight: 700; color: #EFEBE4;">深色（保留，重新調過）</div>
+        <div style="font-size: 12px; color: #968E82;">Ledger, night</div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;">
+        <div><div style="height: 46px; border-radius: 6px; background: #121110; border: 1px solid #332F2B;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--bg</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">#121110</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #1A1917; border: 1px solid #332F2B;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--surface</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">#1A1917</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #232120;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--surface-2</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">#232120</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #736C63;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--line-2</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">3.4:1 邊框</div></div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;">
+        <div><div style="height: 46px; border-radius: 6px; background: #EFEBE4;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--ink</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">14.8:1</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #B7B0A6;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--ink-2</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">8.2:1</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #968E82;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--ink-3</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">5.4:1</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #74B4E8;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--brand</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">7.9:1</div></div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;">
+        <div><div style="height: 46px; border-radius: 6px; background: #5FD991;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--up</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">9.9:1 · 只給金額</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #F4837E;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--down</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">7.0:1 · 只給金額</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #E3B155;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--warn</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">8.9:1</div></div>
+        <div><div style="height: 46px; border-radius: 6px; background: #1A2733; border: 1px solid #2B3A49;"></div><div style="margin-top: 6px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 600; color: #EFEBE4;">--brand-tint</div><div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px; color: #968E82;">#1A2733</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 20px;">
+    <div style="flex-grow: 1.4; flex-basis: 0; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 18px 22px;">
+      <div style="font-size: 15px; font-weight: 700; margin-bottom: 4px;">字級：11 種收成 6 種</div>
+      <div style="font-size: 12px; color: #6C655D; margin-bottom: 14px;">現在有 10 / 11 / 11.5 / 12 / 12.5 / 13 / 13.5 / 15 / 17 / 20 / 23px。內文從 13.5 提到 15，繁中在 13.5px 太擠。</div>
+      <div style="display: flex; align-items: baseline; gap: 22px; flex-wrap: wrap;">
+        <div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 34px; font-weight: 700; letter-spacing: -0.6px; font-variant-numeric: tabular-nums;">34<span style="font-size: 12px; font-weight: 400; color: #6C655D; font-family: inherit;"> 主數字</span></div>
+        <div style="font-size: 24px; font-weight: 700;">24<span style="font-size: 12px; font-weight: 400; color: #6C655D;"> 頁標題</span></div>
+        <div style="font-size: 18px; font-weight: 600;">18<span style="font-size: 12px; font-weight: 400; color: #6C655D;"> 區塊標題</span></div>
+        <div style="font-size: 15px;">15<span style="font-size: 12px; color: #6C655D;"> 內文</span></div>
+        <div style="font-size: 13px;">13<span style="font-size: 12px; color: #6C655D;"> 表格</span></div>
+        <div style="font-size: 12px;">12<span style="font-size: 12px; color: #6C655D;"> 標籤</span></div>
+      </div>
+      <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #E4DED4; font-size: 12.5px; line-height: 1.7; color: #565048;">
+        字體堆疊只調一處：現在 <span style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px;">"Noto Sans TC"</span> 排在 <span style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px;">"PingFang TC"</span> 前面，開發機上裝了 Noto 就會蓋掉 macOS 原生的蘋方。兩者對調。行高 1.5 → 1.7（中文需要）。字重 650 / 550 這種非標準值改回 400 / 500 / 600 / 700。
+      </div>
+    </div>
+
+    <div style="flex-grow: 1; flex-basis: 0; background: #FFFFFF; border: 1px solid #E4DED4; border-radius: 10px; padding: 18px 22px;">
+      <div style="font-size: 15px; font-weight: 700; margin-bottom: 4px;">圖表用色：彩虹改成有意義的漸層</div>
+      <div style="font-size: 12px; color: #6C655D; margin-bottom: 14px;">現在的 <span style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px;">BAR_COLORS</span> 是 7 色循環，包含綠和紅——又撞上金額色。</div>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="flex: 0 0 96px; font-size: 12px; color: #565048;">依類型</div>
+          <div style="display: flex; gap: 3px; flex-grow: 1;">
+            <span style="flex-grow: 3; height: 14px; border-radius: 3px; background: #14476B;"></span>
+            <span style="flex-grow: 2; height: 14px; border-radius: 3px; background: #2A72A8;"></span>
+            <span style="flex-grow: 1; height: 14px; border-radius: 3px; background: #C0342B;"></span>
+          </div>
+        </div>
+        <div style="font-size: 12px; line-height: 1.7; color: #565048;">資產與負債是兩極，不是七個類別 → <b>雙極配色</b>：資產走藍色階（深＝大），負債走金額紅。中點是中性灰。</div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px;">
+          <div style="flex: 0 0 96px; font-size: 12px; color: #565048;">依幣別</div>
+          <div style="display: flex; gap: 3px; flex-grow: 1;">
+            <span style="flex-grow: 4; height: 14px; border-radius: 3px; background: #1B5B8C;"></span>
+            <span style="flex-grow: 2; height: 14px; border-radius: 3px; background: #3D8AC0;"></span>
+          </div>
+        </div>
+        <div style="font-size: 12px; line-height: 1.7; color: #565048;">已依金額排序、每列右邊都直接寫了數字 → 身分由文字承擔，顏色只表大小 → <b>單一色相漸層</b>。第 5 項以後併成「其他」，不再生成新色相。</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

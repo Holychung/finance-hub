@@ -1,0 +1,9 @@
+Account Number,Transaction Description,Transaction Date,Transaction Type,Transaction Amount,Balance
+1234,Withdrawal from HOME INSURANCE CO,09/13/26,Debit,1250.00,72819.82
+1234,Deposit from ACME CORP PAYROLL,09/08/26,Credit,8500.00,74069.82
+1234,Withdrawal from ATM WITHDRAWAL,08/31/26,Debit,400.00,65569.82
+1234,Withdrawal from CAPITAL ONE CRCARDPMT,08/13/26,Debit,1842.65,65969.82
+1234,Monthly Interest Paid,07/31/26,Credit,12.47,67812.47
+1234,Deposit from ACME CORP PAYROLL,07/15/26,Credit,8500.00,67800.00
+1234,Withdrawal from RENT MGMT CO,07/01/26,Debit,3200.00,59300.00
+1234,Deposit from ACME CORP PAYROLL,06/30/26,Credit,8500.00,62500.00
