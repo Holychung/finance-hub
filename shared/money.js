@@ -16,7 +16,7 @@
   // Same two-environment require as `shared/csv.js` uses for sha1: a module in
   // Node, a global the browser already loaded in index.html's order.
   const NODE = typeof module !== 'undefined' && module.exports;
-  const { LIABILITY_KINDS } = NODE ? require('./kinds') : root;
+  const { LIABILITY_KINDS, NO_STATEMENT_KINDS } = NODE ? require('./kinds') : root;
   const { round2, roundTo } = NODE ? require('./currency') : root;
 
   // Every snapshot converts with the rate that was true on its own date, so
@@ -365,7 +365,17 @@
       spans.get(i.account_id).push(i);
     }
 
-    const rows = accounts.map((a) => {
+    // An account whose kind has no statement to import is left out of the
+    // grid and every count, and named instead, so the page can say where it
+    // went rather than let it silently vanish. Its value is typed in by hand
+    // and only the latest figure matters: there is no month it could be
+    // incomplete about, and a row of gaps nobody can close is the kind of
+    // warning that teaches people to stop reading the page.
+    const manual = accounts
+      .filter((a) => NO_STATEMENT_KINDS.has(a.kind))
+      .map((a) => ({ id: a.id, name: a.name, kind: a.kind }));
+
+    const rows = accounts.filter((a) => !NO_STATEMENT_KINDS.has(a.kind)).map((a) => {
       const mine = act.get(a.id) || new Map();
       const checked = chk.get(a.id) || new Map();
       const covered = coverageOf(spans.get(a.id) || [], axis);
@@ -459,6 +469,7 @@
     return {
       months: axis,
       accounts: rows,
+      manual,
       summary: {
         expected: rows.reduce((n, r) => n + r.expected, 0),
         gaps: rows.reduce((n, r) => n + r.gaps, 0),

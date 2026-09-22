@@ -80,10 +80,7 @@
     { key: 'firstrade', inst: 'firstrade', name: 'Firstrade', kind: 'brokerage', currency: 'USD', openAt: 0, target: 4260 },
     // Self-custody: no institution and no cash of its own — its whole value is
     // the coin in `holdings`, which is what a wallet is. It has no statements
-    // either, so the coverage grid reports every month since it opened as a
-    // gap. Whether an account with nothing to import belongs in that grid is
-    // decision 3 in docs/plans/asset-classes.md, still open; the demo shows
-    // what the app does today rather than tuning the dates to hide it.
+    // either, so it stays off the coverage grid and is named under it instead.
     { key: 'coldwallet', inst: null, name: '冷錢包', kind: 'wallet', currency: 'USD', openAt: 12, target: 0 },
     // A plan with the three things only a retirement account says: it starts
     // restricted (from its kind), its balance is pre-tax, and part of the

@@ -262,6 +262,12 @@ appears in the calculation.
 3. **Does `/coverage` show restricted accounts?** They have no statements to import, so
    every month is a gap by construction.
 
+   *Answered 2026-09-22:* the question was never about access. A wallet is liquid and
+   has no statements either. An account with nothing to import is kept by hand, only its
+   latest figure matters, and it leaves the grid and every count, named under the grid
+   so it does not silently vanish. Keyed on the kind's `statements` flag in
+   `shared/kinds.js`: wallets first, retirement when it is needed.
+
 ---
 
 ## Explicitly out of scope

@@ -531,6 +531,30 @@ describe('computeCoverage', () => {
     });
     assert.equal(g.accounts[0].cells[2].check, 'off', '順序不該影響結論');
   });
+
+  // A wallet has no statement to import, so it has no month it could be
+  // incomplete about. Left in, every month it existed was a gap nobody could
+  // close — and it topped 最久沒匯入, above accounts with a real one.
+  it('沒有對帳單的帳戶不在表上、不算進任何數字，但會被點名', () => {
+    const wallet = { id: 2, name: '冷錢包', kind: 'wallet', currency: 'USD', opening_date: '2026-01-01', is_active: 1 };
+    const g = M.computeCoverage({
+      accounts: [a, wallet],
+      activity: [{ account_id: 1, month: '2026-01', n: 4, net: 0 }],
+      checks: [],
+      to,
+      months,
+    });
+    assert.deepEqual(g.accounts.map((r) => r.id), [1], '只剩活存');
+    assert.deepEqual(g.manual, [{ id: 2, name: '冷錢包', kind: 'wallet' }]);
+    assert.equal(g.summary.gaps, 2, '只有活存的兩個缺口，錢包的三個不算');
+    assert.equal(g.summary.accounts_with_gaps, 1);
+    assert.deepEqual(g.summary.stale.map((s) => s.name), ['活存']);
+  });
+
+  it('沒有這種帳戶的時候，點名的清單是空的，不是 undefined', () => {
+    const g = M.computeCoverage({ accounts: [a], activity: [], checks: [], to, months });
+    assert.deepEqual(g.manual, []);
+  });
 });
 
 describe('compute* 真的是純的', () => {
