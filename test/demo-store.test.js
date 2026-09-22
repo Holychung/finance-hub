@@ -87,6 +87,11 @@ const SCRIPT = async (s) => {
   await s.post('/api/txns', { account_id: 2, date: '2026-04-02', amount: -899, description: 'UBER EATS' });
 
   await s.post('/api/holdings', { account_id: 3, symbol: 'vti', name: 'Vanguard Total', market: 'US', shares: 12, avg_cost: 210, last_price: 248.5, currency: 'USD' });
+  // Two price observations, so /api/holdings values off the series (the latest
+  // at or before today) rather than the last_price it was created with — the
+  // same resolution has to happen on both sides or the holdings read diverges.
+  await s.post('/api/prices', { symbol: 'vti', market: 'US', date: '2026-03-15', price: 251 });
+  await s.post('/api/prices', { symbol: 'VTI', market: 'US', date: '2026-05-20', price: 262.4 });
   await s.post('/api/balance-checks', { account_id: 1, date: '2026-03-31', stated: 155349.5 });
   await s.post('/api/rules', { pattern: 'UBER EATS', category: '食', priority: 10 });
 
@@ -159,6 +164,7 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/accounts',
     '/api/institutions',
     '/api/holdings',
+    '/api/prices?symbol=VTI&market=US',
     '/api/fx',
     '/api/reconcile',
     '/api/rules',

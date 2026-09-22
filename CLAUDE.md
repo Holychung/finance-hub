@@ -129,9 +129,11 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-398 tests across 68 suites cover Big5 decoding, ROC dates, two-digit years,
+408 tests across 68 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
-overlapping-range dedup, cross-currency transfer pairing, net worth,
+overlapping-range dedup, cross-currency transfer pairing, net worth, the
+price-history lookup (latest at or before a date, and nothing dragged back
+before the first observation) and the v6 backfill that seeds it,
 pre-import backup, balance reconciliation, import revert, CSV BOM, the three
 request guards and the CSP, the malformed-statement handling below, the
 pipeline invariant over every bank fixture, pending rows never importing, the

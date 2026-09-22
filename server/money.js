@@ -18,7 +18,7 @@ const pure = require('../shared/money');
 
 const {
   round2, todayISO, COVERAGE_MONTHS,
-  computeFxLookup, computeAccountsWithBalances, computeHoldingsValued,
+  computeFxLookup, computePriceLookup, computeAccountsWithBalances, computeHoldingsValued,
   computeNetWorth, computeNetWorthSeries, computeCoverage, computeReconcile,
   computeTransferCandidates,
 } = pure;
@@ -28,6 +28,13 @@ const baseCurrency = () => getMeta('base_currency', 'TWD');
 function buildFxLookup(pair = 'USDTWD') {
   const rows = db.prepare('SELECT date, rate FROM fx_rates WHERE pair = ? ORDER BY date').all(pair);
   return computeFxLookup({ rows });
+}
+
+function buildPriceLookup() {
+  const rows = db
+    .prepare('SELECT symbol, market, date, price FROM prices ORDER BY symbol, market, date')
+    .all();
+  return computePriceLookup({ rows });
 }
 
 function accountsWithBalances(asOf = todayISO()) {
@@ -40,7 +47,7 @@ function accountsWithBalances(asOf = todayISO()) {
   return computeAccountsWithBalances({ accounts, totals });
 }
 
-function holdingsValued() {
+function holdingsValued(asOf = todayISO()) {
   const holdings = db
     .prepare(
       `SELECT h.*, a.name AS account_name
@@ -48,13 +55,13 @@ function holdingsValued() {
         ORDER BY h.market, h.symbol`
     )
     .all();
-  return computeHoldingsValued({ holdings });
+  return computeHoldingsValued({ holdings, priceLookup: buildPriceLookup(), asOf });
 }
 
 function netWorth(asOf = todayISO()) {
   return computeNetWorth({
     accounts: accountsWithBalances(asOf),
-    holdings: holdingsValued(),
+    holdings: holdingsValued(asOf),
     asOf,
   });
 }
@@ -140,7 +147,7 @@ module.exports = {
   ...pure,
 
   // Load the rows, then call the matching compute* in shared/money.js.
-  baseCurrency, buildFxLookup, accountsWithBalances, holdingsValued,
+  baseCurrency, buildFxLookup, buildPriceLookup, accountsWithBalances, holdingsValued,
   netWorth, netWorthSeries, coverage, reconcile, findTransferCandidates,
 
   // Writes. Still the odd ones out; nothing needs them pure yet.

@@ -81,6 +81,7 @@ const COLUMNS = {
     'transfer_group', 'source', 'external_id', 'fingerprint', 'import_id', 'note', 'created_at'],
   holdings: ['id', 'account_id', 'symbol', 'name', 'market', 'shares', 'avg_cost',
     'last_price', 'price_date', 'currency', 'note'],
+  prices: ['symbol', 'market', 'date', 'price', 'source'],
   fx_rates: ['date', 'pair', 'rate'],
   balance_checks: ['id', 'account_id', 'date', 'stated', 'note'],
   rules: ['id', 'pattern', 'category', 'priority', 'created_at'],
@@ -89,13 +90,13 @@ const COLUMNS = {
 db.exec('BEGIN');
 try {
   if (FORCE) {
-    for (const t of ['txns', 'holdings', 'balance_checks', 'imports', 'accounts', 'institutions', 'fx_rates', 'rules']) {
+    for (const t of ['txns', 'holdings', 'prices', 'balance_checks', 'imports', 'accounts', 'institutions', 'fx_rates', 'rules']) {
       db.prepare(`DELETE FROM ${t}`).run();
     }
   }
 
   // Insertion order matters: a foreign key points at a row that has to exist.
-  for (const table of ['institutions', 'accounts', 'imports', 'txns', 'holdings', 'fx_rates', 'balance_checks', 'rules']) {
+  for (const table of ['institutions', 'accounts', 'imports', 'txns', 'holdings', 'prices', 'fx_rates', 'balance_checks', 'rules']) {
     const cols = COLUMNS[table];
     const stmt = db.prepare(
       `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`

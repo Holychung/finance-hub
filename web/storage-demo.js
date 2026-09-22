@@ -37,7 +37,7 @@
 
   // The demo's shape is shipped with the code, so this is a statement about
   // the seed rather than a version anything migrates to.
-  const SCHEMA_VERSION = '5';
+  const SCHEMA_VERSION = '6';
 
   // ---------------------------------------------------------------------
   // The raw store
@@ -60,6 +60,8 @@
     rules: { key: 'id' },
     // The one table with no id: the schema's primary key is (date, pair).
     fx_rates: { key: (r) => `${r.date}|${r.pair}` },
+    // Same shape, keyed by the security and the day — the SQLite PK.
+    prices: { key: (r) => `${r.symbol}|${r.market}|${r.date}` },
     meta: { key: 'key' },
   };
 
@@ -234,11 +236,17 @@
       totals: sumByAccount(raw.all('txns').filter((t) => t.date <= asOf)),
     });
 
-    const holdingsValued = () => {
+    const priceLookup = () => M.computePriceLookup({
+      rows: raw.all('prices').sort(by('symbol', 'market', 'date')),
+    });
+
+    const holdingsValued = (asOf = today()) => {
       const acct = accountsById();
       return M.computeHoldingsValued({
         holdings: raw.all('holdings').sort(by('market', 'symbol'))
           .map((h) => ({ ...h, account_name: acct.get(h.account_id)?.name || '' })),
+        priceLookup: priceLookup(),
+        asOf,
       });
     };
 
@@ -560,6 +568,46 @@
     on('DELETE', '/api/fx/:date', (p, _b, q) => ({
       deleted: raw.remove('fx_rates',
         (r) => r.date === String(p.date) && r.pair === S(q.pair, 'USDTWD')),
+    }));
+
+    // --- prices -----------------------------------------------------------
+
+    on('GET', '/api/prices', (_p, _b, q) => {
+      const symbol = S(q.symbol).trim().toUpperCase();
+      if (!symbol) bad('代號必填');
+      const market = S(q.market, 'TW').toUpperCase();
+      return raw.all('prices')
+        .filter((r) => r.symbol === symbol && r.market === market)
+        .sort(by('-date'));
+    });
+
+    on('POST', '/api/prices', (_p, b) => {
+      const list = Array.isArray(b.rows) ? b.rows : [b];
+      return {
+        saved: raw.tx(() => {
+          let n = 0;
+          for (const r of list) {
+            const symbol = S(r.symbol).trim().toUpperCase();
+            if (!symbol) bad('代號必填');
+            const d = csv.parseDate(r.date, 'auto');
+            if (!d) bad(`日期無法解析：${r.date}`);
+            const price = N(r.price);
+            if (price <= 0) bad('價格必須大於 0');
+            raw.put('prices', {
+              symbol, market: S(r.market, 'TW').toUpperCase(), date: d, price, source: S(r.source, 'manual'),
+            });
+            n++;
+          }
+          return n;
+        }),
+      };
+    });
+
+    on('DELETE', '/api/prices', (_p, _b, q) => ({
+      deleted: raw.remove('prices',
+        (r) => r.symbol === S(q.symbol).trim().toUpperCase()
+          && r.market === S(q.market, 'TW').toUpperCase()
+          && r.date === S(q.date)),
     }));
 
     // --- reconciliation and coverage --------------------------------------
@@ -900,6 +948,7 @@
       accounts: raw.all('accounts'),
       txns: raw.all('txns'),
       holdings: raw.all('holdings'),
+      prices: raw.all('prices'),
       fx_rates: raw.all('fx_rates'),
       balance_checks: raw.all('balance_checks'),
       mappings: raw.all('mappings'),

@@ -301,6 +301,27 @@
       note: '示範資料',
     }));
 
+    // A short price history per holding, so the price panel opens with a series
+    // rather than a single dot. Deterministic and RNG-free on purpose — it must
+    // not perturb the jittered transactions above — and the final point lands
+    // exactly on `last_price` at `to`, so each position still values to the same
+    // figure the single `last_price` column used to give.
+    const prices = holdings.flatMap((h) => {
+      const dates = [...new Set([...months.slice(-4).map(lastDayOf), to])]
+        .filter((d) => d <= to)
+        .sort();
+      const start = round2((h.avg_cost + h.last_price) / 2);
+      return dates.map((date, i) => ({
+        symbol: h.symbol,
+        market: h.market,
+        date,
+        price: i === dates.length - 1
+          ? h.last_price
+          : round2(start + ((h.last_price - start) * i) / (dates.length - 1)),
+        source: 'manual',
+      }));
+    });
+
     // Two imports on 玉山, with a deliberate hole between them so the
     // coverage grid has something to report, and declared periods so the
     // months inside them read as confirmed rather than merely quiet.
@@ -351,9 +372,9 @@
     const rules = RULES.map((r, n) => ({ id: n + 1, ...r, created_at: stamp }));
 
     return {
-      institutions, accounts, txns, holdings, imports, fx_rates, balance_checks, rules,
+      institutions, accounts, txns, holdings, prices, imports, fx_rates, balance_checks, rules,
       mappings: [],
-      meta: [{ key: 'base_currency', value: 'TWD' }, { key: 'schema_version', value: '5' }],
+      meta: [{ key: 'base_currency', value: 'TWD' }, { key: 'schema_version', value: '6' }],
       // Not a table — what the seeder prints and what the demo's copy says.
       span: { from: months[0], to: monthKey(to) },
     };

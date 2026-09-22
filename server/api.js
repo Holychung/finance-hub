@@ -276,6 +276,54 @@ on('DELETE', '/api/holdings/:id', (p) => ({
   deleted: db.prepare('DELETE FROM holdings WHERE id = ?').run(N(p.id)).changes,
 }));
 
+// --- prices ----------------------------------------------------------------
+
+// Price history per security. Keyed (symbol, market, date) and read by symbol,
+// so a holding of that symbol in any account values off the same series —
+// exactly how /api/fx serves one series per pair rather than per account. The
+// symbol is upper-cased on the way in and out to match how holdings store it,
+// and the date goes through the same parser a statement does. Query params, not
+// a path segment, because a US symbol can carry a slash (BRK/B).
+on('GET', '/api/prices', (_p, _b, q) => {
+  const symbol = S(q.symbol).trim().toUpperCase();
+  if (!symbol) bad('代號必填');
+  return db
+    .prepare(
+      'SELECT symbol, market, date, price, source FROM prices WHERE symbol = ? AND market = ? ORDER BY date DESC'
+    )
+    .all(symbol, S(q.market, 'TW').toUpperCase());
+});
+
+on('POST', '/api/prices', (_p, b) => {
+  const list = Array.isArray(b.rows) ? b.rows : [b];
+  const stmt = db.prepare(
+    `INSERT INTO prices (symbol, market, date, price, source) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(symbol, market, date) DO UPDATE SET price = excluded.price, source = excluded.source`
+  );
+  let n = 0;
+  db.exec('BEGIN');
+  try {
+    for (const r of list) {
+      const symbol = S(r.symbol).trim().toUpperCase();
+      if (!symbol) bad('代號必填');
+      const d = csv.parseDate(r.date, 'auto');
+      if (!d) bad(`日期無法解析：${r.date}`);
+      const price = N(r.price);
+      if (price <= 0) bad('價格必須大於 0');
+      stmt.run(symbol, S(r.market, 'TW').toUpperCase(), d, price, S(r.source, 'manual'));
+      n++;
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  return { saved: n };
+});
+
+on('DELETE', '/api/prices', (_p, _b, q) => ({
+  deleted: db
+    .prepare('DELETE FROM prices WHERE symbol = ? AND market = ? AND date = ?')
+    .run(S(q.symbol).trim().toUpperCase(), S(q.market, 'TW').toUpperCase(), S(q.date)).changes,
+}));
+
 // --- fx --------------------------------------------------------------------
 
 on('GET', '/api/fx', () => db.prepare('SELECT * FROM fx_rates ORDER BY date DESC LIMIT 400').all());
@@ -734,6 +782,7 @@ on('GET', '/api/export/json', () => ({
   accounts: db.prepare('SELECT * FROM accounts').all(),
   txns: db.prepare('SELECT * FROM txns').all(),
   holdings: db.prepare('SELECT * FROM holdings').all(),
+  prices: db.prepare('SELECT * FROM prices').all(),
   fx_rates: db.prepare('SELECT * FROM fx_rates').all(),
   balance_checks: db.prepare('SELECT * FROM balance_checks').all(),
   mappings: db.prepare('SELECT * FROM mappings').all(),
