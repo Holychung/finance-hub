@@ -74,7 +74,7 @@ const SCRIPT = async (s) => {
   await s.post('/api/institutions', { name: 'Firstrade', kind: 'broker', country: 'US' });
   await s.post('/api/accounts', { institution_id: 1, name: '台幣活存', kind: 'cash', currency: 'TWD', opening_balance: 120000, opening_date: '2026-01-01' });
   await s.post('/api/accounts', { institution_id: 1, name: '信用卡', kind: 'card', currency: 'TWD', opening_balance: -8400, opening_date: '2026-01-01' });
-  await s.post('/api/accounts', { institution_id: 2, name: '券商', kind: 'brokerage', currency: 'USD', opening_balance: 3000, opening_date: '2026-02-01' });
+  await s.post('/api/accounts', { institution_id: 2, name: '券商', kind: 'brokerage', currency: 'USD', opening_balance: 3000, opening_date: '2026-02-01', access: 'restricted' });
 
   await s.post('/api/fx', { date: '2026-01-05', pair: 'USDTWD', rate: 31.4 });
   await s.post('/api/fx', { date: '2026-06-05', pair: 'USDTWD', rate: 32.1 });

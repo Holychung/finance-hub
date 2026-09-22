@@ -2400,3 +2400,52 @@ describe('使用者宣告的匯入期間', () => {
     );
   });
 });
+
+// Whether there is a rule between you and the money. Nothing reads it yet —
+// net worth splits on it later (docs/plans/asset-classes.md PR 6) — so what
+// is worth pinning now is that it is stored exactly, and that a value outside
+// the list is refused rather than quietly becoming 'liquid'. That last one is
+// the failure that would put a retirement balance back into the spendable
+// figure with nothing on screen to say so.
+describe('帳戶的 access', () => {
+  const PUT = (p, b) => req('PUT', p, b);
+  const find = async (id) => (await GET('/api/accounts')).find((a) => a.id === id);
+
+  it('沒說就是 liquid', async () => {
+    const { id } = await POST('/api/accounts', { name: 'access 預設戶', currency: 'TWD' });
+    assert.equal((await find(id)).access, 'liquid');
+  });
+
+  it('restricted 存得進去也讀得回來', async () => {
+    const { id } = await POST('/api/accounts', { name: '退休帳戶', currency: 'USD', access: 'restricted' });
+    assert.equal((await find(id)).access, 'restricted');
+  });
+
+  it('更新時可以改，沒帶就維持原本的', async () => {
+    const { id } = await POST('/api/accounts', { name: '會改的戶', currency: 'TWD' });
+    await PUT(`/api/accounts/${id}`, { access: 'restricted' });
+    assert.equal((await find(id)).access, 'restricted');
+    await PUT(`/api/accounts/${id}`, { note: '只改備註' });
+    assert.equal((await find(id)).access, 'restricted', '沒帶 access 不該被打回 liquid');
+  });
+
+  it('清單以外的值一律拒絕，不會默默變成 liquid', async () => {
+    await assert.rejects(
+      () => POST('/api/accounts', { name: '打錯字', currency: 'TWD', access: 'restircted' }),
+      /access 只能是/
+    );
+    const { id } = await POST('/api/accounts', { name: '更新打錯字', currency: 'TWD' });
+    await assert.rejects(() => PUT(`/api/accounts/${id}`, { access: 'locked' }), /access 只能是/);
+    assert.equal((await find(id)).access, 'liquid', '被拒絕的更新什麼都沒改');
+  });
+
+  it('現在還沒有任何計算讀它：受限制的帳戶照樣算進淨值', async () => {
+    const before = (await GET('/api/overview')).net_worth.currencies.USD?.total ?? 0;
+    const { id } = await POST('/api/accounts', {
+      name: '受限但有錢', currency: 'USD', access: 'restricted', opening_balance: 1000, opening_date: '2020-01-01',
+    });
+    const after = (await GET('/api/overview')).net_worth.currencies.USD.total;
+    near(after - before, 1000, '拆成兩半是 PR 6 的事；在那之前，這個欄位不能悄悄改變任何數字');
+    await req('DELETE', `/api/accounts/${id}`);
+  });
+});

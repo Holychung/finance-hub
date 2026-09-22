@@ -76,6 +76,14 @@ describe('帳戶與交易類型', () => {
     assert.equal(K.kindName(''), '');
   });
 
+  it('access 只有兩個值，預設是 liquid，而且各有標籤', () => {
+    assert.deepEqual(K.ACCESS_KEYS, ['liquid', 'restricted']);
+    assert.ok(K.ACCESS_KEYS.includes(K.DEFAULT_ACCESS));
+    assert.equal(K.DEFAULT_ACCESS, 'liquid', '既有帳戶都是 liquid，預設換掉會讓升級改變數字');
+    for (const k of K.ACCESS_KEYS) assert.notEqual(K.accessName(k), k, `${k} 沒有中文標籤`);
+    assert.equal(K.accessName('nope'), 'nope');
+  });
+
   it('持股市值有標籤但不是任何一種類型', () => {
     assert.equal(K.kindName('securities'), '持股市值');
     assert.ok(!K.KIND_ORDER.includes('securities'), '它沒有帳戶，不該出現在選單');

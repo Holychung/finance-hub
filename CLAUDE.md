@@ -133,7 +133,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-408 tests across 68 suites cover Big5 decoding, ROC dates, two-digit years,
+440 tests across 73 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, the
 price-history lookup (latest at or before a date, and nothing dragged back
@@ -287,6 +287,17 @@ thousand random Unicode strings.
   brokerage account (a txn) plus shares into `holdings`. A currency's net worth
   is `sum(its account balances) + sum(its holding market values)`. Never fold
   market value into an account balance — that double counts.
+- **`accounts.access` says whether there is a rule between you and the
+  money** — `liquid` or `restricted`, from `ACCESS` in `shared/kinds.js`. It
+  is a property, never inferred from the kind: a self-custody wallet and a
+  locked stake can be the same kind and opposite answers. **Nothing reads it
+  yet**, and a test pins that a restricted account still counts in net worth
+  until the split in `docs/plans/asset-classes.md` PR 6 lands deliberately.
+  The API refuses a value outside the list rather than defaulting it, because
+  a typo that became `liquid` is a retirement balance back in the spendable
+  figure with nothing on screen to say so. When the split does land: face
+  value, never discounted by a guessed tax rate — the same reason there is no
+  cross-currency total.
 - Net worth series is **ledger only**. Holdings have no price history in phase 1,
   so folding today's market value into past points draws a line that never
   existed. Keep it that way until broker sync supplies real history.

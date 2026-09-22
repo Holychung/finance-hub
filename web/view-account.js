@@ -36,7 +36,7 @@ views.account = async () => {
         <div class="sub">
           ${kindName(a.kind)} · <span class="cur">${a.currency}</span> ·
           ${data.total} 筆交易 · ${span}
-          ${a.is_active ? '' : html` <span class="pill">已停用</span>`}
+          ${a.is_active ? '' : html` <span class="pill">已停用</span>`}${a.access === 'restricted' ? html` <span class="pill">${accessName(a.access)}</span>` : ''}
         </div>
       </div>
       <div class="row shrink">

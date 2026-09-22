@@ -59,6 +59,26 @@
 
   const TXN_KIND_ORDER = TXN_KINDS.filter((k) => k.pickable).map((k) => k.key);
 
+  // Whether there is a rule between you and the money. Not a kind: a
+  // self-custody wallet is as reachable as a current account, a locked stake
+  // is not, and both would be the same kind. Guessing access from the kind is
+  // wrong for exactly the cases that matter, so it is its own property.
+  //
+  // `restricted` means a rule — an age, a notice period, a penalty — not
+  // "hard to sell". Nobody is stopping you selling a property, so it is liquid
+  // by this definition, and a scale of days-until-access would be a guess
+  // dressed as data for almost every account that had one.
+  //
+  // See docs/plans/asset-classes.md: this is the property the plan rests on,
+  // and nothing reads it yet — net worth splits on it in PR 6.
+  const ACCESS = [
+    { key: 'liquid', label: '可動用' },
+    { key: 'restricted', label: '受限制' },
+  ];
+  const ACCESS_KEYS = ACCESS.map((a) => a.key);
+  const DEFAULT_ACCESS = 'liquid';
+  const accessName = (k) => (ACCESS.find((a) => a.key === k) || {}).label || k;
+
   // Not a kind of anything — the row the overview's breakdown adds for the
   // market value of holdings, which belongs to no account. It needs a label
   // and nothing else, and it must never appear in a picker.
@@ -91,6 +111,7 @@
   const api = {
     ACCOUNT_KINDS, TXN_KINDS, KIND_ORDER, TXN_KIND_ORDER, KIND_LABEL, kindName,
     LIABILITY_KINDS, DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND,
+    ACCESS, ACCESS_KEYS, DEFAULT_ACCESS, accessName,
   };
   Object.assign(root, api);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -357,6 +357,15 @@
 
     on('GET', '/api/accounts', () => accountsWithBalances());
 
+    // Same refusal as server/api.js, same message: a typo here silently
+    // becoming 'liquid' would be the demo teaching the wrong thing.
+    const accessOf = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      const a = S(v);
+      if (!ACCESS_KEYS.includes(a)) bad(`access 只能是 ${ACCESS_KEYS.join(' 或 ')}`);
+      return a;
+    };
+
     on('POST', '/api/accounts', (_p, b) => {
       if (!S(b.name).trim()) bad('帳戶名稱必填');
       return {
@@ -365,6 +374,7 @@
           name: S(b.name).trim(), kind: S(b.kind, DEFAULT_ACCOUNT_KIND), currency: S(b.currency, 'TWD'),
           opening_balance: N(b.opening_balance), opening_date: S(b.opening_date, '2020-01-01'),
           is_active: B(b.is_active), sort_order: N(b.sort_order), note: S(b.note),
+          access: accessOf(b.access, DEFAULT_ACCESS),
         }).id,
       };
     });
@@ -382,6 +392,7 @@
         is_active: b.is_active === undefined ? cur.is_active : B(b.is_active),
         sort_order: b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
         note: S(b.note, cur.note),
+        access: accessOf(b.access, cur.access),
       });
       return { ok: true };
     });

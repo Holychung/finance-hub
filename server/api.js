@@ -7,7 +7,7 @@ const csv = require('../shared/csv');
 const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
-const { DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND } = require('../shared/kinds');
+const { DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, DEFAULT_ACCESS } = require('../shared/kinds');
 
 // node:sqlite only binds null/number/bigint/string/Uint8Array.
 const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
@@ -91,18 +91,29 @@ on('DELETE', '/api/institutions/:id', (p) => ({
 
 on('GET', '/api/accounts', () => M.accountsWithBalances());
 
+// Refused rather than defaulted. Net worth will split on this value, so a
+// typo that silently became 'liquid' would put a retirement balance back into
+// the spendable figure with nothing on screen to say it had happened.
+function accessOf(v, fallback) {
+  if (v === undefined || v === null || v === '') return fallback;
+  const a = S(v);
+  if (!ACCESS_KEYS.includes(a)) bad(`access 只能是 ${ACCESS_KEYS.join(' 或 ')}`);
+  return a;
+}
+
 on('POST', '/api/accounts', (_p, b) => {
   if (!S(b.name).trim()) bad('帳戶名稱必填');
   const r = db
     .prepare(
-      `INSERT INTO accounts (institution_id, name, kind, currency, opening_balance, opening_date, is_active, sort_order, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO accounts (institution_id, name, kind, currency, opening_balance, opening_date, is_active, sort_order, note, access)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       OPT(b.institution_id) === null ? null : N(b.institution_id),
       S(b.name).trim(), S(b.kind, DEFAULT_ACCOUNT_KIND), S(b.currency, 'TWD'),
       N(b.opening_balance), S(b.opening_date, '2020-01-01'),
-      B(b.is_active), N(b.sort_order), S(b.note)
+      B(b.is_active), N(b.sort_order), S(b.note),
+      accessOf(b.access, DEFAULT_ACCESS)
     );
   return { id: Number(r.lastInsertRowid) };
 });
@@ -112,7 +123,7 @@ on('PUT', '/api/accounts/:id', (p, b) => {
   if (!cur) missing('帳戶不存在');
   db.prepare(
     `UPDATE accounts SET institution_id=?, name=?, kind=?, currency=?,
-            opening_balance=?, opening_date=?, is_active=?, sort_order=?, note=?
+            opening_balance=?, opening_date=?, is_active=?, sort_order=?, note=?, access=?
       WHERE id=?`
   ).run(
     b.institution_id === undefined ? cur.institution_id : (OPT(b.institution_id) === null ? null : N(b.institution_id)),
@@ -121,7 +132,7 @@ on('PUT', '/api/accounts/:id', (p, b) => {
     S(b.opening_date, cur.opening_date),
     b.is_active === undefined ? cur.is_active : B(b.is_active),
     b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
-    S(b.note, cur.note), N(p.id)
+    S(b.note, cur.note), accessOf(b.access, cur.access), N(p.id)
   );
   return { ok: true };
 });

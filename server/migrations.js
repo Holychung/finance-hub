@@ -302,6 +302,27 @@ SELECT UPPER(TRIM(symbol)), market, price_date, last_price, 'manual'
       }
     },
   },
+
+  {
+    version: 7,
+    name: 'account access',
+    // Whether there is a rule between you and the money in this account: an
+    // age, a notice period, a penalty. Net worth sums a checking balance, a
+    // brokerage position and a card into one figure per currency, which works
+    // because all three are money you could have this week. A retirement
+    // account or a locked stake is not, and adding it to that figure raises the
+    // headline by an amount nobody can spend. The vocabulary is
+    // `shared/kinds.js`'s ACCESS; see docs/plans/asset-classes.md.
+    //
+    // 'liquid' as the default is what every existing account already is, so a
+    // book upgrades with every figure unchanged — which is the test. A CHECK
+    // would catch a typo at the database, but an ALTER cannot add one to an
+    // existing column's table without a rebuild, and the API refuses anything
+    // outside the list before it gets here.
+    up(db) {
+      db.exec("ALTER TABLE accounts ADD COLUMN access TEXT NOT NULL DEFAULT 'liquid'");
+    },
+  },
 ];
 
 const LATEST = MIGRATIONS[MIGRATIONS.length - 1].version;

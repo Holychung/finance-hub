@@ -27,7 +27,7 @@ views.accounts = async () => {
               <tbody>${accounts.map((a) => {
                 const inst = institutions.find((i) => i.id === a.institution_id);
                 return html`<tr>
-                  <td>${a.name}${a.is_active ? '' : html` <span class="pill">已停用</span>`}</td>
+                  <td>${a.name}${a.is_active ? '' : html` <span class="pill">已停用</span>`}${a.access === 'restricted' ? html` <span class="pill">${accessName(a.access)}</span>` : ''}</td>
                   <td class="dim">${inst ? inst.name : '—'}</td>
                   <td>${kindName(a.kind)}</td>
                   <td class="cur">${a.currency}</td>

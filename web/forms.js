@@ -6,8 +6,9 @@
 
 function accountForm(acct, institutions) {
   const a = acct || {
-    name: '', kind: 'cash', currency: 'TWD', opening_balance: 0,
+    name: '', kind: DEFAULT_ACCOUNT_KIND, currency: 'TWD', opening_balance: 0,
     opening_date: today(), institution_id: null, is_active: 1, note: '',
+    access: DEFAULT_ACCESS,
   };
   modal(acct ? `編輯 ${acct.name}` : '新增帳戶', html`
     <label class="field"><span>帳戶名稱</span><input id="f-name" value="${a.name}" placeholder="玉山活存"></label>
@@ -29,6 +30,11 @@ function accountForm(acct, institutions) {
     </div>
     <div class="note small">期初餘額是「你開始匯入 CSV 那天之前的餘額」。之後所有交易都在這個基礎上加減。設錯了餘額會整體偏移，但隨時可以回來改。</div>
     <div class="note warn small" id="f-liability" hidden></div>
+    <label class="field"><span>這筆錢能不能動</span><select id="f-access">
+      ${ACCESS.map((x) => html`<option value="${x.key}" ${x.key === (a.access || DEFAULT_ACCESS) ? 'selected' : ''}>${x.label}</option>`)}
+    </select></label>
+    <div class="note small">「受限制」是指你和這筆錢之間有一道規則 —— 年齡、通知期、提早解約的罰則，例如退休帳戶或鎖倉。
+      不是「不好賣」：一間房子沒有人攔著你賣，它仍然算可動用。</div>
     <label class="field"><span>備註</span><input id="f-note" value="${a.note}"></label>
     <label class="field"><span><input type="checkbox" id="f-active" ${a.is_active ? 'checked' : ''}> 啟用中</span></label>
     <div class="modal-foot">
@@ -70,6 +76,7 @@ function accountForm(acct, institutions) {
         opening_date: $('#f-od').value || today(),
         is_active: $('#f-active').checked ? 1 : 0,
         note: $('#f-note').value,
+        access: $('#f-access').value,
       };
       if (!payload.name) return toast('帳戶名稱必填', 'err');
       try {

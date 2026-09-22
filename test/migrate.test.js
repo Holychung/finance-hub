@@ -747,6 +747,41 @@ describe('v4：imports 的日期區間', () => {
   });
 });
 
+describe('v7：帳戶的 access', () => {
+  // The whole point of 'liquid' as the default: every account that already
+  // exists is money you can reach this week, so a book upgrades with every
+  // figure unchanged. A different default would quietly move balances out of
+  // the spendable half the day PR 6 starts reading it.
+  it('既有的帳戶一律補成 liquid，筆數一個都不動', () => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db, 3);
+    db.prepare("INSERT INTO accounts (institution_id, name, kind) VALUES (1, '信用卡', 'card')").run();
+
+    runMigrations(db, {});
+
+    const rows = db.prepare('SELECT name, access FROM accounts ORDER BY id').all().map((r) => ({ ...r }));
+    assert.deepEqual(rows, [
+      { name: '活存', access: 'liquid' },
+      { name: '信用卡', access: 'liquid' },
+    ]);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM txns').get().n, 3);
+
+    db.close();
+    s.rm();
+  });
+
+  it('新插入的帳戶沒說的話也是 liquid', () => {
+    const s = scratch();
+    const db = s.open();
+    runMigrations(db, {});
+    db.prepare("INSERT INTO accounts (name) VALUES ('新的')").run();
+    assert.equal(db.prepare('SELECT access FROM accounts').get().access, 'liquid');
+    db.close();
+    s.rm();
+  });
+});
+
 describe('比程式新的帳本會讓 server 停下來', () => {
   // db.js prints and exits rather than throwing, for the same reason
   // index.js does it for a stranded data/finance.db: the person needs an

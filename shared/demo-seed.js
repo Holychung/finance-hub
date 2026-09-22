@@ -252,6 +252,10 @@
       is_active: 1,
       sort_order: n,
       note: '示範資料',
+      // Every demo account is reachable today. The first restricted one
+      // arrives with the retirement kind (docs/plans/asset-classes.md PR 5);
+      // until then there is nothing that reads the split to demonstrate it.
+      access: 'liquid',
     }));
 
     // Everything but the last few months is already paired, the way a book
