@@ -59,6 +59,7 @@ server/csp.js     the CSP, both of them — local 'self', hosted 'none'
 server/migrations.js  every schema version, in order — the only schema there is
 server/migrate.js     applies them; takes a handle, opens nothing, knows no paths
 server/db.js      connection, migrate-on-open, snapshot/backup helpers
+shared/currency.js  symbol and decimal places per currency, roundTo, round2
 shared/kinds.js   what kinds of account and transaction exist — the only list
 shared/sha1.js    synchronous SHA-1, because the browser's is async
 shared/csv.js     decode, parse, map, dedup    (no DB access — pure functions)
@@ -89,6 +90,7 @@ test/paths.test.js   ledger location, profiles, the data-dir migration script
 test/migrate.test.js the schema migration runner
 test/seed.test.js    what the demo seeder must produce to be worth running
 test/money.test.js   the pure half of money.js, over plain arrays
+test/currency.test.js  the scale follows the currency, and round2 is unchanged
 test/kinds.test.js   the kind list is complete, and the rules encoded in it
 test/sha1.test.js    SHA-1 against node:crypto, and shared/ loaded both ways
 test/storage.test.js the storage seam, and which adapter each origin gets
@@ -239,7 +241,17 @@ thousand random Unicode strings.
   expense. Rates remain bound to their own date: `fx.on(d)` returns the most
   recent at or before `d`.
 - Round through `round2()` at every write. Fingerprints use `.toFixed(2)` so
-  float noise cannot change a hash.
+  float noise cannot change a hash — and that `.toFixed(2)` is frozen by the
+  dedup contract, so it never becomes `roundTo`.
+- **Two decimal places is a property of a currency, not of money.**
+  `shared/currency.js` holds the symbol and the scale for each one, and
+  `roundTo(n, dp)` takes the scale as an argument; `round2` is the two-place
+  case and still the right answer for anything that came off a statement.
+  Never write `Math.round(n * 100) / 100` — a guard in `test/html.test.js`
+  fails on it, because that is the decision buried where nobody finds it
+  again. A currency with no entry falls back to two places and its own code as
+  the symbol: `JPY 1,234` reads as unfinished, which it is, where `NT$1,234`
+  reads as a fact and is wrong.
 - **A balance is what the account is worth to you, so liabilities are
   negative.** A card you owe 1,234 on has a balance of -1,234, which is why
   `netWorth` can be a plain sum that never asks what kind of account it is

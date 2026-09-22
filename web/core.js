@@ -19,11 +19,18 @@ const nf = (n, d = 0) =>
     ? '—'
     : Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 
+// Symbol and decimals come from shared/currency.js, not from a ternary on
+// 'USD'. The ternary wrote `NT$` for every currency that was not USD, so a
+// JPY balance read as `NT$1,234` — the right number in the wrong country, and
+// the kind of wrong that looks fine until you hold three currencies.
 const money = (n, cur = 'TWD') => {
   if (n === null || n === undefined) return '—';
-  const sym = cur === 'USD' ? '$' : 'NT$';
-  return `${n < 0 ? '-' : ''}${sym}${nf(Math.abs(n), cur === 'USD' ? 2 : 0)}`;
+  return `${n < 0 ? '-' : ''}${symbolOf(cur)}${nf(Math.abs(n), decimalsOf(cur))}`;
 };
+
+// `quantity()` for share and coin counts is in shared/currency.js, off the
+// global like the rest of that module — it is testable there and this file is
+// not, because it touches the document at load.
 const signed = (n, cur = 'TWD') => (n > 0 ? '+' : '') + money(n, cur);
 // A delta is news in both directions, so `cls` colours both. A level is not:
 // colouring every positive balance green leaves the negative ones no louder

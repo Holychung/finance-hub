@@ -287,24 +287,30 @@ describe('前端靜態防線', () => {
       `${copies.map((f) => f.name).join('、')} 又寫了一份帳戶類型清單，用 KIND_ORDER`);
   });
 
-  // round2 is the other one, and it is not so easily deleted: `shared/csv.js`
-  // keeps its own so it depends on nothing but the hash, and
-  // `server/spending.js` never reaches the browser at all. Both shared copies
-  // assign it to the global, so **whichever loads last wins** — harmless
-  // while they agree, and an arithmetic difference nobody would look for if
-  // they ever stopped. Pinned rather than trusted.
-  it('每一份 round2 的定義都一模一樣', () => {
-    const root = path.join(__dirname, '..');
-    const where = ['shared/money.js', 'shared/csv.js', 'shared/spending.js'];
-    const bodies = where.map((f) => {
-      const m = /const round2 = ([^\n]+)/.exec(fs.readFileSync(path.join(root, f), 'utf8'));
-      assert.ok(m, `${f} 裡找不到 round2`);
-      return [f, m[1].trim()];
-    });
-    const [, first] = bodies[0];
-    const differ = bodies.filter(([, body]) => body !== first).map(([f]) => f);
-    assert.deepEqual(differ, [],
-      `這些檔案的 round2 跟 ${bodies[0][0]} 不一樣：${differ.join('、')}`);
+  // There used to be three copies of round2 — money.js, csv.js and
+  // spending.js — and a test here pinning their bodies to be identical,
+  // because all three assign the name to the global and **whichever loads
+  // last wins**. Harmless while they agreed; an arithmetic difference nobody
+  // would look for if they ever stopped. One definition now, in
+  // shared/currency.js, so there is nothing left to keep in step.
+  it('round2 只有一份，就是 shared/currency.js 那個', () => {
+    const copies = FILES
+      .filter((f) => f.name !== 'shared/currency.js')
+      .filter((f) => /^\s*(?:const|let|var)\s+round2\s*=/m.test(f.src));
+    assert.deepEqual(copies.map((f) => f.name), [],
+      `${copies.map((f) => f.name).join('、')} 又自己宣告了一份 round2`);
+  });
+
+  // The other half of the same idea: two decimal places is a property of a
+  // currency, not of money, and a hardcoded 100 is that decision written
+  // where nobody will find it again. `toFixed(2)` in the fingerprint is the
+  // one exception and is frozen by the dedup contract.
+  it('沒有人自己寫死兩位小數的四捨五入', () => {
+    const offenders = FILES
+      .filter((f) => f.name !== 'shared/currency.js')
+      .filter((f) => /Math\.round\([^)]*\*\s*100\s*\)\s*\/\s*100/.test(f.src));
+    assert.deepEqual(offenders.map((f) => f.name), [],
+      `${offenders.map((f) => f.name).join('、')} 自己寫死了兩位小數，用 roundTo`);
   });
 
   // renderPreview reads imp.preview and imp.mapping together, and views.import

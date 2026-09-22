@@ -27,7 +27,7 @@ views.holdings = async () => {
           <td><b>${h.symbol}</b></td>
           <td class="dim truncate">${h.name}</td>
           <td class="dim small">${h.account_name}</td>
-          <td class="num">${nf(h.shares, h.shares % 1 ? 4 : 0)}</td>
+          <td class="num">${quantity(h.shares)}</td>
           <td class="num dim">${nf(h.avg_cost, 2)}</td>
           <td class="num">${nf(h.last_price, 2)}${h.price_date ? html`<br><span class="dim small">${h.price_date}</span>` : ''}</td>
           <td class="num">${money(h.market_value, h.currency)}</td>

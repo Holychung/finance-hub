@@ -20,7 +20,7 @@ function accountForm(acct, institutions) {
         ${KIND_ORDER.map((k) => html`<option value="${k}" ${k === a.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
       </select></label>
       <label class="field"><span>幣別</span><select id="f-cur">
-        ${['TWD', 'USD'].map((c) => html`<option ${c === a.currency ? 'selected' : ''}>${c}</option>`)}
+        ${CURRENCY_CODES.map((c) => html`<option ${c === a.currency ? 'selected' : ''}>${c}</option>`)}
       </select></label>
     </div>
     <div class="row">
