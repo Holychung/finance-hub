@@ -475,24 +475,21 @@ extra field through every position in a row of every file on that list, in
 both the repairable and the unrepairable case, and fails if any other row
 moves.
 
-That separate change is done: the five pre-Citi fixtures (玉山, BoA ×2,
-Chase ×2) and Firstrade are now files too, with their contents invented in the
-same pass — they had been copied from real statements down to the counterparty
-names and the closing balances.
-
 **Nothing in this repo may describe a real statement.** Not its row count, not
 what fraction of its rows hit a bug, not a phrase from one of its
 descriptions, not a balance. Those are facts about somebody's accounts wearing
 the clothes of a technical note, and a comment is where they survive longest
 because nobody re-reads one. State the behaviour and its magnitude — "the two
 date columns disagree on most rows", "every row of a wide-bodied export is
-refused" — which is what the rule needs anyway; the census only ever added
-provenance. **There are no inline statement strings left**,
-so there is no second pattern to copy from by mistake. The short CSVs still
-written inline in `test/api.test.js` are deliberately not statements: they are
-four-line constructions isolating one pipeline rule (a header row with a
-trailing empty cell, a shifted row inside a padded body), and they stay inline
-because reading them next to the assertion is the point.
+refused" — which is what the rule needs anyway; the provenance was never part
+of the argument.
+
+**Every statement lives in `test/fixtures/` as a file**, so there is no second
+pattern to copy from by mistake. The short CSVs written inline in
+`test/api.test.js` are deliberately not statements: they are four-line
+constructions isolating one pipeline rule (a header row with a trailing empty
+cell, a shifted row inside a padded body), and they stay inline because
+reading them next to the assertion is the point.
 
 **Three ways a file can state a sign, and `amountMode` names which:**
 `inout` (two columns, the Taiwanese default and what both Citi and the Venture
@@ -529,7 +526,7 @@ quoted description (`for "may recital"`); usually the stray quotes pair up
 and the row still lands in the right columns, but when the phrase between them
 contains a comma the row gains columns and every field after the description
 shifts left. The amount then becomes a fragment of the description — and a
-fragment like `118` parses cleanly, so the row imports as a real transaction
+fragment like `217` parses cleanly, so the row imports as a real transaction
 with the wrong sign and the wrong number, with nothing on screen to say so.
 Most lines in a long export carry the stray quotes; a couple of them shift.
 

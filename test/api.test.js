@@ -136,7 +136,7 @@ const BOA_CSV = fixture('boa-checking.csv');
 
 // The same file with one transaction line removed, to prove the running
 // balance notices a row the file never contained.
-const BOA_GAP = BOA_CSV.split('\r\n').filter((l) => !l.includes('march dinner')).join('\r\n');
+const BOA_GAP = BOA_CSV.split('\r\n').filter((l) => !l.includes('two tickets')).join('\r\n');
 
 // A Chase checking export, copied from a real one. Two things about it that
 // Bank of America's does not do, both of which broke the import outright:
@@ -771,9 +771,9 @@ describe('壞掉的對帳單：BoA 引號、摘要區塊、餘額鏈', () => {
     assert.equal(p.summary.repaired, 2, '兩行欄位數比標題列多');
 
     const shifted = p.rows.find((r) => r.date === '2025-04-10');
-    near(shifted.amount, -500, '位移那行是 -500，不是碎片 118');
+    near(shifted.amount, -500, '位移那行是 -500，不是碎片 217');
     assert.ok(shifted.repaired, '標記為已修復');
-    assert.ok(shifted.description.includes('118, 21 28'), '被拆散的摘要接回原樣');
+    assert.ok(shifted.description.includes('217, 30 31'), '被拆散的摘要接回原樣');
     near(p.rows.find((r) => r.date === '2025-04-07').amount, -615, '另一行是 -615');
   });
 

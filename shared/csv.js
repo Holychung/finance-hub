@@ -699,7 +699,7 @@
       if (row.balance === null) { prev = null; continue; }
       // A ragged row is suspect in every column, this one included: the cell
       // sitting in the balance slot is whatever the shift left there, and a
-      // fragment like `118` parses as cleanly as a real balance. Chaining onto
+      // fragment like `217` parses as cleanly as a real balance. Chaining onto
       // it reports a drift computed from that fragment, so the next good row
       // gets flagged with a number and a cause that are both wrong. Break the
       // chain instead — we genuinely do not know the balance here.
