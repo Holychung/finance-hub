@@ -491,6 +491,42 @@ describe('持股', () => {
   });
 });
 
+describe('價格歷史', () => {
+  it('記一筆價，現價就改讀序列而不是 last_price 欄', async () => {
+    await POST('/api/prices', { symbol: 'voo', market: 'US', date: '2026-03-10', price: 630 });
+    await POST('/api/prices', { symbol: 'VOO', market: 'US', date: '2026-06-20', price: 640 });
+    const list = await GET('/api/prices?symbol=VOO&market=US');
+    assert.equal(list.length, 2);
+    assert.equal(list[0].date, '2026-06-20', '新的在前');
+    assert.equal(list[0].source, 'manual');
+    const voo = (await GET('/api/holdings')).find((h) => h.symbol === 'VOO');
+    near(voo.last_price, 640, '現價 = 不晚於今天的最後一筆');
+    assert.equal(voo.price_date, '2026-06-20');
+    near(voo.market_value, 6400);
+  });
+
+  it('同一天再記一次是覆寫，不是新增一列', async () => {
+    await POST('/api/prices', { symbol: 'VOO', market: 'US', date: '2026-06-20', price: 645 });
+    const list = await GET('/api/prices?symbol=VOO&market=US');
+    assert.equal(list.length, 2, '還是兩筆');
+    near(list[0].price, 645, '價格被更新');
+  });
+
+  it('刪掉最後一筆，現價退回前一筆', async () => {
+    await DEL('/api/prices?symbol=VOO&market=US&date=2026-06-20');
+    const voo = (await GET('/api/holdings')).find((h) => h.symbol === 'VOO');
+    near(voo.last_price, 630, '退回較早那筆');
+    // 清掉剩下的，讓 VOO 回到用 last_price 欄的狀態，不影響後面的測試。
+    await DEL('/api/prices?symbol=VOO&market=US&date=2026-03-10');
+  });
+
+  it('壞資料擋下來：價格要正、日期要解析得開、代號必填', async () => {
+    await assert.rejects(() => POST('/api/prices', { symbol: 'VOO', market: 'US', date: '2026-01-01', price: 0 }));
+    await assert.rejects(() => POST('/api/prices', { symbol: 'VOO', market: 'US', date: 'nope', price: 10 }));
+    await assert.rejects(() => POST('/api/prices', { symbol: '', market: 'US', date: '2026-01-01', price: 10 }));
+  });
+});
+
 describe('餘額對帳', () => {
   it('相符與不符都判得出來', async () => {
     await POST('/api/balance-checks', { account_id: ids.esun, date: '2026-09-01', stated: 860000 });

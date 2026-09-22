@@ -238,6 +238,70 @@ UPDATE imports SET
       db.exec("ALTER TABLE imports ADD COLUMN period_kind TEXT NOT NULL DEFAULT 'derived'");
     },
   },
+
+  {
+    version: 6,
+    name: 'prices',
+    // Price history, keyed by the security rather than the position: one series
+    // per (symbol, market), the way `fx_rates` is one series per pair and not
+    // per account. `holdings.last_price` was a single mutable field — updating
+    // a price destroyed the previous one, so there was no history to build a
+    // trend, a return, or an honest securities line on. This is the table the
+    // rest of phase 2 (auto price fetch, XIRR) writes into and reads from.
+    //
+    // This is the first migration that is *meant* to move rows, so it carries
+    // `verify()`; the default check would refuse it. It stays honest twice
+    // over: the earliest-price fallback that `fx.on` does is deliberately NOT
+    // copied into the lookup (a price before the first observation is null, not
+    // the oldest one dragged backward), and the backfill below dates an
+    // observation only when the holding already carried a date — a price with
+    // no date is left to the `last_price` fallback rather than stamped by guess.
+    up(db) {
+      db.exec(`
+CREATE TABLE prices (
+  symbol TEXT NOT NULL,
+  market TEXT NOT NULL,          -- TW | US, so a TW 2330 never collides with a US symbol
+  date   TEXT NOT NULL,          -- YYYY-MM-DD
+  price  REAL NOT NULL,          -- per share, native currency
+  source TEXT NOT NULL DEFAULT 'manual',   -- manual | api (the seam vocabulary)
+  PRIMARY KEY (symbol, market, date)
+);
+CREATE INDEX idx_prices_lookup ON prices(symbol, market, date);
+`);
+      // Each priced holding's stored last_price becomes its opening
+      // observation, so the position keeps the number it already showed and the
+      // history has one real point in it. INSERT OR IGNORE because two holdings
+      // of one symbol sharing a date collapse to a single observation.
+      db.exec(`
+INSERT OR IGNORE INTO prices (symbol, market, date, price, source)
+SELECT UPPER(TRIM(symbol)), market, price_date, last_price, 'manual'
+  FROM holdings
+ WHERE last_price > 0 AND TRIM(symbol) <> '' AND price_date IS NOT NULL AND TRIM(price_date) <> ''
+`);
+    },
+    verify(db, before, after) {
+      // prices is the only count allowed to move, and it must land on exactly
+      // the number of distinct (symbol, market, date) the backfill could see.
+      for (const t of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        if (t === 'prices') continue;
+        if ((before[t] ?? 0) !== (after[t] ?? 0)) {
+          throw new Error(`v6 只該新增 prices，卻動到 ${t}（${before[t] ?? '—'}→${after[t] ?? '—'}）`);
+        }
+      }
+      const expected = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM (
+             SELECT DISTINCT UPPER(TRIM(symbol)) AS s, market, price_date
+               FROM holdings
+              WHERE last_price > 0 AND TRIM(symbol) <> '' AND price_date IS NOT NULL AND TRIM(price_date) <> ''
+           )`
+        )
+        .get().n;
+      if ((after.prices ?? 0) !== expected) {
+        throw new Error(`v6 回填應為 ${expected} 筆 prices，實際 ${after.prices ?? 0} 筆`);
+      }
+    },
+  },
 ];
 
 const LATEST = MIGRATIONS[MIGRATIONS.length - 1].version;

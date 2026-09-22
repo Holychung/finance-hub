@@ -153,7 +153,7 @@ describe('示範資料的產生器', () => {
       return out;
     };
 
-    for (const table of ['institutions', 'accounts', 'imports', 'txns', 'holdings', 'fx_rates', 'balance_checks', 'rules']) {
+    for (const table of ['institutions', 'accounts', 'imports', 'txns', 'holdings', 'prices', 'fx_rates', 'balance_checks', 'rules']) {
       const written = db.prepare(`SELECT * FROM ${table}`).all().map(scrub);
       const built = book[table].map(scrub);
       assert.equal(written.length, built.length, `${table} 的筆數`);

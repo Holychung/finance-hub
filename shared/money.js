@@ -37,6 +37,40 @@
     };
   }
 
+  // Prices, keyed by (symbol, market): one binary-searched series per security,
+  // the same shape computeFxLookup gives a currency pair. The one deliberate
+  // difference is at the near edge — before a symbol's first observation this
+  // returns null, where fx drags its earliest rate backward. fx falls back so a
+  // transfer dated before the first rate stays comparable; a holding has no
+  // market value on a day nobody priced it, and inventing one by reaching back
+  // is the same fiction the net-worth series refuses to draw. Rows arrive
+  // sorted by date within a symbol — the loader orders them, the tests build
+  // them so — and `on` returns the observation row (not just the number) so the
+  // caller can show which day the price is from.
+  function computePriceLookup({ rows }) {
+    const groups = new Map();
+    for (const r of rows) {
+      const k = `${r.symbol}|${r.market}`;
+      let arr = groups.get(k);
+      if (!arr) groups.set(k, (arr = []));
+      arr.push(r);
+    }
+    return {
+      rows,
+      on(symbol, market, date) {
+        const arr = groups.get(`${symbol}|${market}`);
+        if (!arr || !arr.length) return null;
+        let lo = 0, hi = arr.length - 1, found = null;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (arr[mid].date <= date) { found = arr[mid]; lo = mid + 1; }
+          else hi = mid - 1;
+        }
+        return found;
+      },
+    };
+  }
+
   function convert(amount, from, to, date, fx) {
     if (from === to) return amount;
     const rate = fx.on(date);
@@ -58,12 +92,26 @@
     }));
   }
 
-  function computeHoldingsValued({ holdings }) {
+  function computeHoldingsValued({
+    holdings,
+    priceLookup = computePriceLookup({ rows: [] }),
+    asOf = todayISO(),
+  }) {
     return holdings.map((h) => {
-      const marketValue = round2(h.shares * h.last_price);
+      // The current price is the latest observation at or before asOf. A
+      // holding with no history yet falls back to its stored last_price — the
+      // column the prices table has otherwise superseded — and a brand-new
+      // position with neither values at zero rather than NaN. `last_price` and
+      // `price_date` are overwritten with what was actually used, so the view
+      // shows the effective price and the day it is from, not a stale column.
+      const obs = priceLookup.on(h.symbol, h.market, asOf);
+      const price = obs ? obs.price : (h.last_price || 0);
+      const marketValue = round2(h.shares * price);
       const cost = round2(h.shares * h.avg_cost);
       return {
         ...h,
+        last_price: price,
+        price_date: obs ? obs.date : h.price_date,
         market_value: marketValue,
         cost_total: cost,
         unrealized: round2(marketValue - cost),
@@ -517,7 +565,7 @@
   // global for the browser's classic scripts, onto module.exports for Node.
   const api = {
     round2, convert, monthEnds, monthAdd, monthsEnding, daysBetween, todayISO,
-    computeFxLookup, computeAccountsWithBalances, computeHoldingsValued,
+    computeFxLookup, computePriceLookup, computeAccountsWithBalances, computeHoldingsValued,
     computeNetWorth, computeNetWorthSeries, computeCoverage, mergeSpans, coverageOf,
     computeReconcile,
     computeTransferCandidates, liabilitiesInCredit,

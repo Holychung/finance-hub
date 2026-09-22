@@ -214,6 +214,33 @@ describe('migration runner — 版本與重放', () => {
     db.close();
     s.rm();
   });
+
+  // v6 is the first step that is *meant* to move rows: it seeds `prices` from
+  // each priced holding, so it carries verify() and this pins what it backfills.
+  it('v6 把有價又有日期的持股回填成第一筆報價，其餘留白', () => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db);
+    const h = db.prepare(
+      'INSERT INTO holdings (account_id, symbol, market, shares, avg_cost, last_price, price_date, currency) VALUES (1, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    h.run('2330', 'TW', 100, 900, 1085, '2026-09-19', 'TWD');   // priced + dated → backfills
+    h.run('VTI', 'US', 10, 250, 288.4, null, 'USD');            // no date → left to the fallback, not guessed
+    h.run('GIFT', 'US', 5, 0, 0, '2026-09-19', 'USD');          // no price → nothing to record
+
+    const r = runMigrations(db, {});
+    assert.equal(r.to, LATEST);
+
+    // Spread each row: node:sqlite hands back null-prototype objects, and
+    // strict deepEqual counts that against a plain literal.
+    const prices = db.prepare('SELECT symbol, market, date, price, source FROM prices').all().map((r) => ({ ...r }));
+    assert.deepEqual(prices, [
+      { symbol: '2330', market: 'TW', date: '2026-09-19', price: 1085, source: 'manual' },
+    ]);
+
+    db.close();
+    s.rm();
+  });
 });
 
 describe('migration runner — 交易與續跑', () => {

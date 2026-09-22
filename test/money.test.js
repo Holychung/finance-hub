@@ -56,6 +56,37 @@ describe('computeFxLookup', () => {
   });
 });
 
+describe('computePriceLookup', () => {
+  const pl = M.computePriceLookup({
+    rows: [
+      { symbol: '2330', market: 'TW', date: '2026-01-31', price: 1000 },
+      { symbol: '2330', market: 'TW', date: '2026-03-31', price: 1100 },
+      { symbol: 'AAPL', market: 'US', date: '2026-02-15', price: 200 },
+    ],
+  });
+
+  it('回傳不晚於當天的最後一筆', () => {
+    assert.equal(pl.on('2330', 'TW', '2026-02-10').price, 1000);
+    assert.equal(pl.on('2330', 'TW', '2026-03-31').price, 1100);
+    assert.equal(pl.on('2330', 'TW', '2026-12-31').price, 1100);
+  });
+
+  it('第一筆之前回 null，不把最早的往回拖（跟 fx 不一樣）', () => {
+    assert.equal(pl.on('2330', 'TW', '2026-01-01'), null);
+  });
+
+  it('每個代號、每個市場各自一條序列', () => {
+    assert.equal(pl.on('AAPL', 'US', '2026-02-20').price, 200);
+    assert.equal(pl.on('AAPL', 'US', '2026-01-01'), null);
+    assert.equal(pl.on('2330', 'US', '2026-12-31'), null, '市場不同就不是同一檔');
+    assert.equal(pl.on('NVDA', 'US', '2026-12-31'), null, '沒有的代號');
+  });
+
+  it('空序列不炸', () => {
+    assert.equal(M.computePriceLookup({ rows: [] }).on('X', 'US', '2026-01-01'), null);
+  });
+});
+
 describe('computeAccountsWithBalances', () => {
   it('餘額是期初加上區間內的異動', () => {
     const out = M.computeAccountsWithBalances({
@@ -92,6 +123,33 @@ describe('computeHoldingsValued', () => {
     });
     assert.equal(h.roi_pct, 0, '零成本沒有分母，不是無限大的報酬');
     assert.equal(h.unrealized, 50);
+  });
+
+  it('有價格序列時，現價取不晚於 asOf 的最後一筆，也帶出它的日期', () => {
+    const pl = M.computePriceLookup({
+      rows: [
+        { symbol: 'VTI', market: 'US', date: '2026-01-31', price: 250 },
+        { symbol: 'VTI', market: 'US', date: '2026-06-30', price: 300 },
+      ],
+    });
+    const [h] = M.computeHoldingsValued({
+      holdings: [{ symbol: 'VTI', market: 'US', shares: 10, avg_cost: 200, last_price: 999, currency: 'USD' }],
+      priceLookup: pl,
+      asOf: '2026-03-01',
+    });
+    assert.equal(h.last_price, 250, '用序列的價，不是 last_price 欄的 999');
+    assert.equal(h.price_date, '2026-01-31');
+    assert.equal(h.market_value, 2500);
+    assert.equal(h.unrealized, 500);
+  });
+
+  it('沒有價格序列時，退回 last_price 欄', () => {
+    const [h] = M.computeHoldingsValued({
+      holdings: [{ symbol: 'NEW', market: 'US', shares: 5, avg_cost: 10, last_price: 12, currency: 'USD' }],
+      priceLookup: M.computePriceLookup({ rows: [] }),
+      asOf: '2026-03-01',
+    });
+    assert.equal(h.market_value, 60, '沒有觀測就用欄位裡的 last_price');
   });
 });
 
@@ -463,6 +521,7 @@ describe('compute* 真的是純的', () => {
   it('每個 compute* 都有一個同名的載入器對應', () => {
     const loaders = {
       computeFxLookup: 'buildFxLookup',
+      computePriceLookup: 'buildPriceLookup',
       computeAccountsWithBalances: 'accountsWithBalances',
       computeHoldingsValued: 'holdingsValued',
       computeNetWorth: 'netWorth',
