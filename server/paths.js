@@ -1,11 +1,13 @@
 'use strict';
 
 // Where the ledger lives. Pure path resolution, no side effects: nothing here
-// creates a directory or opens a database, so index.js can consult it and
-// refuse to start before db.js has a chance to create anything.
+// creates a directory or opens a database. That is what lets a caller decide
+// *which* book it is about to touch and refuse before `./db` is required —
+// requiring that creates and migrates whatever DB_PATH resolves to.
+// `scripts/seed-demo.js` is the one that depends on it today, to refuse the
+// personal ledger without having opened it.
 
 const path = require('node:path');
-const fs = require('node:fs');
 const os = require('node:os');
 
 // The ledger does not live in the repository. A repo is cloned, cleaned,
@@ -60,16 +62,4 @@ const BACKUP_DIR = path.join(DATA_DIR, 'backups', PROFILE);
 
 
 
-// A ledger left behind by the version that kept data/ inside the repo. Opening
-// the new path would quietly create an empty book beside a full one and the
-// app would look like it had lost everything, so the caller is told to migrate
-// first. Only relevant when no explicit path was given: FINANCE_DB means the
-// caller already knows which book it wants.
-const LEGACY_DB = path.join(__dirname, '..', 'data', 'finance.db');
-const strandedLegacyDb =
-  !process.env.FINANCE_DB && !fs.existsSync(DB_PATH) && fs.existsSync(LEGACY_DB) ? LEGACY_DB : null;
-
-module.exports = {
-  HOME_DIR, PROFILE, IS_PERSONAL, DB_PATH, DATA_DIR,
-  BACKUP_DIR, LEGACY_DB, strandedLegacyDb,
-};
+module.exports = { HOME_DIR, PROFILE, IS_PERSONAL, DB_PATH, DATA_DIR, BACKUP_DIR };

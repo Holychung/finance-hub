@@ -151,10 +151,9 @@ the world is yours and you know to back it up first, not fine once there are oth
 with `snapshot()` (already exported by `db.js`) taken before the first one runs. Bump
 `schema_version` per step so a half-finished run resumes correctly.
 
-**Precedent to copy.** `scripts/migrate-data-dir.js` already copies a database with
-SQLite's `backup()` — not `fs.copyFile`, because under WAL the `.db` file is not the
-whole database — and then compares row counts per table. Reuse that check as the
-migration runner's own self-test.
+**Copy a database with SQLite's own API, never `fs.copyFile`** — under WAL the `.db`
+file is not the whole database and a plain copy silently drops whatever is still in the
+`-wal`. Comparing row counts per table afterwards is the runner's own self-test.
 
 **Verification.** Build a v1 database in its own `mkdtemp` directory (per `CLAUDE.md`:
 its own directory, not just a unique filename, because `paths.js` derives `BACKUP_DIR`

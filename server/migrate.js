@@ -61,8 +61,7 @@ function tableCounts(db) {
   return out;
 }
 
-// The default self-test, and the reason the plan pointed at
-// `scripts/migrate-data-dir.js`: a schema change moves no rows.
+// The default self-test: a schema change moves no rows.
 //
 // Compared over the union of before and after, not over the tables that
 // existed before — a step that creates a table and fills it is the case that

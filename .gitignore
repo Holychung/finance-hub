@@ -1,9 +1,9 @@
 # Your actual financial data. Never commit this.
 #
-# The ledger now lives in ~/.finance-hub/, outside any checkout — the strongest
-# protection is that it is not in the working tree at all. These entries stay
-# as a net for a pre-move checkout, a stray copy, and anything the app or a
-# migration leaves behind.
+# The ledger lives in ~/.finance-hub/, outside any checkout — the strongest
+# protection is that it is not in the working tree at all. These entries are
+# the net under that: a copy someone drops in to look at, a scratch book
+# pointed here with FINANCE_DB, anything a crash leaves behind.
 data/
 *.db
 *.db-shm
