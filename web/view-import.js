@@ -201,8 +201,7 @@ function accountFromCsvForm(s) {
     <div class="row">
       <label class="field"><span>帳戶名稱</span><input id="a-name" value="${s.name}" placeholder="Chase ...0000"></label>
       <label class="field"><span>類型</span><select id="a-kind">
-        ${['cash', 'brokerage', 'card', 'loan', 'other']
-          .map((k) => html`<option value="${k}" ${k === s.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
+        ${KIND_ORDER.map((k) => html`<option value="${k}" ${k === s.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
       </select></label>
       <label class="field"><span>幣別</span><select id="a-cur">
         ${['TWD', 'USD'].map((c) => html`<option ${c === s.currency ? 'selected' : ''}>${c}</option>`)}
@@ -459,7 +458,7 @@ function renderPreview() {
 
       <div class="row spaced">
         <label class="field"><span>預設交易類型</span><select id="c-kind">
-          ${['other', 'expense', 'income', 'trade', 'dividend', 'fee'].map((k) => html`<option value="${k}">${kindName(k)}</option>`)}
+          ${TXN_KIND_ORDER.map((k) => html`<option value="${k}">${kindName(k)}</option>`)}
         </select></label>
         <label class="field"><span>把這組欄位對應記起來（下次一鍵套用）</span>
           <input id="c-savename" placeholder="例如：玉山銀行 活存"></label>

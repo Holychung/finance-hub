@@ -59,6 +59,7 @@ server/csp.js     the CSP, both of them — local 'self', hosted 'none'
 server/migrations.js  every schema version, in order — the only schema there is
 server/migrate.js     applies them; takes a handle, opens nothing, knows no paths
 server/db.js      connection, migrate-on-open, snapshot/backup helpers
+shared/kinds.js   what kinds of account and transaction exist — the only list
 shared/sha1.js    synchronous SHA-1, because the browser's is async
 shared/csv.js     decode, parse, map, dedup    (no DB access — pure functions)
 shared/money.js   the pure half: every `compute*`, plus round2 and the dates
@@ -88,6 +89,7 @@ test/paths.test.js   ledger location, profiles, the data-dir migration script
 test/migrate.test.js the schema migration runner
 test/seed.test.js    what the demo seeder must produce to be worth running
 test/money.test.js   the pure half of money.js, over plain arrays
+test/kinds.test.js   the kind list is complete, and the rules encoded in it
 test/sha1.test.js    SHA-1 against node:crypto, and shared/ loaded both ways
 test/storage.test.js the storage seam, and which adapter each origin gets
 test/demo-store.test.js  the demo adapter against a real server, route by route

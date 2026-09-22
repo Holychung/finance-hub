@@ -13,6 +13,11 @@
 // for `db` and if a `compute*` turns up with no loader of its own.
 
 (function (root) {
+  // Same two-environment require as `shared/csv.js` uses for sha1: a module in
+  // Node, a global the browser already loaded in index.html's order.
+  const { LIABILITY_KINDS } =
+    typeof module !== 'undefined' && module.exports ? require('./kinds') : root;
+
   const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
   // Every snapshot converts with the rate that was true on its own date, so
@@ -468,7 +473,10 @@
   // nothing anywhere that says the net worth is out by twice the balance. So it
   // is surfaced rather than assumed — and not refused, because a genuinely
   // overpaid card really is a positive balance.
-  const LIABILITY_KINDS = new Set(['card', 'loan']);
+  //
+  // Which kinds those are comes from `shared/kinds.js`, and is re-exported
+  // below so every caller that already reads it from here keeps working. The
+  // sign convention is a property of the kind, not of this file.
 
   // Takes an already-computed list so /api/overview does not walk every account
   // a second time inside the same request. The overstatement is quoted in the

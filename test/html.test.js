@@ -260,17 +260,31 @@ describe('前端靜態防線', () => {
 
   // There used to be a test here holding two copies of LIABILITY_KINDS in
   // step — one in `web/core.js`, one on the server — because the browser
-  // could not import from `server/money.js`. It can import from
-  // `shared/money.js`, so the copy is gone and the only thing left to check
-  // is that nobody declares a second one.
-  it('LIABILITY_KINDS 只有一份，就是 shared/money.js 那個', () => {
+  // could not import from `server/money.js`. It can import from `shared/`, so
+  // the copy is gone and the only thing left to check is that nobody declares
+  // a second one. It is derived in `shared/kinds.js` now, from the `liability`
+  // flag on each kind, and re-exported by `shared/money.js` so every caller
+  // that already read it from there still works.
+  it('LIABILITY_KINDS 只有一份，就是 shared/kinds.js 那個', () => {
     const local = FILES
-      .filter((f) => f.name !== 'shared/money.js')
+      .filter((f) => f.name !== 'shared/kinds.js')
       .filter((f) => /^\s*(?:const|let|var)\s+LIABILITY_KINDS\b/m.test(f.src));
     assert.deepEqual(local.map((f) => f.name), [],
       `${local.map((f) => f.name).join('、')} 又自己宣告了一份負債類型清單`);
     assert.match(SRC, /\bLIABILITY_KINDS\.has\(/,
-      '前端應該用 shared/money.js 匯出的 Set');
+      '前端應該用 shared/ 匯出的 Set');
+  });
+
+  // The whole point of shared/kinds.js: a seventh copy of the account kinds
+  // would look like an array literal with 'brokerage' in it, and nothing else
+  // would notice — the account would simply render with a raw English key.
+  it('帳戶類型清單只有一份，其他地方不准再寫一個字面陣列', () => {
+    const literal = /\[\s*'(?:cash|brokerage|card|loan|other)'(?:\s*,\s*'(?:cash|brokerage|card|loan|other)'\s*)+\]/;
+    const copies = FILES
+      .filter((f) => f.name !== 'shared/kinds.js')
+      .filter((f) => literal.test(f.src));
+    assert.deepEqual(copies.map((f) => f.name), [],
+      `${copies.map((f) => f.name).join('、')} 又寫了一份帳戶類型清單，用 KIND_ORDER`);
   });
 
   // round2 is the other one, and it is not so easily deleted: `shared/csv.js`
