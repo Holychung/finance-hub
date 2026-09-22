@@ -84,23 +84,11 @@ $('#modal').addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
-const KIND_LABEL = {
-  cash: '現金／存款', brokerage: '證券', card: '信用卡', loan: '貸款', other: '其他',
-  income: '收入', expense: '支出', transfer: '轉帳', trade: '買賣', dividend: '股利',
-  fee: '手續費', fx: '換匯', securities: '持股市值',
-};
-const kindName = (k) => KIND_LABEL[k] || k;
-
-// LIABILITY_KINDS is not declared here any more: it is the Set exported by
-// shared/money.js, which the browser loads before this file. There used to be
-// a second copy with a test holding the two in step, and the comment on that
-// test said why — the browser could not import from server/money.js. It can
-// now, so the copy went and the test with it.
-
-// Sidebar grouping order: what you spend from, then what you owe, then what
-// you hold. Anything with an unknown kind falls to the end rather than
-// vanishing.
-const KIND_ORDER = ['cash', 'card', 'brokerage', 'loan', 'other'];
+// `KIND_LABEL`, `kindName`, `KIND_ORDER` and `LIABILITY_KINDS` are not
+// declared here: they come off the global from shared/kinds.js, which
+// index.html loads before this file. They used to be copies — a label map and
+// a sort order here, array literals in two forms, defaults in two adapters —
+// and adding a kind meant editing all of them with nothing to catch a miss.
 
 // The segment after the view name: `#/account/7` → '7'.
 // Real paths, not `#/account/5`. The server hands index.html back for any

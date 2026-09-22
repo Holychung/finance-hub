@@ -354,7 +354,7 @@
       return {
         id: raw.insert('accounts', {
           institution_id: OPT(b.institution_id) === null ? null : N(b.institution_id),
-          name: S(b.name).trim(), kind: S(b.kind, 'cash'), currency: S(b.currency, 'TWD'),
+          name: S(b.name).trim(), kind: S(b.kind, DEFAULT_ACCOUNT_KIND), currency: S(b.currency, 'TWD'),
           opening_balance: N(b.opening_balance), opening_date: S(b.opening_date, '2020-01-01'),
           is_active: B(b.is_active), sort_order: N(b.sort_order), note: S(b.note),
         }).id,
@@ -423,7 +423,7 @@
       const desc = S(b.description);
       return raw.insert('txns', {
         account_id: accountId, date, amount, description: desc,
-        category: S(b.category), kind: S(b.kind, 'other'),
+        category: S(b.category), kind: S(b.kind, DEFAULT_TXN_KIND),
         transfer_group: null,
         source: S(b.source, 'manual'), external_id: OPT(b.external_id),
         fingerprint: S(b.fingerprint) || csv.fingerprint(accountId, date, amount, desc),
@@ -828,7 +828,7 @@
             account_id: accountId, date: r.date, amount: r.amount,
             description: r.description,
             category: r.category || R.categorise(r.description, ruleList),
-            kind: S(b.default_kind, 'other'),
+            kind: S(b.default_kind, DEFAULT_TXN_KIND),
             source: 'csv', external_id: r.externalId, fingerprint: r.fingerprint,
           }, imp.id);
         }

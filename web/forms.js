@@ -17,7 +17,7 @@ function accountForm(acct, institutions) {
         ${institutions.map((i) => html`<option value="${i.id}" ${i.id === a.institution_id ? 'selected' : ''}>${i.name}</option>`)}
       </select></label>
       <label class="field"><span>類型</span><select id="f-kind">
-        ${['cash', 'brokerage', 'card', 'loan', 'other'].map((k) => html`<option value="${k}" ${k === a.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
+        ${KIND_ORDER.map((k) => html`<option value="${k}" ${k === a.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
       </select></label>
       <label class="field"><span>幣別</span><select id="f-cur">
         ${['TWD', 'USD'].map((c) => html`<option ${c === a.currency ? 'selected' : ''}>${c}</option>`)}
@@ -120,8 +120,7 @@ function txnForm(txn, accounts) {
     <div class="row">
       <label class="field"><span>金額（流入為正，流出為負）</span><input id="t-amt" type="number" step="0.01" value="${t.amount}" placeholder="-1200"></label>
       <label class="field"><span>類型</span><select id="t-kind">
-        ${['other', 'income', 'expense', 'trade', 'dividend', 'fee', 'fx']
-          .map((k) => html`<option value="${k}" ${k === t.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
+        ${TXN_KIND_ORDER.map((k) => html`<option value="${k}" ${k === t.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
       </select></label>
     </div>
     <label class="field"><span>摘要</span><input id="t-desc" value="${t.description}"></label>

@@ -7,6 +7,7 @@ const csv = require('../shared/csv');
 const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
+const { DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND } = require('../shared/kinds');
 
 // node:sqlite only binds null/number/bigint/string/Uint8Array.
 const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
@@ -99,7 +100,7 @@ on('POST', '/api/accounts', (_p, b) => {
     )
     .run(
       OPT(b.institution_id) === null ? null : N(b.institution_id),
-      S(b.name).trim(), S(b.kind, 'cash'), S(b.currency, 'TWD'),
+      S(b.name).trim(), S(b.kind, DEFAULT_ACCOUNT_KIND), S(b.currency, 'TWD'),
       N(b.opening_balance), S(b.opening_date, '2020-01-01'),
       B(b.is_active), N(b.sort_order), S(b.note)
     );
@@ -170,7 +171,7 @@ function insertTxn(b, importId = null) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
-      accountId, date, amount, desc, S(b.category), S(b.kind, 'other'),
+      accountId, date, amount, desc, S(b.category), S(b.kind, DEFAULT_TXN_KIND),
       S(b.source, 'manual'), OPT(b.external_id),
       S(b.fingerprint) || csv.fingerprint(accountId, date, amount, desc),
       importId, S(b.note), now()
@@ -667,7 +668,7 @@ on('POST', '/api/import/commit', (_p, b) => {
           account_id: accountId, date: r.date, amount: r.amount,
           description: r.description,
           category: r.category || R.categorise(r.description, ruleList),
-          kind: S(b.default_kind, 'other'),
+          kind: S(b.default_kind, DEFAULT_TXN_KIND),
           source: 'csv', external_id: r.externalId, fingerprint: r.fingerprint,
         },
         importId
