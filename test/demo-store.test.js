@@ -191,6 +191,8 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/spending?from=2026-01-01&to=2026-09-30',
     '/api/recurring?from=2025-01-01&to=2026-09-30',
     '/api/export/json',
+    '/api/accounts/1/series?to=2026-09-30',
+    '/api/accounts/5/series?to=2026-09-30',
   ];
 
   for (const p of SAME) {
@@ -237,6 +239,20 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     assert.deepEqual(a.summary, b.summary, '每一種狀態的筆數');
     assert.deepEqual(a.reconcile, b.reconcile, '匯入後會不會對得上');
     assert.deepEqual(a.rows, b.rows, '每一行的指紋、狀態、金額');
+  });
+
+  // A retirement plan's history, previewed with no account: the rows held
+  // back, the kind each imported row carries and the account it suggests all
+  // come from shared/csv.js, and both sides have to report them the same.
+  it('退休計畫的交易紀錄，兩邊預覽出同一批資料列和同一個建議', async () => {
+    const content_base64 = fs.readFileSync(path.join(FIXTURES, 'fidelity-401k.csv')).toString('base64');
+    const body = { filename: 'fidelity-401k.csv', content_base64 };
+    const [a, b] = [await demo.post('/api/import/preview', body), await live.post('/api/import/preview', body)];
+    assert.deepEqual(a.mapping, b.mapping);
+    assert.deepEqual(a.summary, b.summary);
+    assert.equal(a.summary.internal, 9);
+    assert.deepEqual(a.rows, b.rows);
+    assert.deepEqual(a.suggested_account, b.suggested_account);
   });
 
   it('同一份對帳單，兩邊匯入後的帳本一致', async () => {

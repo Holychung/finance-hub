@@ -74,6 +74,21 @@ function netWorthSeries(from, to, access = null) {
   return computeNetWorthSeries({ accounts, txns, from, to, access });
 }
 
+// One account's month-end balance: the same walk as the net worth series over
+// a book of one, so the account page's line and the overview's cannot tell
+// the same account's history two different ways. It starts on the opening
+// date for the same reason the overview's does.
+function accountSeries(id, to = todayISO()) {
+  const accounts = db.prepare('SELECT id, currency, opening_balance, opening_date, access FROM accounts WHERE id = ?').all(id);
+  if (!accounts.length) return null;
+  const txns = db
+    .prepare('SELECT account_id, date, amount FROM txns WHERE account_id = ? AND date <= ? ORDER BY date')
+    .all(id, to);
+  const [a] = accounts;
+  const from = a.opening_date || (txns[0] && txns[0].date) || to;
+  return computeNetWorthSeries({ accounts, txns, from, to })[a.currency] || [];
+}
+
 function coverage({ to = todayISO(), months = COVERAGE_MONTHS } = {}) {
   const accounts = db
     .prepare('SELECT id, name, kind, currency, opening_date, is_active FROM accounts ORDER BY sort_order, id')
@@ -148,7 +163,7 @@ module.exports = {
 
   // Load the rows, then call the matching compute* in shared/money.js.
   baseCurrency, buildFxLookup, buildPriceLookup, accountsWithBalances, holdingsValued,
-  netWorth, netWorthSeries, coverage, reconcile, findTransferCandidates,
+  netWorth, netWorthSeries, accountSeries, coverage, reconcile, findTransferCandidates,
 
   // Writes. Still the odd ones out; nothing needs them pure yet.
   applyTransferPairs, unlinkTransfer,

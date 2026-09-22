@@ -37,8 +37,9 @@
 //                    and a row carrying any error gets a null fingerprint —
 //                    markDuplicates derives status from the fingerprint, so a
 //                    row that keeps one imports no matter what else is wrong.
-//                    The one thing that holds back a well-formed row is
-//                    `pending`: the bank has not finished writing it yet.
+//                    Two things hold back a well-formed row: `pending`, the
+//                    bank has not finished writing it, and `internal`, a
+//                    plan's history says it moves no money in or out.
 //
 //   checkBalanceChain  Every cell of a `ragged` row came from a shifted
 //                    position, the balance included, so it may not anchor on
@@ -245,7 +246,9 @@
     // `Type` too — so guessMapping reads the cells before believing the header.
     type: ['交易類型', '交易別', '借貸別', '收支別', '收支', 'transaction type', 'debit/credit', 'dr/cr', 'type'],
     amount: ['交易金額', '金額', '發生金額', 'amount', 'transaction amount', 'value'],
-    desc: ['摘要', '說明', '交易說明', '備註', '註記', '對方戶名', '商店名稱', '交易類別', 'description', 'payee', 'name', 'memo', 'details', 'merchant'],
+    // `investment` is what a retirement plan's history names each row by: the
+    // fund the money went into or came out of.
+    desc: ['摘要', '說明', '交易說明', '備註', '註記', '對方戶名', '商店名稱', '交易類別', 'description', 'payee', 'name', 'memo', 'details', 'merchant', 'investment'],
     externalId: ['交易序號', '序號', 'reference', 'transaction id', 'fitid', 'id'],
     balance: ['餘額', '帳戶餘額', '結存', '本日餘額', 'running bal.', 'running balance', 'balance', 'ending balance'],
     // Not `type`: a Chase card names its Sale/Payment/Return column that, which
@@ -353,6 +356,45 @@
     return read > 0 && read >= (read + unread) * 0.9;
   }
 
+  // What a row in a retirement plan's history is. Fidelity's plan download
+  // writes one word per row in its `Transaction Type` column, and two of them
+  // move no money into or out of the plan at all. An exchange sells one fund
+  // to buy another inside the same account, so its legs net to nothing. A
+  // realized gain/loss line reports a gain that is already inside the
+  // exchange beside it. Imported as flows, an exchange becomes an expense and
+  // an income of the same amount, and a gain line adds money nobody put in.
+  //
+  // So those two are held back, the way a pending row is, and the rest import
+  // as the transaction kind their word names. Exact words, never substrings,
+  // and an unrecognised word is a real flow, imported as any row would be:
+  // this check only ever holds a row back, never lets one in.
+  const PLAN_ACTIVITY = [
+    { word: 'contributions', kind: 'income' },
+    { word: 'dividend', kind: 'dividend' },
+    { word: 'exchanges', internal: true },
+    { word: 'realized gain/loss', internal: true },
+  ];
+
+  function planActivity(value) {
+    const v = norm(value);
+    return (v && PLAN_ACTIVITY.find((a) => norm(a.word) === v)) || null;
+  }
+
+  // Whether a type column that is not a direction column says what each row
+  // is in a plan's own words. Only the cells can say so, as for a direction
+  // column: Chase heads its Sale/Payment/Return column `Type` as well. Most of
+  // the rows have to carry one of the words; an unknown word on a few rows
+  // does not unmake the column, it only imports those rows as flows.
+  function activityColumn(rows, typeCol, amountCol) {
+    let read = 0, unread = 0;
+    for (const r of rows) {
+      if (parseAmount(r[amountCol]) === null) continue;
+      if (planActivity(r[typeCol])) read++;
+      else unread++;
+    }
+    return read > 0 && read > (read + unread) / 2;
+  }
+
   // Plenty of statements do not start with the header row: Bank of America opens
   // with a five-line summary block, Taiwanese exports often prepend the account
   // number and the query range. Take the first fully populated row that names
@@ -410,6 +452,9 @@
     // question, so it cannot consume a column in a file that has no use for it.
     const typeCol = hasInOut || amountCol === null ? null : pick(HINTS.type);
     const typed = typeCol !== null && directionColumn(rows, typeCol, amountCol);
+    // A type column that turned out not to give directions may still say what
+    // each row is — a retirement plan's history does. See activityColumn.
+    const activityCol = typeCol !== null && !typed && activityColumn(rows, typeCol, amountCol) ? typeCol : null;
 
     let dateFormat = 'auto';
     if (dateCol !== null && rows.length) {
@@ -430,6 +475,7 @@
       // Only when it earned the mode. A column we decided is not a direction
       // column has no business sitting in the mapping as if it were.
       typeCol: typed ? typeCol : null,
+      activityCol,
       balanceCol,
       descCols: descCol === null ? [] : [descCol],
       externalIdCol,
@@ -633,6 +679,10 @@
       // the reason it is actually being skipped.
       const pending = isPending(cell(r, mapping.statusCol));
 
+      // What the row is, when a plan's history says: whether it moves money at
+      // all, and the kind it imports as if it does. See PLAN_ACTIVITY.
+      const activity = planActivity(cell(r, mapping.activityCol));
+
       const errors = [];
       // A row that does not line up with the header did not parse the way the
       // file meant it, so every column index in it is suspect. Refuse it rather
@@ -663,6 +713,8 @@
         repaired,
         ragged,
         pending,
+        internal: !!(activity && activity.internal),
+        kind: (activity && activity.kind) || null,
         description,
         category,
         externalId,
@@ -736,6 +788,9 @@
       // carrying both the pending row and the posted one it became would mark
       // the posted row a duplicate of a row that was never written.
       if (row.pending) { row.status = 'pending'; continue; }
+      // Same reasoning, for a row that moves no money: it never imports, so it
+      // takes no duplicate slot a real row might need.
+      if (row.internal) { row.status = 'internal'; continue; }
       if (row.externalId && existingCounts.externalIds.has(row.externalId)) {
         row.status = 'duplicate';
         row.dupReason = '交易序號已存在';
@@ -798,14 +853,20 @@
     // that is almost entirely outflows is a card statement.
     const amounts = rows.map((r) => r.amount).filter((a) => a !== null && a !== undefined);
     const mostlyOut = amounts.length > 0 && amounts.filter((a) => a < 0).length > amounts.length * 0.8;
-    const kind = has('categoryCol') || (!has('balanceCol') && mostlyOut) ? 'card' : 'cash';
+    // A column of contributions, dividends and exchanges is a retirement plan's
+    // history, and says so as plainly as a category column says card. Checked
+    // first: that file has no balance column and is nearly all inflows, which
+    // the rules below would otherwise read as a deposit account.
+    const plan = has('activityCol');
+    const kind = plan ? 'retirement'
+      : has('categoryCol') || (!has('balanceCol') && mostlyOut) ? 'card' : 'cash';
 
     // A category column means a card and a balance column means a deposit
     // account; either way the file said so. Without one, the guess rests on the
     // amounts leaning one way, which a short statement barely supports — a
     // two-row card export looks exactly like a quiet month of checking. Say when
     // it is a guess rather than presenting it as read from the file.
-    const kindConfident = has('categoryCol') || has('balanceCol');
+    const kindConfident = plan || has('categoryCol') || has('balanceCol');
 
     // Nothing in these files states a currency. The one thing that does travel
     // with it is the locale of the statement itself.
@@ -835,6 +896,9 @@
       notes.push(`期初餘額是從最早一筆（${first.date}）的餘額倒推的：${first.balance} − (${first.amount})。`);
     } else if (kind === 'card') {
       notes.push('信用卡對帳單沒有餘額欄，期初欠款推不出來——請自己填，**欠款是負數**。');
+    } else if (plan) {
+      notes.push('這是退休計畫的交易紀錄：提撥和配息會匯進來，基金之間的轉換和已實現損益沒有動到計畫裡有多少錢，不匯入。');
+      notes.push('檔案沒有餘額欄，所以匯進來的是放進去的錢，不含市值漲跌。期初餘額請自己填；紀錄從計畫開始算的話就是 0。');
     } else {
       notes.push('這個檔案沒有餘額欄，期初餘額推不出來，請自己填。');
     }
@@ -848,7 +912,9 @@
 
     const label = bank && last4 ? `${bank} ...${last4}` : bank || (last4 ? `...${last4}` : '');
     return {
-      institution: bank ? { name: bank, kind: kind === 'card' ? 'card' : 'bank', country: currency === 'TWD' ? 'TW' : 'US' } : null,
+      institution: bank
+        ? { name: bank, kind: kind === 'card' ? 'card' : plan ? 'broker' : 'bank', country: currency === 'TWD' ? 'TW' : 'US' }
+        : null,
       name: label,
       kind,
       kind_confident: kindConfident,

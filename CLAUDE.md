@@ -135,7 +135,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-485 tests across 80 suites cover Big5 decoding, ROC dates, two-digit years,
+498 tests across 81 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -144,7 +144,8 @@ price-history lookup (latest at or before a date, and nothing dragged back
 before the first observation) and the v6 backfill that seeds it,
 pre-import backup, balance reconciliation, import revert, CSV BOM, the three
 request guards and the CSP, the malformed-statement handling below, the
-pipeline invariant over every bank fixture, pending rows never importing, the
+pipeline invariant over every bank fixture, pending rows and a retirement
+plan's exchanges never importing, the
 zero-dependency and no-outbound rules, the ledger location rules, the
 schema migration runner, the pure half of `money.js`, the demo adapter
 answering the same as a real server, the demo book being one definition the
@@ -443,6 +444,22 @@ of the duplicate slots the posted row will need. Only a word that positively
 means "not final yet" holds a row back (`PENDING_WORDS`): an unrecognised
 status is a final status, so the check can only ever cost an import a row,
 never let one through.
+
+**A row that moves no money must not be imported either.** A retirement
+plan's history (Fidelity's) says what each row is in `Transaction Type`. An
+`Exchanges` row sells one fund to buy another inside the same plan, and the
+day's legs net to zero; a `Realized Gain/Loss` row reports a gain already
+inside the exchange beside it. Imported, the first is an expense and an
+income of the same amount in the spending breakdown, and the second is money
+nobody put in — and both parse perfectly. `markDuplicates` gives them status
+`internal`, before the dedup like `pending`, and the rows that do import
+carry the kind their word names (`Contributions` → income, `Dividend` →
+dividend) instead of the import's single default. The column is recognised
+by its cells (`activityColumn`), never its header: Chase's `Type` and Capital
+One's `Transaction Type` would otherwise qualify. Only the plan's exact words
+count, so the check only ever holds a row back. With no balance column, what
+such a file imports is the money put in, not the market value, and the
+account page says so.
 
 ## Where the ledger lives
 

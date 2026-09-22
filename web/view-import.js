@@ -304,6 +304,12 @@ function renderPreview() {
     ? html`<div class="card kpi"><div class="label">未入帳</div>
         <div class="value dim">${p.summary.pending}</div></div>`
     : '';
+  // A fifth, for the same reason and on the same terms: only a retirement
+  // plan's history has rows that move no money, so it shows only there.
+  const internalKpi = p.summary.internal
+    ? html`<div class="card kpi"><div class="label">不影響餘額</div>
+        <div class="value dim">${p.summary.internal}</div></div>`
+    : '';
 
   mount($('#imp-result'), html`
     <section class="card">
@@ -352,6 +358,7 @@ function renderPreview() {
         <label class="field"><span>餘額欄（有的話逐行對帳）</span><select id="m-balance">${colOpts(m.balanceCol)}</select></label>
         <label class="field"><span>分類欄（信用卡常有）</span><select id="m-category">${colOpts(m.categoryCol)}</select></label>
         <label class="field"><span>狀態欄（Pending 的不匯入）</span><select id="m-status">${colOpts(m.statusCol)}</select></label>
+        <label class="field"><span>交易類型欄（退休計畫的轉換和損益不匯入）</span><select id="m-activity">${colOpts(m.activityCol)}</select></label>
       </div>
       <button class="sm" id="m-apply">套用對應，重新預覽</button>
     </section>
@@ -362,6 +369,7 @@ function renderPreview() {
         <div class="card kpi"><div class="label">將匯入</div><div class="value pos">${p.summary.new}</div></div>
         <div class="card kpi"><div class="label">重複略過</div><div class="value dim">${p.summary.duplicate}</div></div>
         ${pendingKpi}
+        ${internalKpi}
         <div class="card kpi"><div class="label">解析失敗</div><div class="value ${p.summary.error ? 'neg' : 'dim'}">${p.summary.error}</div></div>
         ${p.reconcile ? html`<div class="card kpi">
           <div class="label">匯入後餘額</div>
@@ -411,11 +419,17 @@ function renderPreview() {
         等它入帳之後再下載一次，就會自動補進來。
       </div>` : ''}
 
+      ${p.summary.internal ? html`<div class="note">
+        有 ${p.summary.internal} 行是基金之間的轉換或已實現損益，不匯入：轉換是在同一個計畫裡賣一檔、買另一檔，
+        錢沒有進出；損益那行只是報告那次轉換賺賠多少，數字已經在轉換裡了。匯進來的話，轉換會變成一筆支出加一筆收入，
+        損益會變成憑空多出來的錢。
+      </div>` : ''}
+
       <div class="table-wrap scroll">
         <table>
           <thead><tr><th class="col-check"></th><th>行</th><th>日期</th><th class="num">金額</th><th>摘要</th><th>狀態</th></tr></thead>
           <tbody>${p.rows.map((r) => html`
-            <tr class="${r.status === 'duplicate' ? 'dup'
+            <tr class="${r.status === 'duplicate' || r.status === 'internal' ? 'dup'
               : r.status === 'error' ? 'err'
               : r.status === 'pending' ? 'pend'
               : r.repaired || r.balanceBreak !== undefined ? 'fixed' : ''}">
@@ -430,6 +444,7 @@ function renderPreview() {
                 r.status === 'new' ? html`<span class="pill green">新</span>`
                 : r.status === 'duplicate' ? html`<span class="pill">重複</span> <span class="dim">${r.dupReason || ''}</span>`
                 : r.status === 'pending' ? html`<span class="pill amber">未入帳</span> <span class="dim">等它入帳再匯</span>`
+                : r.status === 'internal' ? html`<span class="pill">不影響餘額</span> <span class="dim">轉換或損益，錢沒有進出</span>`
                 : html`<span class="pill rose">錯誤</span> <span class="dim">${(r.errors || []).join('；')}</span>`
               }${r.repaired ? html` <span class="pill amber">已修復欄位</span>` : ''
               }${r.balanceBreak !== undefined ? html` <span class="pill amber">餘額差 ${signed(r.balanceBreak, cur)}</span>` : ''}</td>
@@ -538,6 +553,7 @@ function readMapping() {
     balanceCol: val('#m-balance'),
     categoryCol: val('#m-category'),
     statusCol: val('#m-status'),
+    activityCol: val('#m-activity'),
     invert: $('#m-invert') ? $('#m-invert').checked : false,
   };
 }

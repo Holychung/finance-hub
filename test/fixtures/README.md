@@ -59,6 +59,7 @@ directory — so there is no separate list to keep in step.
 | `capitalone-360-checking.csv` | Capital One deposit export: an **unsigned** `Transaction Amount` with the direction in `Transaction Type`, `MM/DD/YY` two-digit years, a running balance, newest first | LF |
 | `capitalone-venture-card.csv` | Capital One card export: two date columns (`Posted Date`, spelled unlike Chase's), `Debit`/`Credit` in two columns, a `Category` column, no balance column | LF |
 | `capitalone-venture-card-empty.csv` | What Capital One hands back for a year with no activity: the header row and nothing else | LF |
+| `fidelity-401k.csv` | Fidelity retirement plan history: a blank line, a `Plan name:` line and a `Date Range` line above the header, one signed `Amount`, a `Transaction Type` saying what each row is, a `Shares/Unit` column, newest first, no balance column | LF |
 
 The 換行 column is not a typo. Citi and Capital One ship LF, the others ship
 CRLF, and both have to parse — `.gitattributes` marks the directory `-text` so
@@ -137,6 +138,31 @@ Sums to **-722.93**.
 
 - a real download that contains no rows, which must preview as an empty file
   rather than as an error
+
+`fidelity-401k.csv`
+
+- a preamble above the header: a blank first line, a plan-name line whose
+  name carries an **unquoted comma** (so that line splits into one cell more
+  than it means) and trailing spaces, a `Date Range` line padded with empty
+  cells, and two blank lines. The header has to be found under all of it
+- `Investment` as the description: it names the fund, and nothing else in the
+  file says which row is which
+- `Transaction Type` saying what each row is, in four words. `Contributions`
+  and `Dividend` import, as income and as a dividend. `Exchanges` and
+  `Realized Gain/Loss` move no money in or out of the plan and must not
+  import at all
+- an exchange where one fund's money goes into two others on the same day,
+  and one where it comes back out a month later, each with its gain/loss line
+- amounts and units quoted with thousands separators, negative on the leg
+  that leaves a fund; units to three places, and a stable-value fund whose
+  units equal its dollars
+- no balance column, so nothing to chain and no opening balance to derive
+
+Everything that imports sums to **13,450.00**: eleven contributions of 1,150.00
+and five dividends worth 800.00. The two gain/loss lines would add 163.05 that
+nobody put in, and every exchange date nets to zero, so an exchange imported
+as a flow shows up as an expense and an income of the same amount rather than
+in the total.
 
 ## Adding a bank
 

@@ -176,6 +176,15 @@ on('DELETE', '/api/accounts/:id', (p) => ({
   deleted: db.prepare('DELETE FROM accounts WHERE id = ?').run(N(p.id)).changes,
 }));
 
+// The account page's line. `to` defaults to today and can be pinned, so the
+// same question can be asked of the demo adapter and get the same answer.
+on('GET', '/api/accounts/:id/series', (p, _b, q) => {
+  const to = q.to ? csv.parseDate(q.to, 'auto') || bad(`日期無法解析：${q.to}`) : M.todayISO();
+  const points = M.accountSeries(N(p.id), to);
+  if (!points) missing('帳戶不存在');
+  return points;
+});
+
 // --- transactions ----------------------------------------------------------
 
 on('GET', '/api/txns', (_p, _b, q) => {
@@ -631,7 +640,7 @@ on('POST', '/api/import/preview', (_p, b) => {
 
   const summary = rows.reduce(
     (acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; },
-    { new: 0, duplicate: 0, error: 0, pending: 0 }
+    { new: 0, duplicate: 0, error: 0, pending: 0, internal: 0 }
   );
   const fresh = rows.filter((r) => r.status === 'new');
   const net = M.round2(fresh.reduce((s, r) => s + r.amount, 0));
@@ -790,7 +799,9 @@ on('POST', '/api/import/commit', (_p, b) => {
           account_id: accountId, date: r.date, amount: r.amount,
           description: r.description,
           category: r.category || R.categorise(r.description, ruleList),
-          kind: S(b.default_kind, DEFAULT_TXN_KIND),
+          // A row that names its own kind — a plan's contribution or dividend
+          // — keeps it, the way a file's own category beats a rule.
+          kind: r.kind || S(b.default_kind, DEFAULT_TXN_KIND),
           source: 'csv', external_id: r.externalId, fingerprint: r.fingerprint,
         },
         importId

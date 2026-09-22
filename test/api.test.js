@@ -246,6 +246,13 @@ const CITI_POSTED = CITI_CSV
   .replace('Pending,09-18-2026', 'Cleared,09-21-2026')
   .replace('CASCADE OUTDOOR CO",165.00', 'CASCADE OUTDOOR CO",183.00');
 
+// A retirement plan's history in Fidelity's shape: a blank line, a plan-name
+// line whose name carries an unquoted comma, a date-range line and two more
+// blank lines above the header; newest first; amounts and units quoted with
+// thousands separators. Contributions and dividends move money in. Exchanges
+// between funds, and the realized gain/loss lines beside them, move none.
+const FIDELITY_401K_CSV = fixture('fidelity-401k.csv');
+
 // Every statement shape, so the pipeline guard below runs each of them through
 // the combination that has broken it twice. Adding a bank means adding its
 // fixture here; nothing else.
@@ -261,6 +268,7 @@ const BANK_FIXTURES = [
   ['Citi card 2026', CITI_CARD_2026_CSV],
   ['Capital One checking', C1_CHECKING_CSV],
   ['Capital One card', C1_CARD_CSV],
+  ['Fidelity 401(k)', FIDELITY_401K_CSV],
 ];
 
 // --- lifecycle -------------------------------------------------------------
@@ -2629,5 +2637,97 @@ describe('退休金帳戶', () => {
     await PUT(`/api/accounts/${id}`, { name: '改名' });
     assert.equal((await find(id)).unvested, 500, '沒帶就維持原本的');
     await assert.rejects(() => POST('/api/accounts', { name: 'x', currency: 'USD', unvested: -5 }), /unvested/);
+  });
+});
+
+// The file is built so its arithmetic can be checked end to end. The rows
+// that import add up to 13,450.00 exactly: eleven contributions of 1,150.00
+// and five dividends worth 800.00 between them. The two realized gain/loss
+// lines would add 163.05 nobody put in, and every exchange date nets to
+// zero, so an exchange imported as a flow is an expense and an income of the
+// same amount. Last in the file because it adds a USD account, and suites
+// above count accounts and USD totals outright.
+describe('Fidelity 的 401(k) 交易紀錄', () => {
+  const plan = {};
+  const preview = (body) => POST('/api/import/preview', { content_base64: b64(FIDELITY_401K_CSV), ...body });
+
+  after(async () => {
+    if (plan.id) await DEL(`/api/accounts/${plan.id}`);
+  });
+
+  it('標題列在計畫名稱和日期區間那幾行之後，欄位對得到', async () => {
+    const p = await preview({ filename: 'fidelity-401k.csv' });
+    plan.mapping = p.mapping;
+    assert.deepEqual(p.headers, ['Date', 'Investment', 'Transaction Type', 'Amount', 'Shares/Unit']);
+    assert.equal(p.mapping.amountMode, 'single', '一欄、自帶正負號');
+    assert.equal(p.headers[p.mapping.dateCol], 'Date');
+    assert.equal(p.headers[p.mapping.amountCol], 'Amount');
+    assert.deepEqual(p.mapping.descCols.map((i) => p.headers[i]), ['Investment'], '摘要是那一行的基金');
+    assert.equal(p.headers[p.mapping.activityCol], 'Transaction Type');
+    assert.equal(p.mapping.typeCol, null, '交易類型說的是這行是什麼，不是錢往哪走');
+    assert.equal(p.summary.error, 0);
+    assert.equal(p.summary.total, 25);
+  });
+
+  it('轉換和已實現損益擋下來，提撥和配息各自帶著類型匯入', async () => {
+    const p = await preview({ mapping: plan.mapping });
+    assert.equal(p.summary.internal, 9, '七行轉換、兩行已實現損益');
+    assert.equal(p.summary.new, 16);
+    near(p.summary.net, 13450, '十一筆提撥加五筆配息；多出 163.05 就是損益被匯進來了');
+    const kinds = new Set(p.rows.filter((r) => r.status === 'new').map((r) => r.kind));
+    assert.deepEqual([...kinds].sort(), ['dividend', 'income']);
+  });
+
+  // The one place the file's word has to reach the ledger: without it every
+  // row would take the import's single default kind.
+  it('建議開成退休金帳戶、美元，而且是檔案說的，不是用金額猜的', async () => {
+    const s = (await preview({ filename: 'fidelity-401k.csv' })).suggested_account;
+    assert.equal(s.kind, 'retirement');
+    assert.ok(s.kind_confident);
+    assert.equal(s.currency, 'USD');
+    assert.equal(s.opening_source, null, '沒有餘額欄，推不出期初');
+    assert.ok(s.notes.some((n) => /放進去的錢/.test(n)), '要說清楚匯進來的不含市值漲跌');
+  });
+
+  it('匯進退休金帳戶：餘額剛好 13,450，沒有任何一筆流出', async () => {
+    plan.id = (await POST('/api/accounts', {
+      name: '401(k)', kind: 'retirement', currency: 'USD', opening_balance: 0, opening_date: '2025-10-01',
+    })).id;
+    const r = await POST('/api/import/commit', {
+      account_id: plan.id, content_base64: b64(FIDELITY_401K_CSV), mapping: plan.mapping, filename: 'fidelity-401k.csv',
+    });
+    assert.equal(r.imported, 16);
+    near((await GET('/api/accounts')).find((a) => a.id === plan.id).balance, 13450);
+    const txns = (await GET(`/api/txns?account=${plan.id}&limit=100`)).rows;
+    assert.equal(txns.filter((t) => t.kind === 'income').length, 11, '提撥');
+    assert.equal(txns.filter((t) => t.kind === 'dividend').length, 5, '配息');
+    assert.ok(!txns.some((t) => t.amount < 0), '轉換流出的那一腳沒有進來');
+  });
+
+  it('同一份再匯一次，什麼都不會多，擋下的照樣擋下', async () => {
+    const p = await preview({ account_id: plan.id, mapping: plan.mapping });
+    assert.equal(p.summary.new, 0);
+    assert.equal(p.summary.duplicate, 16);
+    assert.equal(p.summary.internal, 9, '不匯入的行也不佔重複的位子');
+  });
+
+  it('帳戶頁的線：從開戶那個月起每個月底一點，最後一點就是餘額', async () => {
+    const pts = await GET(`/api/accounts/${plan.id}/series?to=2026-09-30`);
+    assert.deepEqual(pts[0], { date: '2025-10-31', value: 1150 }, '十月只有一筆提撥');
+    assert.deepEqual(pts[pts.length - 1], { date: '2026-09-30', value: 13450 });
+    assert.equal(pts.length, 12);
+    await assert.rejects(() => GET('/api/accounts/999999/series'), /404/);
+  });
+
+  // The column is recognised by its cells, never its header. Chase heads its
+  // Sale/Payment/Return column `Type` and Capital One's direction column is
+  // `Transaction Type`, and neither may start holding rows back.
+  it('其他每一家的檔案都不會被當成退休計畫的紀錄', async () => {
+    for (const [name, text] of BANK_FIXTURES) {
+      if (text === FIDELITY_401K_CSV) continue;
+      const p = await POST('/api/import/preview', { content_base64: b64(text) });
+      assert.equal(p.mapping.activityCol, null, `${name} 被認出了交易類型欄`);
+      assert.equal(p.summary.internal, 0, `${name} 有行被當成不影響餘額`);
+    }
   });
 });
