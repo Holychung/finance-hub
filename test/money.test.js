@@ -197,6 +197,68 @@ describe('computeNetWorth', () => {
   });
 });
 
+// Unvested is the one retirement figure that is arithmetic, and the rule is
+// where it is subtracted: from net worth, never from the balance. The balance
+// is what the statement says, unvested share included, and it is what every
+// balance check is compared against.
+describe('computeNetWorth — 未歸屬', () => {
+  const plan = { ...acct({ id: 1, currency: 'USD', kind: 'retirement', tax_status: 'pretax', unvested: 2940 }), balance: 41850 };
+  const cash = { ...acct({ id: 2, currency: 'USD', kind: 'cash' }), balance: 5000 };
+
+  it('從淨值扣掉，餘額本身不動', () => {
+    const usd = M.computeNetWorth({ accounts: [plan, cash], holdings: [] }).currencies.USD;
+    assert.equal(usd.ledger, 46850, '帳戶合計照樣是對帳單上的總額');
+    assert.equal(usd.unvested, 2940);
+    assert.equal(usd.total, 43910);
+    assert.equal(usd.by_kind.retirement, 41850, '退休金那一列是餘額，不是扣過的');
+  });
+
+  // The breakdown is shares of the total, so the rows have to add up to it.
+  it('依類型的每一列加起來還是淨值，未歸屬是負的那一列', () => {
+    const usd = M.computeNetWorth({ accounts: [plan, cash], holdings: [] }).currencies.USD;
+    assert.equal(usd.by_kind.unvested, -2940);
+    const sum = Object.values(usd.by_kind).reduce((s, v) => s + v, 0);
+    assert.equal(Math.round(sum * 100) / 100, usd.total);
+  });
+
+  // Why it is its own row and not taken off the kind: a plan held entirely in
+  // funds has a cash balance of zero.
+  it('全部放在基金裡、現金是 0 的計畫，退休金那一列也不會變成負的', () => {
+    const inFunds = { ...plan, balance: 0 };
+    const usd = M.computeNetWorth({
+      accounts: [inFunds], holdings: [{ currency: 'USD', market_value: 41850 }],
+    }).currencies.USD;
+    assert.equal(usd.total, 38910);
+    assert.equal(usd.by_kind.retirement, 0);
+    assert.equal(usd.by_kind.unvested, -2940);
+  });
+
+  // Face value, never discounted: nothing here may read tax_status.
+  it('同樣餘額的 Roth 和稅前帳戶，算出來一模一樣', () => {
+    const nwOf = (tax_status) => M.computeNetWorth({ accounts: [{ ...plan, tax_status }], holdings: [] }).currencies.USD;
+    assert.deepEqual(nwOf('roth'), nwOf('pretax'));
+    assert.deepEqual(nwOf('aftertax'), nwOf(null));
+    assert.ok(!/\btax_status\b/.test(MONEY_SRC.replace(/\/\/[^\n]*/g, '')), 'shared/money.js 不該讀 tax_status');
+  });
+
+  it('沒有未歸屬的幣別，total 還是帳戶加持股，也沒有未歸屬那一列', () => {
+    const usd = M.computeNetWorth({ accounts: [cash], holdings: [] }).currencies.USD;
+    assert.equal(usd.unvested, 0);
+    assert.equal(usd.total, 5000);
+    assert.ok(!('unvested' in usd.by_kind));
+  });
+
+  // The series is ledger only, and its last point is today's summed balance.
+  // Unvested stays out of both, so that invariant does not move.
+  it('淨值走勢不扣未歸屬', () => {
+    const series = M.computeNetWorthSeries({
+      accounts: [acct({ id: 1, currency: 'USD', kind: 'retirement', opening_balance: 41850, unvested: 2940 })],
+      txns: [], from: '2026-01-01', to: '2026-03-31',
+    });
+    assert.equal(series.USD[series.USD.length - 1].value, 41850);
+  });
+});
+
 describe('computeNetWorthSeries', () => {
   const accounts = [
     { id: 1, currency: 'TWD', opening_balance: 1000, opening_date: '2026-01-01' },

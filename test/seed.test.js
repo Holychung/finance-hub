@@ -98,6 +98,20 @@ describe('示範資料的產生器', () => {
     assert.ok(!Number.isInteger(coin.shares * 1e4), '四位小數表達不了它，這筆才示範得了');
   });
 
+  // The only restricted account in the book, and it has to carry both figures
+  // its kind exists for, or the pills and the subtraction never reach a screen.
+  it('有一個退休金帳戶：受限制、稅前、有未歸屬，而且每個月都有資料', () => {
+    const plan = db.prepare("SELECT id, access, tax_status, unvested FROM accounts WHERE kind = 'retirement'").get();
+    assert.ok(plan, '示範帳本裡要有一個退休金帳戶');
+    assert.equal(plan.access, 'restricted', '從類型來的起始值');
+    assert.equal(plan.tax_status, 'pretax');
+    assert.ok(plan.unvested > 0, '沒有未歸屬就示範不出淨值扣掉它');
+    const others = db.prepare("SELECT COUNT(*) AS n FROM accounts WHERE kind <> 'retirement' AND access <> 'liquid'").get().n;
+    assert.equal(others, 0, '其他帳戶都是可動用的');
+    const row = coverage(db).accounts.find((a) => a.id === plan.id);
+    assert.equal(row.gaps, 0, '提撥每個月都有，完整度不該把它當成沒人匯');
+  });
+
   it('完整度五種狀態都生得出來', () => {
     const cov = coverage(db);
     const states = new Set();
@@ -149,6 +163,20 @@ describe('示範資料的產生器', () => {
       return `${out.n}/${Math.round(out.total)}`;
     };
     assert.equal(sum(a), sum(b), '亂數要吃固定種子，不然沒有人能拿它當基準');
+  });
+
+  // The month list used to be stepped back from `to` itself, and a day that
+  // does not exist in an earlier month rolls into the next: from the 30th,
+  // February disappeared and March held two of everything. The salary is one
+  // row a month, so it counts the months exactly.
+  it('不管結束在哪一天，都是連續十八個月、每個月一份薪水', () => {
+    for (const to of ['2026-09-30', '2026-10-31', '2026-03-31', '2026-09-22']) {
+      const book = buildDemoBook({ to, months: 18, now: () => 'x', uuid: () => 'g' });
+      const salary = book.txns.filter((t) => t.description.startsWith('薪資轉帳')).map((t) => t.date.slice(0, 7));
+      assert.equal(salary.length, 18, `${to}：${salary.length} 份薪水`);
+      assert.equal(new Set(salary).size, 18, `${to}：有月份重複，也就有月份不見了`);
+      assert.equal(salary[salary.length - 1], to.slice(0, 7), `${to}：最後一個月要是 to 那個月`);
+    }
   });
 
   // The reason the book moved out of this script and into shared/: the

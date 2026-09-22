@@ -76,6 +76,9 @@ const SCRIPT = async (s) => {
   await s.post('/api/accounts', { institution_id: 1, name: '信用卡', kind: 'card', currency: 'TWD', opening_balance: -8400, opening_date: '2026-01-01' });
   await s.post('/api/accounts', { institution_id: 2, name: '券商', kind: 'brokerage', currency: 'USD', opening_balance: 3000, opening_date: '2026-02-01', access: 'restricted' });
   await s.post('/api/accounts', { name: '冷錢包', kind: 'wallet', currency: 'USD', opening_balance: 0, opening_date: '2026-03-01' });
+  // No access given, so both sides have to start it restricted from its kind;
+  // the unvested figure has to come off both net worths and neither balance.
+  await s.post('/api/accounts', { institution_id: 2, name: '401(k)', kind: 'retirement', currency: 'USD', opening_balance: 18000, opening_date: '2026-01-01', tax_status: 'pretax', unvested: 950 });
 
   await s.post('/api/fx', { date: '2026-01-05', pair: 'USDTWD', rate: 31.4 });
   await s.post('/api/fx', { date: '2026-06-05', pair: 'USDTWD', rate: 32.1 });
@@ -306,6 +309,8 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       ['/api/holdings', { account_id: 4, symbol: 'ETH', market: 'NYSE' }],
       ['/api/holdings', { account_id: 4, symbol: 'ETH', market: 'CRYPTO', decimals: 12 }],
       ['/api/prices', { symbol: 'ETH', market: 'eth-chain', date: '2026-01-01', price: 1 }],
+      ['/api/accounts', { name: 'IRA', kind: 'retirement', tax_status: 'ira' }],
+      ['/api/accounts', { name: 'IRA', kind: 'retirement', unvested: -1 }],
     ]) {
       const of = async (s) => { try { await s.post(p, body); return null; } catch (e) { return [e.status, e.message]; } };
       assert.deepEqual(await of(demo), await of(live), `${p} ${JSON.stringify(body)}`);

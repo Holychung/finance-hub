@@ -39,7 +39,7 @@
   // the seed rather than a version anything migrates to. It has to be the
   // last step in server/migrations.js, because the seed carries every column
   // that step added; test/demo-store.test.js compares it with a fresh server.
-  const SCHEMA_VERSION = '8';
+  const SCHEMA_VERSION = '9';
 
   // ---------------------------------------------------------------------
   // The raw store
@@ -367,6 +367,20 @@
       if (!ACCESS_KEYS.includes(a)) bad(`access 只能是 ${ACCESS_KEYS.join(' 或 ')}`);
       return a;
     };
+    // Both as server/api.js: empty clears a tax status, and a negative or
+    // unreadable unvested figure is refused rather than becoming 0.
+    const taxStatusOf = (v) => {
+      if (v === null || v === '') return null;
+      const t = S(v);
+      if (!TAX_STATUS_KEYS.includes(t)) bad(`tax_status 只能是 ${TAX_STATUS_KEYS.join('、')} 或留空`);
+      return t;
+    };
+    const unvestedOf = (v) => {
+      if (v === null || v === '') return 0;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) bad('unvested 要是 0 或正數');
+      return M.round2(n);
+    };
 
     // The market and the quantity's scale, normalised and refused exactly as
     // server/api.js does. A market stored in a different case from its price
@@ -386,13 +400,16 @@
 
     on('POST', '/api/accounts', (_p, b) => {
       if (!S(b.name).trim()) bad('帳戶名稱必填');
+      const kind = S(b.kind, DEFAULT_ACCOUNT_KIND);
       return {
         id: raw.insert('accounts', {
           institution_id: OPT(b.institution_id) === null ? null : N(b.institution_id),
-          name: S(b.name).trim(), kind: S(b.kind, DEFAULT_ACCOUNT_KIND), currency: S(b.currency, 'TWD'),
+          name: S(b.name).trim(), kind, currency: S(b.currency, 'TWD'),
           opening_balance: N(b.opening_balance), opening_date: S(b.opening_date, '2020-01-01'),
           is_active: B(b.is_active), sort_order: N(b.sort_order), note: S(b.note),
-          access: accessOf(b.access, DEFAULT_ACCESS),
+          access: accessOf(b.access, defaultAccessFor(kind)),
+          tax_status: b.tax_status === undefined ? null : taxStatusOf(b.tax_status),
+          unvested: b.unvested === undefined ? 0 : unvestedOf(b.unvested),
         }).id,
       };
     });
@@ -411,6 +428,8 @@
         sort_order: b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
         note: S(b.note, cur.note),
         access: accessOf(b.access, cur.access),
+        tax_status: b.tax_status === undefined ? cur.tax_status : taxStatusOf(b.tax_status),
+        unvested: b.unvested === undefined ? cur.unvested : unvestedOf(b.unvested),
       });
       return { ok: true };
     });

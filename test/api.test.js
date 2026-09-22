@@ -2542,3 +2542,76 @@ describe('加密貨幣：錢包裡的一枚幣', () => {
     await assert.rejects(() => GET('/api/prices?symbol=BTC&market=btc'), /market 只能是/);
   });
 });
+
+// Three things a retirement account says, and only one of them is arithmetic.
+// The kind decides where access starts; the tax status is a label; unvested
+// comes off net worth and never off the balance, which is the statement's
+// figure and has to go on agreeing with it.
+describe('退休金帳戶', () => {
+  const PUT = (p, b) => req('PUT', p, b);
+  const find = async (id) => (await GET('/api/accounts')).find((a) => a.id === id);
+  const usd = async () => (await GET('/api/overview')).net_worth.currencies.USD;
+  const made = [];
+  const open = async (body) => {
+    const { id } = await POST('/api/accounts', { currency: 'USD', kind: 'retirement', ...body });
+    made.push(id);
+    return id;
+  };
+
+  after(async () => {
+    for (const id of made) await DEL(`/api/accounts/${id}`);
+  });
+
+  it('沒說 access 就從類型來：退休金是受限制', async () => {
+    assert.equal((await find(await open({ name: '401(k)' }))).access, 'restricted');
+    assert.equal((await find(await open({ name: '可以動的退休金', access: 'liquid' }))).access, 'liquid', '明講的要照明講的');
+    const { id } = await POST('/api/accounts', { name: '活存', currency: 'USD', kind: 'cash' });
+    made.push(id);
+    assert.equal((await find(id)).access, 'liquid');
+  });
+
+  it('未歸屬從淨值扣，餘額和對帳都不扣', async () => {
+    const before = await usd();
+    const id = await open({ name: '有未歸屬的計畫', opening_balance: 10000, opening_date: '2020-01-01', unvested: 1200.004 });
+    const a = await find(id);
+    assert.equal(a.balance, 10000, '餘額是對帳單上的總額');
+    assert.equal(a.unvested, 1200, '存的時候過 round2');
+
+    const after = await usd();
+    near(after.ledger - before.ledger, 10000);
+    near(after.unvested - (before.unvested || 0), 1200);
+    near(after.total - before.total, 8800, '淨值只多了歸屬的那部分');
+
+    // The statement counts the unvested share in its total. A balance check
+    // against it has to agree, which it only does because the balance was
+    // left alone.
+    await POST('/api/balance-checks', { account_id: id, date: '2026-06-30', stated: 10000 });
+    const check = (await GET('/api/reconcile')).find((c) => c.account_id === id);
+    assert.ok(check.ok, `對帳應該對得上，差 ${check.diff}`);
+  });
+
+  it('稅務性質存得進去、清得掉，而且清單以外的拒絕', async () => {
+    const id = await open({ name: 'Roth IRA', tax_status: 'roth' });
+    assert.equal((await find(id)).tax_status, 'roth');
+    await PUT(`/api/accounts/${id}`, { note: '只改備註' });
+    assert.equal((await find(id)).tax_status, 'roth', '沒帶就維持原本的');
+    await PUT(`/api/accounts/${id}`, { tax_status: '' });
+    assert.equal((await find(id)).tax_status, null, '空字串是清掉');
+    await assert.rejects(() => PUT(`/api/accounts/${id}`, { tax_status: 'tax-free' }), /tax_status 只能是/);
+    await assert.rejects(() => POST('/api/accounts', { name: '打錯', currency: 'USD', tax_status: 'Roth' }), /tax_status 只能是/);
+  });
+
+  // N() would have turned both into a number without a word. A negative
+  // unvested figure adds money nobody has; an unreadable one quietly becoming
+  // 0 hands the employer's share back to the total.
+  it('未歸屬是負的或讀不懂，一律拒絕，不會默默變成 0', async () => {
+    const id = await open({ name: '會被拒絕的', unvested: 500 });
+    for (const unvested of [-1, 'abc']) {
+      await assert.rejects(() => PUT(`/api/accounts/${id}`, { unvested }), /unvested 要是 0 或正數/, `${unvested}`);
+    }
+    assert.equal((await find(id)).unvested, 500, '被拒絕的更新什麼都沒改');
+    await PUT(`/api/accounts/${id}`, { name: '改名' });
+    assert.equal((await find(id)).unvested, 500, '沒帶就維持原本的');
+    await assert.rejects(() => POST('/api/accounts', { name: 'x', currency: 'USD', unvested: -5 }), /unvested/);
+  });
+});

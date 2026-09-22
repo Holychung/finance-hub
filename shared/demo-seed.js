@@ -27,6 +27,7 @@
   const dep = typeof module !== 'undefined' && module.exports;
   const { round2 } = dep ? require('./money') : root;
   const { fingerprint } = dep ? require('./csv') : root;
+  const { defaultAccessFor } = dep ? require('./kinds') : root;
 
   // A linear congruential generator, four lines, because "no dependencies"
   // includes not reaching for a seeded-random package to wobble a rent
@@ -59,9 +60,10 @@
     { key: 'sinopac', name: '永豐金證券', kind: 'broker', country: 'TW' },
     { key: 'chase', name: 'Chase', kind: 'bank', country: 'US' },
     { key: 'firstrade', name: 'Firstrade', kind: 'broker', country: 'US' },
+    { key: 'fidelity', name: 'Fidelity', kind: 'broker', country: 'US' },
   ];
 
-  // Five kinds across two currencies, which is the point: with only cash
+  // Six kinds across two currencies, which is the point: with only cash
   // accounts every breakdown reads 100% and the diverging asset/liability
   // scale the charts were built for never appears. `openAt` is an offset in
   // months from the start of the window — 國泰 opens late on purpose, so the
@@ -83,6 +85,12 @@
     // decision 3 in docs/plans/asset-classes.md, still open; the demo shows
     // what the app does today rather than tuning the dates to hide it.
     { key: 'coldwallet', inst: null, name: '冷錢包', kind: 'wallet', currency: 'USD', openAt: 12, target: 0 },
+    // A plan with the three things only a retirement account says: it starts
+    // restricted (from its kind), its balance is pre-tax, and part of the
+    // employer's match has not vested, which net worth subtracts and the
+    // balance keeps. The contributions below keep its months in the coverage
+    // grid, the same way a payslip would.
+    { key: 'k401', inst: 'fidelity', name: '401(k)', kind: 'retirement', currency: 'USD', openAt: 0, target: 41850, tax_status: 'pretax', unvested: 2940 },
   ];
 
   const HOLDINGS = [
@@ -150,8 +158,15 @@
     const { wobble, rnd, pick } = makeRandom(20260921);
     const stamp = now();
 
+    // Stepped back from the first of `to`'s month, never from `to` itself.
+    // `setUTCMonth` keeps the day, so from the 30th one month back from March
+    // is 30 February, which is 2 March: February vanished and March came out
+    // twice, with two salaries and two rents in it. From the 31st, seven
+    // months went that way. The hosted demo is built from today's date, so
+    // how broken it looked depended on the day it was opened.
     const months = [];
-    for (let i = monthCount - 1; i >= 0; i--) months.push(monthKey(addMonths(to, -i)));
+    const first = `${monthKey(to)}-01`;
+    for (let i = monthCount - 1; i >= 0; i--) months.push(monthKey(addMonths(first, -i)));
 
     // --- the transactions, still keyed by account name ---------------------
 
@@ -222,6 +237,13 @@
           { account: 'sapphire', date: dayIn(months[i + 1], 18), amount: pay, description: 'AUTOPAY PAYMENT THANK YOU' });
       }
 
+      // Payroll deferral and the employer's match, straight into the plan.
+      // They never pass through checking, so they are income here rather than
+      // one leg of a transfer. Fixed amounts, and no call on the jitter, so
+      // every other row in the book comes out exactly as it did without them.
+      add('k401', dayIn(m, 28), 650, 'EMPLOYEE DEFERRAL', { kind: 'income', category: '退休提撥' });
+      add('k401', dayIn(m, 28), 325, 'EMPLOYER MATCH', { kind: 'income', category: '退休提撥' });
+
       // A brokerage buy every third month: cash moves across (a transfer),
       // then the purchase itself leaves the settlement account (not a
       // transfer — the money became shares, which live in `holdings`).
@@ -266,10 +288,14 @@
       is_active: 1,
       sort_order: n,
       note: '示範資料',
-      // Every demo account is reachable today. The first restricted one
-      // arrives with the retirement kind (docs/plans/asset-classes.md PR 5);
-      // until then there is nothing that reads the split to demonstrate it.
-      access: 'liquid',
+      // What creating the account in the app would give it: its kind's
+      // starting access. Only the 401(k) is restricted.
+      access: defaultAccessFor(a.kind),
+      // On every row, not just the plan's: the seeder writes the union of the
+      // rows' columns, and a row without `unvested` would insert NULL into a
+      // NOT NULL column.
+      tax_status: a.tax_status || null,
+      unvested: a.unvested || 0,
     }));
 
     // Everything but the last few months is already paired, the way a book
@@ -386,6 +412,9 @@
     const balance_checks = [
       { id: 1, account_id: acctId.get('esun'), date: checkDate, stated: balanceOn('esun', checkDate), note: '網銀截圖，對得上' },
       { id: 2, account_id: acctId.get('cathay'), date: checkDate, stated: round2(balanceOn('cathay', checkDate) - 3250), note: '對不上，示範漏匯的樣子' },
+      // How a plan with no importable history is kept honest: its quarterly
+      // statement's total, unvested share included, against the ledger.
+      { id: 3, account_id: acctId.get('k401'), date: checkDate, stated: balanceOn('k401', checkDate), note: '季對帳單總額，含未歸屬' },
     ];
 
     const rules = RULES.map((r, n) => ({ id: n + 1, ...r, created_at: stamp }));

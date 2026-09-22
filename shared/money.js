@@ -137,22 +137,32 @@
   // being reported. See findTransferCandidates for the one place they remain.
   // Takes accounts that already carry a `balance` and holdings that already
   // carry a `market_value` — the output of the two compute* above, not raw rows.
+  //
+  // `unvested` is subtracted here and nowhere earlier. It is part of the
+  // balance the statement states, and the balance has to stay that figure or
+  // every balance check against the statement disagrees by exactly the
+  // unvested amount; it is not part of what you own, so the total leaves it
+  // out. It gets its own breakdown row rather than coming off its account's
+  // kind, because a plan held entirely in funds has a cash balance of zero
+  // and would show a negative 退休金 row.
   function computeNetWorth({ accounts, holdings, asOf = todayISO() }) {
     const currencies = {};
-    const of = (cur) => (currencies[cur] ||= { ledger: 0, securities: 0, total: 0, by_kind: {} });
+    const of = (cur) => (currencies[cur] ||= { ledger: 0, securities: 0, unvested: 0, total: 0, by_kind: {} });
 
     for (const a of accounts) {
       const c = of(a.currency);
       c.ledger = round2(c.ledger + a.balance);
       c.by_kind[a.kind] = round2((c.by_kind[a.kind] || 0) + a.balance);
+      if (a.unvested) c.unvested = round2(c.unvested + a.unvested);
     }
     for (const h of holdings) {
       const c = of(h.currency);
       c.securities = round2(c.securities + h.market_value);
     }
     for (const c of Object.values(currencies)) {
-      c.total = round2(c.ledger + c.securities);
+      c.total = round2(c.ledger + c.securities - c.unvested);
       if (c.securities) c.by_kind.securities = c.securities;
+      if (c.unvested) c.by_kind.unvested = -c.unvested;
     }
 
     return {

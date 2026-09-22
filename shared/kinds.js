@@ -1,8 +1,8 @@
 'use strict';
 
 // The ledger's closed vocabularies, in one place: what kinds of account and
-// transaction exist, whether an account's money is reachable, and which
-// markets a holding can sit in.
+// transaction exist, whether an account's money is reachable, what tax
+// treatment its balance has, and which markets a holding can sit in.
 //
 // The account kinds used to be seven copies. `server/migrations.js` described it in a
 // comment, `web/core.js` held a label map and a sort order, `web/forms.js` and
@@ -34,16 +34,28 @@
   // its own, because its value is the coins in `holdings`. An exchange account
   // that also keeps cash is closer to a brokerage, and which one an account is
   // is the user's call.
+  //
+  // `access` is only where a new account of the kind starts. The account's own
+  // `access` is what counts, and the form shows it: a 401(k) is behind a rule
+  // almost by definition, so it starts restricted, while a wallet starts liquid
+  // and a locked stake is changed by hand, because the kind cannot tell those
+  // two apart. See ACCESS below.
+  //
+  // `taxAdvantaged` says the balance sits under a tax rule — a 401(k), an IRA,
+  // 勞退 — so the account can say whether its balance is pre-tax and how much
+  // of it has not vested. On any other kind both questions are noise.
   const ACCOUNT_KINDS = [
-    { key: 'cash', label: '現金／存款', order: 10, liability: false, holds: false },
-    { key: 'card', label: '信用卡', order: 20, liability: true, holds: false },
-    { key: 'brokerage', label: '證券', order: 30, liability: false, holds: true },
-    { key: 'wallet', label: '錢包', order: 35, liability: false, holds: true },
-    { key: 'loan', label: '貸款', order: 40, liability: true, holds: false },
-    { key: 'other', label: '其他', order: 90, liability: false, holds: false },
+    { key: 'cash', label: '現金／存款', order: 10, liability: false, holds: false, access: 'liquid', taxAdvantaged: false },
+    { key: 'card', label: '信用卡', order: 20, liability: true, holds: false, access: 'liquid', taxAdvantaged: false },
+    { key: 'brokerage', label: '證券', order: 30, liability: false, holds: true, access: 'liquid', taxAdvantaged: false },
+    { key: 'wallet', label: '錢包', order: 35, liability: false, holds: true, access: 'liquid', taxAdvantaged: false },
+    { key: 'retirement', label: '退休金', order: 38, liability: false, holds: true, access: 'restricted', taxAdvantaged: true },
+    { key: 'loan', label: '貸款', order: 40, liability: true, holds: false, access: 'liquid', taxAdvantaged: false },
+    { key: 'other', label: '其他', order: 90, liability: false, holds: false, access: 'liquid', taxAdvantaged: false },
   ];
 
   const HOLDING_KINDS = new Set(ACCOUNT_KINDS.filter((k) => k.holds).map((k) => k.key));
+  const TAX_ADVANTAGED_KINDS = new Set(ACCOUNT_KINDS.filter((k) => k.taxAdvantaged).map((k) => k.key));
 
   // Where a holding trades, and the three things that follow from it by
   // default: the currency it is usually priced in, how many places its
@@ -118,10 +130,31 @@
   const DEFAULT_ACCESS = 'liquid';
   const accessName = (k) => (ACCESS.find((a) => a.key === k) || {}).label || k;
 
-  // Not a kind of anything — the row the overview's breakdown adds for the
-  // market value of holdings, which belongs to no account. It needs a label
-  // and nothing else, and it must never appear in a picker.
-  const EXTRA_LABELS = { securities: '持股市值' };
+  // What a new account of `kind` starts as when nobody said. A kind the list
+  // does not know starts liquid, like every account that existed before
+  // access did.
+  const defaultAccessFor = (kind) => (ACCOUNT_KINDS.find((k) => k.key === kind) || {}).access || DEFAULT_ACCESS;
+
+  // What kind of figure a tax-advantaged balance is — a label, never
+  // arithmetic. A pre-tax balance is worth less than it says once withdrawn,
+  // by a rate nobody knows at a date nobody knows, and applying one would
+  // turn the institution's figure into an estimate that moves every time
+  // somebody guesses again: the same reason there is no cross-currency total.
+  // So the balance stays the statement's number and this says which kind of
+  // number it is. Null means not stated, which is most accounts.
+  const TAX_STATUS = [
+    { key: 'pretax', label: '稅前' },
+    { key: 'roth', label: 'Roth' },
+    { key: 'aftertax', label: '稅後' },
+  ];
+  const TAX_STATUS_KEYS = TAX_STATUS.map((t) => t.key);
+  const taxStatusName = (k) => (TAX_STATUS.find((t) => t.key === k) || {}).label || k;
+
+  // Not kinds of anything — rows the overview's breakdown adds that belong to
+  // no account kind: the market value of holdings, and the unvested part of a
+  // balance, which is subtracted there. They need a label and nothing else,
+  // and must never appear in a picker.
+  const EXTRA_LABELS = { securities: '持股市值', unvested: '未歸屬' };
 
   const byOrder = [...ACCOUNT_KINDS].sort((a, b) => a.order - b.order);
 
@@ -150,7 +183,8 @@
   const api = {
     ACCOUNT_KINDS, TXN_KINDS, KIND_ORDER, TXN_KIND_ORDER, KIND_LABEL, kindName,
     LIABILITY_KINDS, DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND,
-    ACCESS, ACCESS_KEYS, DEFAULT_ACCESS, accessName,
+    ACCESS, ACCESS_KEYS, DEFAULT_ACCESS, accessName, defaultAccessFor,
+    TAX_ADVANTAGED_KINDS, TAX_STATUS, TAX_STATUS_KEYS, taxStatusName,
     HOLDING_KINDS, MARKETS, MARKET_KEYS, DEFAULT_MARKET, marketInfo,
   };
   Object.assign(root, api);

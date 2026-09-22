@@ -347,6 +347,30 @@ SELECT UPPER(TRIM(symbol)), market, price_date, last_price, 'manual'
       db.exec('ALTER TABLE holdings ADD COLUMN decimals INTEGER NOT NULL DEFAULT 4');
     },
   },
+
+  {
+    version: 9,
+    name: 'accounts tax status and unvested',
+    // The two things a retirement account says that nothing else here can.
+    //
+    // `tax_status` is what kind of figure the balance is — pre-tax, Roth,
+    // after-tax — and is only ever displayed. Nullable, because for almost
+    // every account there is nothing to state, and a default would state one.
+    //
+    // `unvested` is the part of the balance an employer can still take back,
+    // a figure the plan document gives. Net worth subtracts it; the balance
+    // does not, because the balance is what the statement says and what a
+    // balance check is compared against, and the statement counts it in.
+    // 0 for every existing account, so a book upgrades with every figure
+    // unchanged. The API refuses a negative one, which would add money nobody
+    // has.
+    up(db) {
+      db.exec(`
+ALTER TABLE accounts ADD COLUMN tax_status TEXT;
+ALTER TABLE accounts ADD COLUMN unvested REAL NOT NULL DEFAULT 0;
+`);
+    },
+  },
 ];
 
 const LATEST = MIGRATIONS[MIGRATIONS.length - 1].version;

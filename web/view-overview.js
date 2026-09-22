@@ -76,7 +76,8 @@ views.overview = async () => {
 
       <div class="cur-total ${level(c.total)}">${money(c.total, cur)}</div>
       <div class="cur-sub">
-        帳戶 ${money(c.ledger, cur)}${c.securities ? html` ＋ 持股 ${money(c.securities, cur)}` : ''}
+        帳戶 ${money(c.ledger, cur)}${c.securities ? html` ＋ 持股 ${money(c.securities, cur)}` : ''}${c.unvested
+          ? html` － 未歸屬 ${money(c.unvested, cur)}` : ''}
         <span class="${change === null ? 'dim' : cls(change)}">
           ${change === null ? '· 無上期可比' : `· 較上月 ${signed(change, cur)}`}</span>
       </div>
@@ -148,7 +149,7 @@ function accountTable(accounts) {
   return html`<table>
     <thead><tr><th>帳戶</th><th>類型</th><th>幣別</th><th class="num">餘額</th></tr></thead>
     <tbody>${accounts.map((a) => html`<tr>
-      <td>${a.name}${a.is_active ? '' : html` <span class="pill">已停用</span>`}</td>
+      <td>${a.name}${accountPills(a)}</td>
       <td>${kindName(a.kind)}</td>
       <td class="cur">${a.currency}</td>
       <td class="num ${level(a.balance)}">${money(a.balance, a.currency)}</td>

@@ -8,7 +8,7 @@ const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
 const {
-  DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, DEFAULT_ACCESS,
+  DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, defaultAccessFor, TAX_STATUS_KEYS,
   MARKET_KEYS, DEFAULT_MARKET, marketInfo,
 } = require('../shared/kinds');
 const { MAX_DECIMALS } = require('../shared/currency');
@@ -105,19 +105,43 @@ function accessOf(v, fallback) {
   return a;
 }
 
+// Empty means "not stated" and clears it; anything else must be on the list.
+// A typo stored as a tax status would be a label on screen that means nothing.
+function taxStatusOf(v) {
+  if (v === null || v === '') return null;
+  const t = S(v);
+  if (!TAX_STATUS_KEYS.includes(t)) bad(`tax_status 只能是 ${TAX_STATUS_KEYS.join('、')} 或留空`);
+  return t;
+}
+
+// Refused rather than coerced. N() turns garbage into 0, which is harmless
+// for most fields and wrong here: net worth subtracts this, so a negative one
+// would add money nobody has, and a typo quietly becoming 0 would hand the
+// employer's share back to the total.
+function unvestedOf(v) {
+  if (v === null || v === '') return 0;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) bad('unvested 要是 0 或正數');
+  return M.round2(n);
+}
+
 on('POST', '/api/accounts', (_p, b) => {
   if (!S(b.name).trim()) bad('帳戶名稱必填');
+  const kind = S(b.kind, DEFAULT_ACCOUNT_KIND);
   const r = db
     .prepare(
-      `INSERT INTO accounts (institution_id, name, kind, currency, opening_balance, opening_date, is_active, sort_order, note, access)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO accounts (institution_id, name, kind, currency, opening_balance, opening_date, is_active, sort_order, note,
+                             access, tax_status, unvested)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       OPT(b.institution_id) === null ? null : N(b.institution_id),
-      S(b.name).trim(), S(b.kind, DEFAULT_ACCOUNT_KIND), S(b.currency, 'TWD'),
+      S(b.name).trim(), kind, S(b.currency, 'TWD'),
       N(b.opening_balance), S(b.opening_date, '2020-01-01'),
       B(b.is_active), N(b.sort_order), S(b.note),
-      accessOf(b.access, DEFAULT_ACCESS)
+      accessOf(b.access, defaultAccessFor(kind)),
+      b.tax_status === undefined ? null : taxStatusOf(b.tax_status),
+      b.unvested === undefined ? 0 : unvestedOf(b.unvested)
     );
   return { id: Number(r.lastInsertRowid) };
 });
@@ -127,7 +151,8 @@ on('PUT', '/api/accounts/:id', (p, b) => {
   if (!cur) missing('帳戶不存在');
   db.prepare(
     `UPDATE accounts SET institution_id=?, name=?, kind=?, currency=?,
-            opening_balance=?, opening_date=?, is_active=?, sort_order=?, note=?, access=?
+            opening_balance=?, opening_date=?, is_active=?, sort_order=?, note=?, access=?,
+            tax_status=?, unvested=?
       WHERE id=?`
   ).run(
     b.institution_id === undefined ? cur.institution_id : (OPT(b.institution_id) === null ? null : N(b.institution_id)),
@@ -136,7 +161,10 @@ on('PUT', '/api/accounts/:id', (p, b) => {
     S(b.opening_date, cur.opening_date),
     b.is_active === undefined ? cur.is_active : B(b.is_active),
     b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
-    S(b.note, cur.note), accessOf(b.access, cur.access), N(p.id)
+    S(b.note, cur.note), accessOf(b.access, cur.access),
+    b.tax_status === undefined ? cur.tax_status : taxStatusOf(b.tax_status),
+    b.unvested === undefined ? cur.unvested : unvestedOf(b.unvested),
+    N(p.id)
   );
   return { ok: true };
 });

@@ -36,7 +36,7 @@ views.account = async () => {
         <div class="sub">
           ${kindName(a.kind)} · <span class="cur">${a.currency}</span> ·
           ${data.total} 筆交易 · ${span}
-          ${a.is_active ? '' : html` <span class="pill">已停用</span>`}${a.access === 'restricted' ? html` <span class="pill">${accessName(a.access)}</span>` : ''}
+          ${accountPills(a)}
         </div>
       </div>
       <div class="row shrink">
@@ -49,7 +49,8 @@ views.account = async () => {
     <section class="grid g4">
       <div class="card kpi"><div class="label">目前餘額</div>
         <div class="value ${level(a.balance)}">${money(a.balance, a.currency)}</div>
-        <div class="meta">${LIABILITY_KINDS.has(a.kind) ? '負數代表欠款' : a.currency}</div></div>
+        <div class="meta">${LIABILITY_KINDS.has(a.kind) ? '負數代表欠款'
+          : a.unvested ? `其中未歸屬 ${money(a.unvested, a.currency)}，淨值不算這部分` : a.currency}</div></div>
       <div class="card kpi"><div class="label">交易筆數</div>
         <div class="value">${data.total}</div>
         <div class="meta">${span}</div></div>
@@ -61,6 +62,12 @@ views.account = async () => {
           ${mine.length ? (off.length ? `${off.length} 筆不符` : '相符') : '—'}</div>
         <div class="meta">${mine.length ? `共 ${mine.length} 次紀錄` : '還沒對過帳'}</div></div>
     </section>
+
+    ${TAX_ADVANTAGED_KINDS.has(a.kind) ? html`<section><div class="note">
+      退休帳戶通常沒有可以匯入的逐筆明細。裡面買的是基金的話，記在「持股」；只拿得到餘額的話（例如勞退專戶），
+      提繳和收益各記一筆交易，再拿每一期的對帳單記一筆對帳，確認兩邊對得上。
+      餘額填對帳單上的總額；還沒歸屬的部分另外填在帳戶設定裡，淨值會扣掉它。
+    </div></section>` : ''}
 
     ${off.length ? html`<section><div class="note warn">
       這個帳戶的實際餘額跟交易累計對不起來：${off.map((c) => html`

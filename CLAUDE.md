@@ -135,10 +135,11 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-458 tests across 76 suites cover Big5 decoding, ROC dates, two-digit years,
+475 tests across 79 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
-eight places and its market's case surviving every endpoint, the
+eight places and its market's case surviving every endpoint, unvested coming
+off net worth and never off a balance, the
 price-history lookup (latest at or before a date, and nothing dragged back
 before the first observation) and the v6 backfill that seeds it,
 pre-import backup, balance reconciliation, import revert, CSV BOM, the three
@@ -310,7 +311,18 @@ thousand random Unicode strings.
   a typo that became `liquid` is a retirement balance back in the spendable
   figure with nothing on screen to say so. When the split does land: face
   value, never discounted by a guessed tax rate — the same reason there is no
-  cross-currency total.
+  cross-currency total. A kind's `access` in `shared/kinds.js` is only where
+  a new account starts (`defaultAccessFor`): retirement starts restricted.
+- **A retirement balance is the statement's figure, and `unvested` comes off
+  net worth, never off the balance.** The statement counts the unvested share
+  in its total and every balance check is compared against that total, so
+  taking it off the balance would put each check out by exactly that amount.
+  `computeNetWorth` subtracts it per currency as its own negative
+  `by_kind.unvested` row — not off the account's kind, because a plan held
+  entirely in funds has a cash balance of zero — and the series, being
+  ledger only, leaves it out. `tax_status` is a label and never arithmetic;
+  `test/money.test.js` fails if `shared/money.js` reads it. The API refuses a
+  negative or unreadable `unvested` rather than letting `N()` make it 0.
 - Net worth series is **ledger only**. Holdings have no price history in phase 1,
   so folding today's market value into past points draws a line that never
   existed. Keep it that way until broker sync supplies real history.
