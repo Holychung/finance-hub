@@ -135,7 +135,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-478 tests across 79 suites cover Big5 decoding, ROC dates, two-digit years,
+485 tests across 80 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -304,15 +304,19 @@ thousand random Unicode strings.
 - **`accounts.access` says whether there is a rule between you and the
   money** — `liquid` or `restricted`, from `ACCESS` in `shared/kinds.js`. It
   is a property, never inferred from the kind: a self-custody wallet and a
-  locked stake can be the same kind and opposite answers. **Nothing reads it
-  yet**, and a test pins that a restricted account still counts in net worth
-  until the split in `docs/plans/asset-classes.md` PR 6 lands deliberately.
-  The API refuses a value outside the list rather than defaulting it, because
-  a typo that became `liquid` is a retirement balance back in the spendable
-  figure with nothing on screen to say so. When the split does land: face
-  value, never discounted by a guessed tax rate — the same reason there is no
-  cross-currency total. A kind's `access` in `shared/kinds.js` is only where
-  a new account starts (`defaultAccessFor`): retirement starts restricted.
+  locked stake can be the same kind and opposite answers. `computeNetWorth`
+  reports each currency whole **and** in two halves, `liquid` and
+  `restricted`, each the same shape as the whole; a holding goes with its
+  account and unvested with its plan, so the halves add up to the total by
+  construction, and `test/money.test.js` fails if a rate appears anywhere in
+  that arithmetic. Face value, never discounted, projected or annualised —
+  the same reason there is no cross-currency total. The overview opens on
+  可動用 with a 可動用／受限制／全部 switch, and always names the half not on
+  screen. The API refuses an access outside the list rather than defaulting
+  it, because a typo that became `liquid` is a retirement balance back in the
+  spendable figure with nothing on screen to say so. A kind's `access` in
+  `shared/kinds.js` is only where a new account starts (`defaultAccessFor`):
+  retirement starts restricted.
 - **A retirement balance is the statement's figure, and `unvested` comes off
   net worth, never off the balance.** The statement counts the unvested share
   in its total and every balance check is compared against that total, so

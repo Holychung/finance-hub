@@ -217,6 +217,14 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     for (const cur of Object.keys(a.series)) {
       assert.deepEqual(a.series[cur][0], b.series[cur][0], `${cur} 的第一個點`);
     }
+    // The same for each half the overview's switch can show.
+    assert.deepEqual(Object.keys(a.series_by_access).sort(), Object.keys(b.series_by_access).sort());
+    for (const [access, s] of Object.entries(a.series_by_access)) {
+      assert.deepEqual(Object.keys(s).sort(), Object.keys(b.series_by_access[access]).sort(), access);
+      for (const cur of Object.keys(s)) {
+        assert.deepEqual(s[cur][0], b.series_by_access[access][cur][0], `${access} ${cur} 的第一個點`);
+      }
+    }
   });
 
   it('同一份對帳單，兩邊預覽出同一批資料列', async () => {

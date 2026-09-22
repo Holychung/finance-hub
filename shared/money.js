@@ -16,7 +16,7 @@
   // Same two-environment require as `shared/csv.js` uses for sha1: a module in
   // Node, a global the browser already loaded in index.html's order.
   const NODE = typeof module !== 'undefined' && module.exports;
-  const { LIABILITY_KINDS, NO_STATEMENT_KINDS } = NODE ? require('./kinds') : root;
+  const { LIABILITY_KINDS, NO_STATEMENT_KINDS, ACCESS_KEYS, DEFAULT_ACCESS } = NODE ? require('./kinds') : root;
   const { round2, roundTo } = NODE ? require('./currency') : root;
 
   // Every snapshot converts with the rate that was true on its own date, so
@@ -145,24 +145,24 @@
   // out. It gets its own breakdown row rather than coming off its account's
   // kind, because a plan held entirely in funds has a cash balance of zero
   // and would show a negative 退休金 row.
+  //
+  // Each currency is also reported in two halves by `access`, `liquid` and
+  // `restricted`, each the same shape as the whole. The whole stays: it is
+  // still a true figure, only one that mixes money you can spend this week
+  // with money behind a rule. The halves are the same arithmetic over fewer
+  // rows — a holding goes with its account, unvested with its plan — so they
+  // add up to the total by construction, and nothing here discounts, projects
+  // or converts either one.
   function computeNetWorth({ accounts, holdings, asOf = todayISO() }) {
-    const currencies = {};
-    const of = (cur) => (currencies[cur] ||= { ledger: 0, securities: 0, unvested: 0, total: 0, by_kind: {} });
+    const currencies = tally(accounts, holdings);
 
-    for (const a of accounts) {
-      const c = of(a.currency);
-      c.ledger = round2(c.ledger + a.balance);
-      c.by_kind[a.kind] = round2((c.by_kind[a.kind] || 0) + a.balance);
-      if (a.unvested) c.unvested = round2(c.unvested + a.unvested);
-    }
-    for (const h of holdings) {
-      const c = of(h.currency);
-      c.securities = round2(c.securities + h.market_value);
-    }
-    for (const c of Object.values(currencies)) {
-      c.total = round2(c.ledger + c.securities - c.unvested);
-      if (c.securities) c.by_kind.securities = c.securities;
-      if (c.unvested) c.by_kind.unvested = -c.unvested;
+    const accessOf = new Map(accounts.map((a) => [a.id, a.access || DEFAULT_ACCESS]));
+    for (const key of ACCESS_KEYS) {
+      const half = tally(
+        accounts.filter((a) => accessOf.get(a.id) === key),
+        holdings.filter((h) => (accessOf.get(h.account_id) || DEFAULT_ACCESS) === key)
+      );
+      for (const [cur, c] of Object.entries(currencies)) c[key] = half[cur] || emptyBlock();
     }
 
     return {
@@ -180,11 +180,42 @@
     };
   }
 
+  const emptyBlock = () => ({ ledger: 0, securities: 0, unvested: 0, total: 0, by_kind: {} });
+
+  // One currency block per currency present in these rows: what computeNetWorth
+  // reports for the whole book, and again for each half of it.
+  function tally(accounts, holdings) {
+    const currencies = {};
+    const of = (cur) => (currencies[cur] ||= emptyBlock());
+
+    for (const a of accounts) {
+      const c = of(a.currency);
+      c.ledger = round2(c.ledger + a.balance);
+      c.by_kind[a.kind] = round2((c.by_kind[a.kind] || 0) + a.balance);
+      if (a.unvested) c.unvested = round2(c.unvested + a.unvested);
+    }
+    for (const h of holdings) {
+      const c = of(h.currency);
+      c.securities = round2(c.securities + h.market_value);
+    }
+    for (const c of Object.values(currencies)) {
+      c.total = round2(c.ledger + c.securities - c.unvested);
+      if (c.securities) c.by_kind.securities = c.securities;
+      if (c.unvested) c.by_kind.unvested = -c.unvested;
+    }
+    return currencies;
+  }
+
   // Ledger only — holdings have no price history in phase 1, so folding today's
   // market value into past points would draw a line that never existed.
   // `txns` must be sorted by date and already cut off at `to`; the walk below
   // consumes them in one pass rather than re-filtering per month.
-  function computeNetWorthSeries({ accounts, txns, from, to }) {
+  //
+  // `access`, when given, draws one half of the book: only accounts with that
+  // access. A transaction on any other account is skipped by the same
+  // `bal.has` that already ignores an account nobody passed in.
+  function computeNetWorthSeries({ accounts: all, txns, from, to, access = null }) {
+    const accounts = access ? all.filter((a) => (a.access || DEFAULT_ACCESS) === access) : all;
     if (!accounts.length) return [];
 
     const bal = new Map(accounts.map((a) => [a.id, a.opening_balance || 0]));

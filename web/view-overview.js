@@ -3,10 +3,29 @@
 // /overview — one column per currency. Nothing is converted, so there is no
 // grand total to put above them.
 
+// Which part of the book the page shows. Page state rather than the URL, the
+// same as coverageMonths: the router reads only the pathname. 可動用 comes
+// first because it is what somebody opens this page to find out — what can I
+// use — so it is also where a reload lands. 受限制 and 全部 are one click
+// away, and the half not on screen is always named under the headline.
+let overviewScope = 'liquid';
+const OVERVIEW_SCOPES = [...ACCESS.map((a) => ({ key: a.key, label: a.label })), { key: 'all', label: '全部' }];
+
 views.overview = async () => {
   const d = await api('/api/overview');
   const nw = d.net_worth;
-  const order = nw.order;
+
+  // The switch appears only once there is something to switch between: with
+  // no restricted account, all three views are the same number.
+  const split = d.accounts.some((a) => a.access === 'restricted');
+  const scope = split ? overviewScope : 'all';
+  const scopeLabel = OVERVIEW_SCOPES.find((s) => s.key === scope).label;
+  const accessOf = new Map(d.accounts.map((a) => [a.id, a.access || DEFAULT_ACCESS]));
+  const inScope = (access) => scope === 'all' || access === scope;
+  const series = scope === 'all' ? d.series : d.series_by_access[scope];
+  // A currency with nothing in this half has no card: 受限制 in a book whose
+  // only restricted account is a USD 401(k) shows the USD card alone.
+  const order = nw.order.filter((cur) => scope === 'all' || Object.keys(nw.currencies[cur][scope].by_kind).length);
 
   // Each check carries its own severity and the page that resolves it. What
   // this replaced was one amber block of `⚠︎` lines: a sign error doubling a
@@ -58,19 +77,29 @@ views.overview = async () => {
   // currency simply stands on its own. `.g2` is auto-fit, so a single currency
   // fills the width instead of leaving a hole beside itself.
   const perCurrency = (cur) => {
-    const c = nw.currencies[cur];
-    const s = d.series[cur] || [];
+    const whole = nw.currencies[cur];
+    const c = scope === 'all' ? whole : whole[scope];
+    const s = series[cur] || [];
     const prev = s.length > 1 ? s[s.length - 2].value : null;
     const change = prev === null ? null : round2(c.ledger - prev);
-    const nAcc = d.accounts.filter((a) => a.currency === cur).length;
-    const nHold = d.holdings.filter((h) => h.currency === cur).length;
+    const nAcc = d.accounts.filter((a) => a.currency === cur && inScope(a.access || DEFAULT_ACCESS)).length;
+    const nHold = d.holdings.filter((h) => h.currency === cur && inScope(accessOf.get(h.account_id) || DEFAULT_ACCESS)).length;
     const byKind = Object.entries(c.by_kind)
       .filter(([, v]) => Math.abs(v) > 0.01).sort((x, y) => Math.abs(y[1]) - Math.abs(x[1]));
     const gross = byKind.reduce((sum, [, v]) => sum + Math.abs(v), 0);
 
+    // The half not on screen is named, never dropped. A headline that quietly
+    // leaves out a retirement balance is the same fiction as one that quietly
+    // adds it in; on 全部 the line says how the whole divides instead.
+    const other = scope === 'liquid' ? 'restricted' : scope === 'restricted' ? 'liquid' : null;
+    const aside = !split ? ''
+      : other ? (Object.keys(whole[other].by_kind).length
+        ? html`另有${accessName(other)} ${money(whole[other].total, cur)}，不在這個數字裡` : '')
+      : html`${accessName('liquid')} ${money(whole.liquid.total, cur)} ＋ ${accessName('restricted')} ${money(whole.restricted.total, cur)}`;
+
     return html`<div class="card">
       <h2 class="sec cur-head">
-        <span>${cur} 淨值</span>
+        <span>${cur} 淨值${split ? ` · ${scopeLabel}` : ''}</span>
         <span class="muted">${nAcc} 個帳戶${nHold ? ` · ${nHold} 檔持股` : ''}</span>
       </h2>
 
@@ -80,6 +109,7 @@ views.overview = async () => {
           ? html` － 未歸屬 ${money(c.unvested, cur)}` : ''}
         <span class="${change === null ? 'dim' : cls(change)}">
           ${change === null ? '· 無上期可比' : `· 較上月 ${signed(change, cur)}`}</span>
+        ${aside ? html`<span class="sub-line">${aside}</span>` : ''}
       </div>
 
       <h2 class="sec">帳戶淨額走勢（月底，不含持股）</h2>
@@ -93,22 +123,29 @@ views.overview = async () => {
   mount(main, html`
     <div class="page-head">
       <div><h1>總覽</h1><div class="sub">${d.counts.txns} 筆交易 · ${nw.as_of}</div></div>
-      <div class="row shrink"><button class="btn" id="refresh">重新整理</button></div>
+      <div class="row shrink">
+        ${split ? html`<div class="row shrink" role="group" aria-label="淨值要看哪一部分">${OVERVIEW_SCOPES.map((s) => html`
+          <button class="sm" data-scope="${s.key}" aria-pressed="${s.key === scope}">${s.label}</button>`)}
+        </div>` : ''}
+        <button class="btn" id="refresh">重新整理</button>
+      </div>
     </div>
 
     ${todos.length ? html`<section>${todoList(todos)}</section>` : ''}
 
     ${order.length
       ? html`<section class="grid g2">${order.map(perCurrency)}</section>`
-      : html`<section class="card">${empty('還沒有帳戶。丟一個 CSV 到「匯入」頁就會幫你建。')}</section>`}
+      : html`<section class="card">${empty(nw.order.length
+        ? `沒有${scopeLabel}的帳戶。`
+        : '還沒有帳戶。丟一個 CSV 到「匯入」頁就會幫你建。')}</section>`}
 
     ${order.length ? html`<section><div class="muted small">
       持股在第一階段只有當前市值、沒有歷史價格，所以不畫進走勢，避免畫出一條從來不存在的線。
     </div></section>` : ''}
 
     <section class="card">
-      <h2 class="sec">帳戶餘額</h2>
-      <div class="table-wrap">${accountTable(d.accounts)}</div>
+      <h2 class="sec">帳戶餘額${split ? ` · ${scopeLabel}` : ''}</h2>
+      <div class="table-wrap">${accountTable(d.accounts.filter((a) => inScope(a.access || DEFAULT_ACCESS)))}</div>
     </section>
 
     ${d.reconcile.latest.length ? html`<section class="card">
@@ -117,6 +154,10 @@ views.overview = async () => {
     </section>` : ''}
   `);
   $('#refresh').onclick = () => render();
+  $$('[data-scope]').forEach((b) => (b.onclick = () => {
+    overviewScope = b.dataset.scope;
+    render();
+  }));
 };
 
 // The icon is not here: `.todo-item.<level>` draws it from the same mask the

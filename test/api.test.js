@@ -2441,13 +2441,29 @@ describe('帳戶的 access', () => {
     assert.equal((await find(id)).access, 'liquid', '被拒絕的更新什麼都沒改');
   });
 
-  it('現在還沒有任何計算讀它：受限制的帳戶照樣算進淨值', async () => {
-    const before = (await GET('/api/overview')).net_worth.currencies.USD?.total ?? 0;
+  // The total still counts it, because it is still yours. What access changes
+  // is which half it lands in — and it must land in exactly one.
+  it('受限制的帳戶算進總額和受限制那半，不算進可動用那半', async () => {
+    const usd = async () => (await GET('/api/overview')).net_worth.currencies.USD || { total: 0, liquid: { total: 0 }, restricted: { total: 0 } };
+    const before = await usd();
     const { id } = await POST('/api/accounts', {
       name: '受限但有錢', currency: 'USD', access: 'restricted', opening_balance: 1000, opening_date: '2020-01-01',
     });
-    const after = (await GET('/api/overview')).net_worth.currencies.USD.total;
-    near(after - before, 1000, '拆成兩半是 PR 6 的事；在那之前，這個欄位不能悄悄改變任何數字');
+    const after = await usd();
+    near(after.total - before.total, 1000, '總額照樣算它');
+    near(after.restricted.total - before.restricted.total, 1000);
+    near(after.liquid.total - before.liquid.total, 0, '可動用的數字不該因為它變動');
+    await req('DELETE', `/api/accounts/${id}`);
+  });
+
+  it('總覽的走勢也分成兩半，各自只畫自己的帳戶', async () => {
+    const { id } = await POST('/api/accounts', {
+      name: '只在受限制那條線上', currency: 'USD', access: 'restricted', opening_balance: 777, opening_date: '2020-01-01',
+    });
+    const d = await GET('/api/overview');
+    const last = (s) => (s && s.USD ? s.USD[s.USD.length - 1].value : 0);
+    near(last(d.series_by_access.liquid) + last(d.series_by_access.restricted), last(d.series), '兩條線加起來是整本的線');
+    assert.ok(last(d.series_by_access.restricted) >= 777);
     await req('DELETE', `/api/accounts/${id}`);
   });
 });

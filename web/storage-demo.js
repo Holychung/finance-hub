@@ -307,17 +307,17 @@
       const dates = raw.all('txns').map((t) => t.date).sort();
       const opens = raw.all('accounts').map((a) => a.opening_date).sort();
       const from = dates[0] || opens[0] || asOf;
+      const upTo = raw.all('txns').filter((t) => t.date <= asOf).sort(by('date'));
+      const seriesOf = (access) => M.computeNetWorthSeries({
+        accounts: raw.all('accounts'), txns: upTo, from, to: asOf, access,
+      });
 
       return {
         net_worth: M.computeNetWorth({ accounts, holdings, asOf }),
         accounts,
         holdings,
-        series: M.computeNetWorthSeries({
-          accounts: raw.all('accounts'),
-          txns: raw.all('txns').filter((t) => t.date <= asOf).sort(by('date')),
-          from,
-          to: asOf,
-        }),
+        series: seriesOf(null),
+        series_by_access: Object.fromEntries(ACCESS_KEYS.map((k) => [k, seriesOf(k)])),
         reconcile: {
           total: checks.length,
           off: checks.filter((c) => !c.ok).length,

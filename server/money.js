@@ -66,12 +66,12 @@ function netWorth(asOf = todayISO()) {
   });
 }
 
-function netWorthSeries(from, to) {
-  const accounts = db.prepare('SELECT id, currency, opening_balance, opening_date FROM accounts').all();
+function netWorthSeries(from, to, access = null) {
+  const accounts = db.prepare('SELECT id, currency, opening_balance, opening_date, access FROM accounts').all();
   const txns = accounts.length
     ? db.prepare('SELECT account_id, date, amount FROM txns WHERE date <= ? ORDER BY date').all(to)
     : [];
-  return computeNetWorthSeries({ accounts, txns, from, to });
+  return computeNetWorthSeries({ accounts, txns, from, to, access });
 }
 
 function coverage({ to = todayISO(), months = COVERAGE_MONTHS } = {}) {

@@ -201,6 +201,83 @@ describe('computeNetWorth', () => {
 // where it is subtracted: from net worth, never from the balance. The balance
 // is what the statement says, unvested share included, and it is what every
 // balance check is compared against.
+// The verification the plan asked for: a book with a checking account and a
+// retirement account, whose two halves add up to the old total, with the old
+// total still reported and no rate anywhere in the arithmetic.
+describe('computeNetWorth — 可動用與受限制', () => {
+  const accounts = [
+    { ...acct({ id: 1, currency: 'USD', kind: 'cash', access: 'liquid' }), balance: 5000 },
+    { ...acct({ id: 2, currency: 'USD', kind: 'retirement', access: 'restricted', unvested: 2940 }), balance: 41850 },
+    { ...acct({ id: 3, currency: 'USD', kind: 'brokerage', access: 'liquid' }), balance: 1000 },
+    { ...acct({ id: 4, currency: 'TWD', kind: 'cash', access: 'liquid' }), balance: 90000 },
+  ];
+  const holdings = [
+    { account_id: 3, currency: 'USD', market_value: 12000 },
+    { account_id: 2, currency: 'USD', market_value: 30000 },
+  ];
+  const nw = M.computeNetWorth({ accounts, holdings, asOf: '2026-09-22' });
+  const usd = nw.currencies.USD;
+
+  it('兩半加起來就是原本的總額，原本的總額也還在', () => {
+    assert.equal(usd.total, 5000 + 41850 + 1000 + 12000 + 30000 - 2940);
+    for (const field of ['ledger', 'securities', 'unvested', 'total']) {
+      assert.equal(M.round2(usd.liquid[field] + usd.restricted[field]), usd[field], field);
+    }
+  });
+
+  it('持股跟著它的帳戶走，未歸屬跟著它的計畫走', () => {
+    assert.equal(usd.liquid.securities, 12000, '券商的持股是可動用的');
+    assert.equal(usd.restricted.securities, 30000, '401(k) 裡的基金是受限制的');
+    assert.equal(usd.restricted.unvested, 2940);
+    assert.equal(usd.liquid.unvested, 0);
+    assert.equal(usd.restricted.total, 41850 + 30000 - 2940);
+    assert.equal(usd.liquid.by_kind.retirement, undefined, '退休金不出現在可動用的分布裡');
+  });
+
+  // Every currency gets both halves, empty or not, so a view never has to
+  // ask whether one exists.
+  it('沒有受限制帳戶的幣別，受限制那半是空的，不是缺的', () => {
+    assert.equal(nw.currencies.TWD.restricted.total, 0);
+    assert.deepEqual(nw.currencies.TWD.restricted.by_kind, {});
+    assert.equal(nw.currencies.TWD.liquid.total, 90000);
+  });
+
+  // `acct()` carries no access at all, which is what a row that predates the
+  // column looks like.
+  it('沒寫 access 的帳戶算可動用，跟升級前的每個帳戶一樣', () => {
+    const bare = { ...acct({ id: 9, currency: 'USD' }), balance: 100 };
+    const n = M.computeNetWorth({ accounts: [bare], holdings: [] }).currencies.USD;
+    assert.equal(n.liquid.total, 100);
+    assert.equal(n.restricted.total, 0);
+  });
+
+  // No discount, no projection, no conversion: the halves are the same sums
+  // over fewer rows. Checked on the source because a rate that crept in would
+  // still produce plausible numbers.
+  it('算淨值的地方沒有任何匯率或比率', () => {
+    const start = MONEY_SRC.indexOf('function computeNetWorth(');
+    const end = MONEY_SRC.indexOf('function computeNetWorthSeries(');
+    const body = MONEY_SRC.slice(start, end).replace(/\/\/[^\n]*/g, '');
+    assert.ok(start > 0 && end > start, '找不到 computeNetWorth');
+    assert.ok(!/\bfx\b|\brate\b|\bconvert\(/i.test(body), 'computeNetWorth 碰到了匯率');
+  });
+
+  it('走勢也可以只畫一半', () => {
+    const rows = [
+      acct({ id: 1, currency: 'USD', access: 'liquid', opening_balance: 5000 }),
+      acct({ id: 2, currency: 'USD', access: 'restricted', opening_balance: 41850 }),
+    ];
+    const txns = [{ account_id: 2, date: '2026-02-05', amount: 975 }, { account_id: 1, date: '2026-02-06', amount: -100 }];
+    const last = (access) => {
+      const s = M.computeNetWorthSeries({ accounts: rows, txns, from: '2026-01-01', to: '2026-02-28', access }).USD;
+      return s[s.length - 1].value;
+    };
+    assert.equal(last('liquid'), 4900);
+    assert.equal(last('restricted'), 42825);
+    assert.equal(last(null), 47725, '不給 access 就是整本');
+  });
+});
+
 describe('computeNetWorth — 未歸屬', () => {
   const plan = { ...acct({ id: 1, currency: 'USD', kind: 'retirement', tax_status: 'pretax', unvested: 2940 }), balance: 41850 };
   const cash = { ...acct({ id: 2, currency: 'USD', kind: 'cash' }), balance: 5000 };

@@ -53,6 +53,9 @@ on('GET', '/api/overview', () => {
     accounts,
     holdings,
     series: M.netWorthSeries(from, asOf),
+    // The same line for each half of the book, so the chart can follow the
+    // overview's 可動用／受限制 switch instead of drawing the whole under it.
+    series_by_access: Object.fromEntries(ACCESS_KEYS.map((k) => [k, M.netWorthSeries(from, asOf, k)])),
     reconcile: {
       total: checks.length,
       off: checks.filter((c) => !c.ok).length,
