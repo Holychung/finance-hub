@@ -10,6 +10,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const { html, raw, fmt, Html } = require('../web/html.js');
+const K = require('../shared/kinds');
 
 const ROOT = path.join(__dirname, '..');
 const WEB = path.join(ROOT, 'web');
@@ -278,13 +279,30 @@ describe('前端靜態防線', () => {
   // The whole point of shared/kinds.js: a seventh copy of the account kinds
   // would look like an array literal with 'brokerage' in it, and nothing else
   // would notice — the account would simply render with a raw English key.
+  //
+  // The keys come from the list, so a copy that includes a kind added later
+  // is still a copy. Written out by hand, this pattern already missed wallet.
   it('帳戶類型清單只有一份，其他地方不准再寫一個字面陣列', () => {
-    const literal = /\[\s*'(?:cash|brokerage|card|loan|other)'(?:\s*,\s*'(?:cash|brokerage|card|loan|other)'\s*)+\]/;
+    const keys = K.ACCOUNT_KINDS.map((k) => k.key).join('|');
+    const literal = new RegExp(`\\[\\s*'(?:${keys})'(?:\\s*,\\s*'(?:${keys})'\\s*)+\\]`);
     const copies = FILES
       .filter((f) => f.name !== 'shared/kinds.js')
       .filter((f) => literal.test(f.src));
     assert.deepEqual(copies.map((f) => f.name), [],
       `${copies.map((f) => f.name).join('、')} 又寫了一份帳戶類型清單，用 KIND_ORDER`);
+  });
+
+  // The same failure for markets, in the shape it actually took. The holdings
+  // page drew two hardcoded sections and its form priced a holding with
+  // `market === 'US' ? 'USD' : 'TWD'`, so a third market counted in net
+  // worth, was priced in the wrong currency, and appeared nowhere on screen.
+  // A market compared against a literal is one of those coming back; what a
+  // market implies is in MARKETS, via marketInfo().
+  it('市場的預設從 MARKETS 來，不准拿 market 去比一個字串', () => {
+    const offenders = FILES.flatMap(({ name, src }) => src.split('\n')
+      .map((line, i) => (/\bmarket\s*[!=]==?\s*['"`]/.test(line) ? `${name}:${i + 1}` : null))
+      .filter(Boolean));
+    assert.deepEqual(offenders, [], `${offenders.join('、')} 寫死了市場，用 marketInfo()`);
   });
 
   // There used to be three copies of round2 — money.js, csv.js and

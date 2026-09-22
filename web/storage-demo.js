@@ -36,8 +36,10 @@
   const X = dep ? require('../shared/export') : root;
 
   // The demo's shape is shipped with the code, so this is a statement about
-  // the seed rather than a version anything migrates to.
-  const SCHEMA_VERSION = '6';
+  // the seed rather than a version anything migrates to. It has to be the
+  // last step in server/migrations.js, because the seed carries every column
+  // that step added; test/demo-store.test.js compares it with a fresh server.
+  const SCHEMA_VERSION = '8';
 
   // ---------------------------------------------------------------------
   // The raw store
@@ -366,6 +368,22 @@
       return a;
     };
 
+    // The market and the quantity's scale, normalised and refused exactly as
+    // server/api.js does. A market stored in a different case from its price
+    // series is a price history that silently never applies.
+    const marketOf = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      const m = S(v).trim().toUpperCase();
+      if (!MARKET_KEYS.includes(m)) bad(`market 只能是 ${MARKET_KEYS.join('、')}`);
+      return m;
+    };
+    const placesOf = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 0 || n > MAX_DECIMALS) bad(`decimals 要是 0 到 ${MAX_DECIMALS} 的整數`);
+      return n;
+    };
+
     on('POST', '/api/accounts', (_p, b) => {
       if (!S(b.name).trim()) bad('帳戶名稱必填');
       return {
@@ -524,12 +542,15 @@
 
     on('POST', '/api/holdings', (_p, b) => {
       if (!S(b.symbol).trim()) bad('代號必填');
+      const market = marketOf(b.market, DEFAULT_MARKET);
+      const info = marketInfo(market);
       return {
         id: raw.insert('holdings', {
           account_id: N(b.account_id), symbol: S(b.symbol).trim().toUpperCase(),
-          name: S(b.name), market: S(b.market, 'TW'), shares: N(b.shares),
+          name: S(b.name), market, shares: N(b.shares),
           avg_cost: N(b.avg_cost), last_price: N(b.last_price),
-          price_date: OPT(b.price_date), currency: S(b.currency, 'TWD'), note: S(b.note),
+          price_date: OPT(b.price_date), currency: S(b.currency, info.currency), note: S(b.note),
+          decimals: placesOf(b.decimals, info.decimals),
         }).id,
       };
     });
@@ -540,12 +561,13 @@
       raw.update('holdings', cur.id, {
         account_id: b.account_id === undefined ? cur.account_id : N(b.account_id),
         symbol: S(b.symbol, cur.symbol).trim().toUpperCase(),
-        name: S(b.name, cur.name), market: S(b.market, cur.market),
+        name: S(b.name, cur.name), market: marketOf(b.market, cur.market),
         shares: b.shares === undefined ? cur.shares : N(b.shares),
         avg_cost: b.avg_cost === undefined ? cur.avg_cost : N(b.avg_cost),
         last_price: b.last_price === undefined ? cur.last_price : N(b.last_price),
         price_date: b.price_date === undefined ? cur.price_date : OPT(b.price_date),
         currency: S(b.currency, cur.currency), note: S(b.note, cur.note),
+        decimals: placesOf(b.decimals, cur.decimals),
       });
       return { ok: true };
     });
@@ -586,7 +608,7 @@
     on('GET', '/api/prices', (_p, _b, q) => {
       const symbol = S(q.symbol).trim().toUpperCase();
       if (!symbol) bad('代號必填');
-      const market = S(q.market, 'TW').toUpperCase();
+      const market = marketOf(q.market, DEFAULT_MARKET);
       return raw.all('prices')
         .filter((r) => r.symbol === symbol && r.market === market)
         .sort(by('-date'));
@@ -605,7 +627,7 @@
             const price = N(r.price);
             if (price <= 0) bad('價格必須大於 0');
             raw.put('prices', {
-              symbol, market: S(r.market, 'TW').toUpperCase(), date: d, price, source: S(r.source, 'manual'),
+              symbol, market: marketOf(r.market, DEFAULT_MARKET), date: d, price, source: S(r.source, 'manual'),
             });
             n++;
           }
@@ -614,12 +636,17 @@
       };
     });
 
-    on('DELETE', '/api/prices', (_p, _b, q) => ({
-      deleted: raw.remove('prices',
-        (r) => r.symbol === S(q.symbol).trim().toUpperCase()
-          && r.market === S(q.market, 'TW').toUpperCase()
-          && r.date === S(q.date)),
-    }));
+    // The market is resolved before any row is looked at. Inside the
+    // predicate it would only be checked for a row whose symbol matched, so a
+    // bad market with nothing to delete would answer 200 where the server
+    // answers 400.
+    on('DELETE', '/api/prices', (_p, _b, q) => {
+      const symbol = S(q.symbol).trim().toUpperCase();
+      const market = marketOf(q.market, DEFAULT_MARKET);
+      return {
+        deleted: raw.remove('prices', (r) => r.symbol === symbol && r.market === market && r.date === S(q.date)),
+      };
+    });
 
     // --- reconciliation and coverage --------------------------------------
 

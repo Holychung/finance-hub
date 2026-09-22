@@ -13,6 +13,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const { quantity } = require('../shared/currency');
+
 const SERVER = path.join(__dirname, '..', 'server', 'index.js');
 const FIXTURE_DIR = path.join(__dirname, 'fixtures');
 
@@ -2447,5 +2449,96 @@ describe('帳戶的 access', () => {
     const after = (await GET('/api/overview')).net_worth.currencies.USD.total;
     near(after - before, 1000, '拆成兩半是 PR 6 的事；在那之前，這個欄位不能悄悄改變任何數字');
     await req('DELETE', `/api/accounts/${id}`);
+  });
+});
+
+// A coin is a holding like any other, valued in a currency like any other, so
+// what is new is small and each part of it fails silently if it is wrong: the
+// quantity's eight places, the market's case (a price history keyed under
+// another spelling never applies), and the currency a holding defaults to.
+describe('加密貨幣：錢包裡的一枚幣', () => {
+  const PUT = (p, b) => req('PUT', p, b);
+  const coin = async (symbol) => (await GET('/api/holdings')).find((h) => h.symbol === symbol);
+  let wallet;
+
+  before(async () => {
+    // No institution: self-custody has none, and the column was always nullable.
+    wallet = (await POST('/api/accounts', { name: '冷錢包', kind: 'wallet', currency: 'USD', opening_date: '2026-01-01' })).id;
+  });
+
+  after(async () => {
+    await DEL('/api/prices?symbol=BTC&market=CRYPTO&date=2026-06-20');
+    await DEL(`/api/accounts/${wallet}`);
+  });
+
+  it('沒說幣別和位數，就用市場的預設：美元、八位', async () => {
+    const usdBefore = (await GET('/api/overview')).net_worth.currencies.USD.securities;
+    await POST('/api/holdings', {
+      account_id: wallet, symbol: 'btc', name: 'Bitcoin', market: 'crypto',
+      shares: 0.12345678, avg_cost: 51800, last_price: 63250.4, price_date: '2026-06-01',
+    });
+    const btc = await coin('BTC');
+    assert.equal(btc.market, 'CRYPTO', '市場存成大寫，跟價格表同一種寫法');
+    assert.equal(btc.currency, 'USD', '以前是 market === US ? USD : TWD，第三個市場會變成台幣');
+    assert.equal(btc.decimals, 8);
+    assert.equal(btc.shares, 0.12345678, '八位小數原封不動');
+    assert.equal(quantity(btc.shares, btc.decimals), '0.12345678', '顯示也是八位，不是 0.1235');
+    near(btc.market_value, 0.12345678 * 63250.4);
+    const usdAfter = (await GET('/api/overview')).net_worth.currencies.USD.securities;
+    near(usdAfter - usdBefore, btc.market_value, '市值落在美元那一欄');
+  });
+
+  // The failure this normalisation exists for: a holding stored as `crypto`
+  // looking its price up under `crypto` in a series stored as `CRYPTO`,
+  // finding nothing, and reading last_price forever with no error anywhere.
+  it('小寫的市場也對得上價格歷史', async () => {
+    await POST('/api/prices', { symbol: 'btc', market: 'crypto', date: '2026-06-20', price: 64100.25 });
+    const btc = await coin('BTC');
+    near(btc.last_price, 64100.25, '現價改讀價格序列');
+    assert.equal(btc.price_date, '2026-06-20');
+    const list = await GET('/api/prices?symbol=BTC&market=crypto');
+    assert.equal(list.length, 1);
+    assert.equal(list[0].market, 'CRYPTO');
+  });
+
+  it('預設可以蓋掉：台灣交易所的幣用台幣計價', async () => {
+    const { id } = await POST('/api/holdings', {
+      account_id: wallet, symbol: 'eth', market: 'CRYPTO', currency: 'TWD', decimals: 6,
+      shares: 1.5, avg_cost: 90000, last_price: 98000,
+    });
+    const eth = await coin('ETH');
+    assert.equal(eth.currency, 'TWD');
+    assert.equal(eth.decimals, 6);
+    await DEL(`/api/holdings/${id}`);
+  });
+
+  it('更新時沒帶的欄位維持原本的，市場照樣正規化', async () => {
+    const { id } = await coin('BTC');
+    await PUT(`/api/holdings/${id}`, { shares: 0.5 });
+    let btc = await coin('BTC');
+    assert.equal(btc.decimals, 8, '沒帶 decimals 不該被打回預設');
+    assert.equal(btc.market, 'CRYPTO');
+    await PUT(`/api/holdings/${id}`, { market: 'crypto', shares: 0.12345678 });
+    btc = await coin('BTC');
+    assert.equal(btc.market, 'CRYPTO');
+    assert.equal(btc.shares, 0.12345678);
+  });
+
+  // Refused rather than stored: an unknown market has no section on the
+  // holdings page, and a typo'd one is a second price series nobody reads.
+  it('清單以外的市場、不合理的位數，一律拒絕', async () => {
+    const base = { account_id: wallet, symbol: 'SOL', shares: 1 };
+    await assert.rejects(() => POST('/api/holdings', { ...base, market: 'NYSE' }), /market 只能是/);
+    for (const decimals of [11, -1, 2.5, 'eight']) {
+      await assert.rejects(() => POST('/api/holdings', { ...base, market: 'CRYPTO', decimals }), /decimals 要是/, `${decimals}`);
+    }
+    assert.equal(await coin('SOL'), undefined, '被拒絕的一筆都沒進去');
+
+    const { id } = await coin('BTC');
+    await assert.rejects(() => PUT(`/api/holdings/${id}`, { market: 'crypt0' }), /market 只能是/);
+    assert.equal((await coin('BTC')).market, 'CRYPTO', '被拒絕的更新什麼都沒改');
+
+    await assert.rejects(() => POST('/api/prices', { symbol: 'BTC', market: 'btc', date: '2026-06-20', price: 1 }), /market 只能是/);
+    await assert.rejects(() => GET('/api/prices?symbol=BTC&market=btc'), /market 只能是/);
   });
 });

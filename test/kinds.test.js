@@ -12,6 +12,7 @@ const assert = require('node:assert/strict');
 
 const K = require('../shared/kinds');
 const M = require('../shared/money');
+const C = require('../shared/currency');
 
 describe('帳戶與交易類型', () => {
   it('每一種帳戶類型都有標籤、順序、以及是不是負債', () => {
@@ -21,8 +22,18 @@ describe('帳戶與交易類型', () => {
       assert.ok(k.label && k.label !== k.key, `${k.key} 沒有中文標籤`);
       assert.equal(typeof k.order, 'number', `${k.key} 沒有排序`);
       assert.equal(typeof k.liability, 'boolean', `${k.key} 沒說是不是負債`);
+      assert.equal(typeof k.holds, 'boolean', `${k.key} 沒說能不能放持股`);
       assert.equal(K.kindName(k.key), k.label);
     }
+  });
+
+  // The holdings page used to hardcode `kind === 'brokerage'`, so the first
+  // account of another kind that held something could not be given a holding.
+  it('能放持股的帳戶類型是從 holds 旗標推出來的，錢包是其中之一', () => {
+    const flagged = K.ACCOUNT_KINDS.filter((k) => k.holds).map((k) => k.key).sort();
+    assert.deepEqual([...K.HOLDING_KINDS].sort(), flagged);
+    assert.ok(K.HOLDING_KINDS.has('brokerage') && K.HOLDING_KINDS.has('wallet'));
+    assert.ok(!K.HOLDING_KINDS.has('cash'), '活存不放持股');
   });
 
   it('排序沒有並列，不然側邊欄的群組順序會看載入順序決定', () => {
@@ -82,6 +93,28 @@ describe('帳戶與交易類型', () => {
     assert.equal(K.DEFAULT_ACCESS, 'liquid', '既有帳戶都是 liquid，預設換掉會讓升級改變數字');
     for (const k of K.ACCESS_KEYS) assert.notEqual(K.accessName(k), k, `${k} 沒有中文標籤`);
     assert.equal(K.accessName('nope'), 'nope');
+  });
+
+  // `/api/prices` upper-cases the market and holdings now do too. A key that
+  // was not already upper case would be stored in one case and looked up in
+  // another, and its price history would silently never apply.
+  it('每個市場的 key 都是大寫，而且預設幣別是教過的幣別', () => {
+    assert.ok(K.MARKETS.length >= 3);
+    for (const m of K.MARKETS) {
+      assert.equal(m.key, m.key.toUpperCase(), `${m.key} 要是大寫`);
+      assert.ok(m.label && m.unit && m.per, `${m.key} 少了標籤`);
+      assert.ok(C.CURRENCY_CODES.includes(m.currency), `${m.key} 的 ${m.currency} 不在幣別清單裡，表單選不到`);
+      assert.ok(Number.isInteger(m.decimals) && m.decimals >= 0 && m.decimals <= C.MAX_DECIMALS,
+        `${m.key} 的小數位數 ${m.decimals} 超出範圍`);
+    }
+    assert.deepEqual(K.MARKET_KEYS, K.MARKETS.map((m) => m.key));
+    assert.ok(K.MARKET_KEYS.includes(K.DEFAULT_MARKET));
+  });
+
+  it('幣的數量是八位，台股是整股', () => {
+    assert.equal(K.marketInfo('CRYPTO').decimals, 8);
+    assert.equal(K.marketInfo('TW').decimals, 0);
+    assert.equal(K.marketInfo('crypto'), null, '查詢不幫你轉大寫——那是 API 的事，這裡只認清單上的');
   });
 
   it('持股市值有標籤但不是任何一種類型', () => {

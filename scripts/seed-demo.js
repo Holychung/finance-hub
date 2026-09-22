@@ -27,7 +27,7 @@ const crypto = require('node:crypto');
 const paths = require('../server/paths');
 
 // Before requiring ./db, which opens — and now migrates — whatever DB_PATH
-// resolves to. Same ordering index.js uses for the stranded-legacy check.
+// resolves to. server/paths.js is pure precisely so that this can come first.
 const personal = path.join(paths.HOME_DIR, 'finance.db');
 if (path.resolve(paths.DB_PATH) === path.resolve(personal)) {
   console.error(`
@@ -68,24 +68,18 @@ const book = buildDemoBook({
   uuid: () => crypto.randomUUID(),
 });
 
-// The ids come with the rows. Letting SQLite assign its own would leave the
-// two copies of this book numbered differently for no reason, and
-// test/seed.test.js compares them row for row.
-const COLUMNS = {
-  institutions: ['id', 'name', 'kind', 'country'],
-  accounts: ['id', 'institution_id', 'name', 'kind', 'currency', 'opening_balance',
-    'opening_date', 'is_active', 'sort_order', 'note'],
-  imports: ['id', 'account_id', 'filename', 'mapping', 'imported', 'skipped', 'created_at',
-    'date_from', 'date_to', 'period_kind'],
-  txns: ['id', 'account_id', 'date', 'amount', 'description', 'category', 'kind',
-    'transfer_group', 'source', 'external_id', 'fingerprint', 'import_id', 'note', 'created_at'],
-  holdings: ['id', 'account_id', 'symbol', 'name', 'market', 'shares', 'avg_cost',
-    'last_price', 'price_date', 'currency', 'note'],
-  prices: ['symbol', 'market', 'date', 'price', 'source'],
-  fx_rates: ['date', 'pair', 'rate'],
-  balance_checks: ['id', 'account_id', 'date', 'stated', 'note'],
-  rules: ['id', 'pattern', 'category', 'priority', 'created_at'],
-};
+// The columns come from the rows themselves, ids included. Letting SQLite
+// assign its own ids would leave the two copies of this book numbered
+// differently for no reason, and test/seed.test.js compares them row for row.
+//
+// There used to be a hand-written column list per table here, and it was a
+// second copy of what shared/demo-seed.js builds: a column the book carried
+// but the list did not was silently dropped and SQLite filled in its default.
+// `access` went missing that way unnoticed — the demo's accounts were all
+// `liquid`, which is also the default, so the two copies still agreed — and
+// `holdings.decimals` was caught only because the demo's values differ from
+// the column default. Writing every key the rows have leaves nothing to drift.
+const columnsOf = (rows) => [...new Set(rows.flatMap((r) => Object.keys(r)))];
 
 db.exec('BEGIN');
 try {
@@ -97,11 +91,12 @@ try {
 
   // Insertion order matters: a foreign key points at a row that has to exist.
   for (const table of ['institutions', 'accounts', 'imports', 'txns', 'holdings', 'prices', 'fx_rates', 'balance_checks', 'rules']) {
-    const cols = COLUMNS[table];
+    if (!book[table].length) continue;
+    const cols = columnsOf(book[table]);
     const stmt = db.prepare(
       `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
     );
-    for (const row of book[table]) stmt.run(...cols.map((c) => row[c]));
+    for (const row of book[table]) stmt.run(...cols.map((c) => (row[c] === undefined ? null : row[c])));
   }
 
   db.exec('COMMIT');

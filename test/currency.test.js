@@ -86,4 +86,40 @@ describe('數量的顯示', () => {
   it('沒有數字就是破折號，不是 0', () => {
     for (const n of [null, undefined, NaN]) assert.equal(C.quantity(n), '—');
   });
+
+  // A whole-share market rounds a fractional count to a whole one — and at
+  // zero places `toFixed` writes no point, so stripping trailing zeros anyway
+  // turned 1,000 into 1.
+  it('零位小數時，千位數的零不會被當成尾隨的零削掉', () => {
+    assert.equal(C.quantity(1000.4, 0), '1,000');
+    assert.equal(C.quantity(1200.6, 0), '1,201');
+  });
+});
+
+describe('單價的顯示', () => {
+  it('至少兩位，跟以前一樣', () => {
+    assert.equal(C.unitPrice(612), '612.00');
+    assert.equal(C.unitPrice(248.5), '248.50');
+    assert.equal(C.unitPrice(63250.4), '63,250.40');
+  });
+
+  // The reason this is not `nf(price, 2)`: a coin under a dollar is quoted
+  // past the cent, and two places reported it as 0.12 or as 0.00.
+  it('兩位之後，數字本身帶幾位就顯示幾位', () => {
+    assert.equal(C.unitPrice(0.1234), '0.1234');
+    assert.equal(C.unitPrice(0.00001234), '0.00001234');
+    assert.equal(C.unitPrice(51833.125), '51,833.125');
+  });
+
+  // Past a number's precision `toFixed` writes out the float's binary
+  // expansion; measuring the places instead is what keeps that off screen.
+  it('浮點數的雜訊不會變成多出來的位數', () => {
+    assert.equal(C.unitPrice(1234567.891), '1,234,567.891');
+    assert.equal(C.unitPrice(0.1 + 0.2), '0.30');
+  });
+
+  it('最多十位，而且沒有數字就是破折號', () => {
+    assert.equal(C.unitPrice(1 / 3), '0.3333333333');
+    for (const n of [null, undefined, NaN]) assert.equal(C.unitPrice(n), '—');
+  });
 });

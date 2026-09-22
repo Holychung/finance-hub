@@ -76,13 +76,26 @@
     { key: 'chase', inst: 'chase', name: 'Chase Checking', kind: 'cash', currency: 'USD', openAt: 0, target: 14580 },
     { key: 'sapphire', inst: 'chase', name: 'Chase Sapphire', kind: 'card', currency: 'USD', openAt: 0, target: -2140 },
     { key: 'firstrade', inst: 'firstrade', name: 'Firstrade', kind: 'brokerage', currency: 'USD', openAt: 0, target: 4260 },
+    // Self-custody: no institution and no cash of its own — its whole value is
+    // the coin in `holdings`, which is what a wallet is. It has no statements
+    // either, so the coverage grid reports every month since it opened as a
+    // gap. Whether an account with nothing to import belongs in that grid is
+    // decision 3 in docs/plans/asset-classes.md, still open; the demo shows
+    // what the app does today rather than tuning the dates to hide it.
+    { key: 'coldwallet', inst: null, name: '冷錢包', kind: 'wallet', currency: 'USD', openAt: 12, target: 0 },
   ];
 
   const HOLDINGS = [
-    { account: 'sinopac', symbol: '2330', name: '台積電', market: 'TW', shares: 500, avg_cost: 982, last_price: 1085, currency: 'TWD' },
-    { account: 'sinopac', symbol: '0050', name: '元大台灣50', market: 'TW', shares: 3000, avg_cost: 171.4, last_price: 195.2, currency: 'TWD' },
-    { account: 'firstrade', symbol: 'VTI', name: 'Vanguard Total Stock Market', market: 'US', shares: 80, avg_cost: 251.3, last_price: 288.4, currency: 'USD' },
-    { account: 'firstrade', symbol: 'AAPL', name: 'Apple Inc.', market: 'US', shares: 40, avg_cost: 205.8, last_price: 242.1, currency: 'USD' },
+    // `decimals` is each market's default (TW whole shares, US to four, a coin
+    // to eight), stated rather than left to the column default so the book the
+    // browser builds and the one SQLite stores are the same rows.
+    { account: 'sinopac', symbol: '2330', name: '台積電', market: 'TW', shares: 500, avg_cost: 982, last_price: 1085, currency: 'TWD', decimals: 0 },
+    { account: 'sinopac', symbol: '0050', name: '元大台灣50', market: 'TW', shares: 3000, avg_cost: 171.4, last_price: 195.2, currency: 'TWD', decimals: 0 },
+    { account: 'firstrade', symbol: 'VTI', name: 'Vanguard Total Stock Market', market: 'US', shares: 80, avg_cost: 251.3, last_price: 288.4, currency: 'USD', decimals: 4 },
+    { account: 'firstrade', symbol: 'AAPL', name: 'Apple Inc.', market: 'US', shares: 40, avg_cost: 205.8, last_price: 242.1, currency: 'USD', decimals: 4 },
+    // Eight places, all of them carrying a digit, so the page shows a quantity
+    // the old four-place rule would have printed as 0.1235.
+    { account: 'coldwallet', symbol: 'BTC', name: 'Bitcoin', market: 'CRYPTO', shares: 0.12345678, avg_cost: 51800, last_price: 63250.4, currency: 'USD', decimals: 8 },
   ];
 
   // Only the card rows carry a category, which is what the real files do: six
@@ -243,7 +256,8 @@
     // and the reconciliation figures below actually reconcile.
     const accounts = ACCOUNTS.map((a, n) => ({
       id: n + 1,
-      institution_id: instId.get(a.inst),
+      // null for a wallet: self-custody has no institution, and the FK allows it.
+      institution_id: a.inst ? instId.get(a.inst) : null,
       name: a.name,
       kind: a.kind,
       currency: a.currency,
@@ -303,6 +317,7 @@
       price_date: to,
       currency: h.currency,
       note: '示範資料',
+      decimals: h.decimals,
     }));
 
     // A short price history per holding, so the price panel opens with a series
@@ -378,7 +393,10 @@
     return {
       institutions, accounts, txns, holdings, prices, imports, fx_rates, balance_checks, rules,
       mappings: [],
-      meta: [{ key: 'base_currency', value: 'TWD' }, { key: 'schema_version', value: '6' }],
+      // No schema_version: the demo reports its own (SCHEMA_VERSION in
+      // web/storage-demo.js). A second copy here was never read, and had
+      // fallen behind unnoticed.
+      meta: [{ key: 'base_currency', value: 'TWD' }],
       // Not a table — what the seeder prints and what the demo's copy says.
       span: { from: months[0], to: monthKey(to) },
     };

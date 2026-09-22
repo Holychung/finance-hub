@@ -23,6 +23,7 @@ const path = require('node:path');
 
 const { runMigrations, readVersion, tableCounts, MigrationError } = require('../server/migrate');
 const { MIGRATIONS, LATEST } = require('../server/migrations');
+const { quantity } = require('../shared/currency');
 
 const DB_JS = path.join(__dirname, '..', 'server', 'db.js');
 
@@ -777,6 +778,31 @@ describe('v7：帳戶的 access', () => {
     runMigrations(db, {});
     db.prepare("INSERT INTO accounts (name) VALUES ('新的')").run();
     assert.equal(db.prepare('SELECT access FROM accounts').get().access, 'liquid');
+    db.close();
+    s.rm();
+  });
+});
+
+describe('v8：持股的小數位數', () => {
+  // Four, not the plan's two: four places is what every holding was already
+  // shown at, because quantity() defaulted to it. Two would have quietly cut
+  // a fractional US share on the first render after the upgrade.
+  it('既有的持股補成四位，畫面跟升級前一模一樣', () => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db, 0);
+    db.prepare("INSERT INTO holdings (account_id, symbol, market, shares, currency) VALUES (1, 'VTI', 'US', 12.3456, 'USD')").run();
+    db.prepare("INSERT INTO holdings (account_id, symbol, market, shares) VALUES (1, '2330', 'TW', 1000)").run();
+
+    runMigrations(db, {});
+
+    for (const h of db.prepare('SELECT symbol, shares, decimals FROM holdings').all()) {
+      assert.equal(h.decimals, 4, `${h.symbol}`);
+      assert.equal(quantity(h.shares, h.decimals), quantity(h.shares), `${h.symbol} 的顯示變了`);
+    }
+    assert.equal(db.prepare('SELECT shares FROM holdings WHERE symbol = ?').get('VTI').shares, 12.3456,
+      '只是顯示的位數，存的數字不該被四捨五入');
+
     db.close();
     s.rm();
   });

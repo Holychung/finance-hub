@@ -59,8 +59,10 @@ server/csp.js     the CSP, both of them — local 'self', hosted 'none'
 server/migrations.js  every schema version, in order — the only schema there is
 server/migrate.js     applies them; takes a handle, opens nothing, knows no paths
 server/db.js      connection, migrate-on-open, snapshot/backup helpers
-shared/currency.js  symbol and decimal places per currency, roundTo, round2
-shared/kinds.js   what kinds of account and transaction exist — the only list
+shared/currency.js  symbol and decimal places per currency, roundTo, round2,
+                  and how a quantity and a unit price are written
+shared/kinds.js   what kinds of account, transaction and market exist — the
+                  only list
 shared/sha1.js    synchronous SHA-1, because the browser's is async
 shared/csv.js     decode, parse, map, dedup    (no DB access — pure functions)
 shared/money.js   the pure half: every `compute*`, plus round2 and the dates
@@ -133,9 +135,10 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-440 tests across 73 suites cover Big5 decoding, ROC dates, two-digit years,
+458 tests across 76 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
-overlapping-range dedup, cross-currency transfer pairing, net worth, the
+overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
+eight places and its market's case surviving every endpoint, the
 price-history lookup (latest at or before a date, and nothing dragged back
 before the first observation) and the v6 backfill that seeds it,
 pre-import backup, balance reconciliation, import revert, CSV BOM, the three
@@ -287,6 +290,16 @@ thousand random Unicode strings.
   brokerage account (a txn) plus shares into `holdings`. A currency's net worth
   is `sum(its account balances) + sum(its holding market values)`. Never fold
   market value into an account balance — that double counts.
+- **A coin is a holding, and a wallet is an account that holds it.** The
+  market is `TW` | `US` | `CRYPTO`, from `MARKETS` in `shared/kinds.js`, and
+  that entry is also where a holding's default currency and quantity places
+  come from — never a ternary on the market, which is how a third market was
+  once priced in TWD (`test/html.test.js` fails on `market === '…'`). Markets
+  are upper case and refused outside the list at every endpoint, holdings and
+  prices alike: `/api/prices` upper-cases, so a holding stored in any other
+  case never finds its series and says nothing. `holdings.decimals` is the
+  scale a quantity is *shown* at, not a precision stored values are rounded
+  to; a unit price shows at least two places and every place it carries.
 - **`accounts.access` says whether there is a rule between you and the
   money** — `liquid` or `restricted`, from `ACCESS` in `shared/kinds.js`. It
   is a property, never inferred from the kind: a self-custody wallet and a

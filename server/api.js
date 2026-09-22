@@ -7,7 +7,11 @@ const csv = require('../shared/csv');
 const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
-const { DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, DEFAULT_ACCESS } = require('../shared/kinds');
+const {
+  DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, DEFAULT_ACCESS,
+  MARKET_KEYS, DEFAULT_MARKET, marketInfo,
+} = require('../shared/kinds');
+const { MAX_DECIMALS } = require('../shared/currency');
 
 // node:sqlite only binds null/number/bigint/string/Uint8Array.
 const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
@@ -249,19 +253,47 @@ on('DELETE', '/api/transfers/:group', (p) => ({ unlinked: M.unlinkTransfer(Strin
 
 // --- holdings --------------------------------------------------------------
 
+// One normaliser for every place a market arrives: holdings and all three
+// price routes. Holdings used to store the market as sent while /api/prices
+// upper-cased it, so a `crypto` holding looked its price up under `crypto` in
+// a series stored as `CRYPTO` and never found it. Refused outside the list
+// rather than stored, because an unknown market has no section on the
+// holdings page to be shown in.
+function marketOf(v, fallback) {
+  if (v === undefined || v === null || v === '') return fallback;
+  const m = S(v).trim().toUpperCase();
+  if (!MARKET_KEYS.includes(m)) bad(`market 只能是 ${MARKET_KEYS.join('、')}`);
+  return m;
+}
+
+// The quantity's scale. Refused rather than clamped: 12 places would look
+// like precision and be float noise, and 2.5 places is a typo.
+function placesOf(v, fallback) {
+  if (v === undefined || v === null || v === '') return fallback;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > MAX_DECIMALS) bad(`decimals 要是 0 到 ${MAX_DECIMALS} 的整數`);
+  return n;
+}
+
 on('GET', '/api/holdings', () => M.holdingsValued());
 
 on('POST', '/api/holdings', (_p, b) => {
-  if (!S(b.symbol).trim()) bad('股票代號必填');
+  if (!S(b.symbol).trim()) bad('代號必填');
+  const market = marketOf(b.market, DEFAULT_MARKET);
+  // The market's currency and scale are defaults for a holding that did not
+  // say — a coin can be priced in TWD on a Taiwanese exchange — not rules.
+  // This used to be `market === 'US' ? 'USD' : 'TWD'`, which priced any third
+  // market in TWD.
+  const info = marketInfo(market);
   const r = db
     .prepare(
-      `INSERT INTO holdings (account_id, symbol, name, market, shares, avg_cost, last_price, price_date, currency, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO holdings (account_id, symbol, name, market, shares, avg_cost, last_price, price_date, currency, note, decimals)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
-      N(b.account_id), S(b.symbol).trim().toUpperCase(), S(b.name), S(b.market, 'TW'),
+      N(b.account_id), S(b.symbol).trim().toUpperCase(), S(b.name), market,
       N(b.shares), N(b.avg_cost), N(b.last_price), OPT(b.price_date),
-      S(b.currency, S(b.market, 'TW') === 'US' ? 'USD' : 'TWD'), S(b.note)
+      S(b.currency, info.currency), S(b.note), placesOf(b.decimals, info.decimals)
     );
   return { id: Number(r.lastInsertRowid) };
 });
@@ -271,15 +303,15 @@ on('PUT', '/api/holdings/:id', (p, b) => {
   if (!cur) missing('持股不存在');
   db.prepare(
     `UPDATE holdings SET account_id=?, symbol=?, name=?, market=?, shares=?, avg_cost=?,
-            last_price=?, price_date=?, currency=?, note=? WHERE id=?`
+            last_price=?, price_date=?, currency=?, note=?, decimals=? WHERE id=?`
   ).run(
     b.account_id === undefined ? cur.account_id : N(b.account_id),
-    S(b.symbol, cur.symbol).trim().toUpperCase(), S(b.name, cur.name), S(b.market, cur.market),
+    S(b.symbol, cur.symbol).trim().toUpperCase(), S(b.name, cur.name), marketOf(b.market, cur.market),
     b.shares === undefined ? cur.shares : N(b.shares),
     b.avg_cost === undefined ? cur.avg_cost : N(b.avg_cost),
     b.last_price === undefined ? cur.last_price : N(b.last_price),
     b.price_date === undefined ? cur.price_date : OPT(b.price_date),
-    S(b.currency, cur.currency), S(b.note, cur.note), N(p.id)
+    S(b.currency, cur.currency), S(b.note, cur.note), placesOf(b.decimals, cur.decimals), N(p.id)
   );
   return { ok: true };
 });
@@ -303,7 +335,7 @@ on('GET', '/api/prices', (_p, _b, q) => {
     .prepare(
       'SELECT symbol, market, date, price, source FROM prices WHERE symbol = ? AND market = ? ORDER BY date DESC'
     )
-    .all(symbol, S(q.market, 'TW').toUpperCase());
+    .all(symbol, marketOf(q.market, DEFAULT_MARKET));
 });
 
 on('POST', '/api/prices', (_p, b) => {
@@ -322,7 +354,7 @@ on('POST', '/api/prices', (_p, b) => {
       if (!d) bad(`日期無法解析：${r.date}`);
       const price = N(r.price);
       if (price <= 0) bad('價格必須大於 0');
-      stmt.run(symbol, S(r.market, 'TW').toUpperCase(), d, price, S(r.source, 'manual'));
+      stmt.run(symbol, marketOf(r.market, DEFAULT_MARKET), d, price, S(r.source, 'manual'));
       n++;
     }
     db.exec('COMMIT');
@@ -333,7 +365,7 @@ on('POST', '/api/prices', (_p, b) => {
 on('DELETE', '/api/prices', (_p, _b, q) => ({
   deleted: db
     .prepare('DELETE FROM prices WHERE symbol = ? AND market = ? AND date = ?')
-    .run(S(q.symbol).trim().toUpperCase(), S(q.market, 'TW').toUpperCase(), S(q.date)).changes,
+    .run(S(q.symbol).trim().toUpperCase(), marketOf(q.market, DEFAULT_MARKET), S(q.date)).changes,
 }));
 
 // --- fx --------------------------------------------------------------------

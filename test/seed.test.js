@@ -75,12 +75,27 @@ describe('示範資料的產生器', () => {
     assert.ok([...byCurrency.values()].some((k) => k.has('card') || k.has('loan')), '要有負債，不然負數那半永遠不會出現');
   });
 
-  it('負債是負的，資產是正的', () => {
+  // A wallet is the exception, and a precise one rather than a loosened
+  // rule: self-custody holds no cash, so its balance is exactly zero and its
+  // value is entirely the coins in `holdings`. Relaxing the rest to `>= 0`
+  // would let a cash account that lost its opening balance pass.
+  it('負債是負的，資產是正的，錢包的價值全在持股', () => {
     const accounts = load(db);
+    const holdings = db.prepare('SELECT account_id FROM holdings').all();
     for (const a of accounts) {
       if (a.kind === 'card' || a.kind === 'loan') assert.ok(a.balance < 0, `${a.name} 應該是負的`);
-      else assert.ok(a.balance > 0, `${a.name} 應該是正的`);
+      else if (a.kind === 'wallet') {
+        assert.equal(a.balance, 0, `${a.name} 沒有現金，餘額應該剛好是 0`);
+        assert.ok(holdings.some((h) => h.account_id === a.id), `${a.name} 應該至少有一筆持股`);
+      } else assert.ok(a.balance > 0, `${a.name} 應該是正的`);
     }
+  });
+
+  it('有一筆八位小數的幣，讓頁面真的顯示得出八位', () => {
+    const coin = db.prepare("SELECT shares, decimals, currency FROM holdings WHERE market = 'CRYPTO'").get();
+    assert.ok(coin, '示範帳本裡要有一筆 CRYPTO 持股');
+    assert.equal(coin.decimals, 8);
+    assert.ok(!Number.isInteger(coin.shares * 1e4), '四位小數表達不了它，這筆才示範得了');
   });
 
   it('完整度五種狀態都生得出來', () => {

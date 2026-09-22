@@ -67,6 +67,13 @@
   // definition, and a statement will never carry a coin amount anyway.
   const round2 = (n) => roundTo(n, 2);
 
+  // The most places a quantity or a price may carry. A double holds 15–17
+  // significant digits, so past ten the extra places on a number of any size
+  // are noise from the float rather than precision anyone recorded — and
+  // `roundTo` scales by 10^dp, which stops being exact once the product
+  // passes 2^53. Eight is what the coins this was built for actually use.
+  const MAX_DECIMALS = 10;
+
   // A quantity is not money: no symbol, and its scale belongs to the thing
   // being counted rather than to a currency. Shares are whole or a few places;
   // a coin is eight.
@@ -82,7 +89,10 @@
     if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
     const v = Number(n);
     if (Number.isInteger(v)) return v.toLocaleString('en-US');
-    const trimmed = roundTo(v, dp).toFixed(dp).replace(/0+$/, '').replace(/\.$/, '');
+    // Only strip trailing zeros after a decimal point. At dp 0 `toFixed`
+    // writes none, and stripping anyway turned a rounded 1000 into `1`.
+    const fixed = roundTo(v, dp).toFixed(dp);
+    const trimmed = fixed.includes('.') ? fixed.replace(/0+$/, '').replace(/\.$/, '') : fixed;
     const places = (trimmed.split('.')[1] || '').length;
     return Number(trimmed).toLocaleString('en-US', {
       minimumFractionDigits: places,
@@ -90,9 +100,28 @@
     });
   };
 
+  // A price per unit is not an amount either. A currency says how a balance
+  // is written, not how finely something in it is quoted: the TWSE prices a
+  // share to two places in a currency this ledger writes whole, and a coin
+  // under a dollar is quoted to six places or eight. Two is what a price has
+  // always shown, so it is the floor; the places after it are the ones the
+  // number actually carries. `0.12` is not what a coin at 0.1234 costs.
+  //
+  // "Carries" is measured rather than read off `toFixed`, which past a
+  // number's precision writes out the float's binary expansion — 1234567.891
+  // comes back as …8910000001 at ten places. The fewest places that write
+  // the number back to within a trillionth of itself are the ones typed.
+  const unitPrice = (n) => {
+    if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
+    const v = Number(n);
+    let dp = 2;
+    while (dp < MAX_DECIMALS && Math.abs(roundTo(v, dp) - v) > Math.abs(v) * 1e-12) dp++;
+    return v.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  };
+
   const api = {
-    CURRENCIES, CURRENCY_CODES, DEFAULT_DP,
-    decimalsOf, symbolOf, roundTo, round2, quantity,
+    CURRENCIES, CURRENCY_CODES, DEFAULT_DP, MAX_DECIMALS,
+    decimalsOf, symbolOf, roundTo, round2, quantity, unitPrice,
   };
   Object.assign(root, api);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -75,6 +75,7 @@ const SCRIPT = async (s) => {
   await s.post('/api/accounts', { institution_id: 1, name: '台幣活存', kind: 'cash', currency: 'TWD', opening_balance: 120000, opening_date: '2026-01-01' });
   await s.post('/api/accounts', { institution_id: 1, name: '信用卡', kind: 'card', currency: 'TWD', opening_balance: -8400, opening_date: '2026-01-01' });
   await s.post('/api/accounts', { institution_id: 2, name: '券商', kind: 'brokerage', currency: 'USD', opening_balance: 3000, opening_date: '2026-02-01', access: 'restricted' });
+  await s.post('/api/accounts', { name: '冷錢包', kind: 'wallet', currency: 'USD', opening_balance: 0, opening_date: '2026-03-01' });
 
   await s.post('/api/fx', { date: '2026-01-05', pair: 'USDTWD', rate: 31.4 });
   await s.post('/api/fx', { date: '2026-06-05', pair: 'USDTWD', rate: 32.1 });
@@ -92,6 +93,11 @@ const SCRIPT = async (s) => {
   // same resolution has to happen on both sides or the holdings read diverges.
   await s.post('/api/prices', { symbol: 'vti', market: 'US', date: '2026-03-15', price: 251 });
   await s.post('/api/prices', { symbol: 'VTI', market: 'US', date: '2026-05-20', price: 262.4 });
+  // A coin sent the way a hand-written client would: lower-case market, no
+  // currency, no decimals. Both sides have to fill in USD and eight places,
+  // and the price has to land on the same series the holding reads.
+  await s.post('/api/holdings', { account_id: 4, symbol: 'btc', name: 'Bitcoin', market: 'crypto', shares: 0.12345678, avg_cost: 51800, last_price: 63250.4 });
+  await s.post('/api/prices', { symbol: 'btc', market: 'crypto', date: '2026-05-20', price: 64100.25 });
   await s.post('/api/balance-checks', { account_id: 1, date: '2026-03-31', stated: 155349.5 });
   await s.post('/api/rules', { pattern: 'UBER EATS', category: '食', priority: 10 });
 
@@ -165,6 +171,7 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/institutions',
     '/api/holdings',
     '/api/prices?symbol=VTI&market=US',
+    '/api/prices?symbol=BTC&market=CRYPTO',
     '/api/fx',
     '/api/reconcile',
     '/api/rules',
@@ -278,6 +285,10 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     assert.equal(a.db_path, null, 'demo 沒有檔案，不該編一個路徑出來');
     assert.ok(typeof b.db_path === 'string');
     assert.equal(a.base_currency, b.base_currency);
+    // Not one of the differences. The demo's rows are built with every column
+    // the last migration added, so it is that version; it said 6 for two
+    // steps because nothing compared it.
+    assert.equal(a.schema_version, b.schema_version, 'demo 的 schema 版本要跟全新的伺服器一樣');
   });
 
   it('沒有這條 route 時兩邊都是 404', async () => {
@@ -292,10 +303,23 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       ['/api/fx', { date: '2026-01-01', rate: 0 }],
       ['/api/rules', { pattern: '!!!', category: '食' }],
       ['/api/import/commit', { account_id: 1 }],
+      ['/api/holdings', { account_id: 4, symbol: 'ETH', market: 'NYSE' }],
+      ['/api/holdings', { account_id: 4, symbol: 'ETH', market: 'CRYPTO', decimals: 12 }],
+      ['/api/prices', { symbol: 'ETH', market: 'eth-chain', date: '2026-01-01', price: 1 }],
     ]) {
       const of = async (s) => { try { await s.post(p, body); return null; } catch (e) { return [e.status, e.message]; } };
       assert.deepEqual(await of(demo), await of(live), `${p} ${JSON.stringify(body)}`);
     }
+  });
+
+  // No row carries this symbol, which is the case a market check placed
+  // inside the row predicate never reaches: it would answer 200, not 400.
+  it('刪價格時市場不對，兩邊都拒絕，就算沒有這個代號', async () => {
+    const q = '/api/prices?symbol=NOPE&market=nyse&date=2026-01-01';
+    const of = async (s) => { try { await s.del(q); return null; } catch (e) { return [e.status, e.message]; } };
+    const [a, b] = [await of(demo), await of(live)];
+    assert.equal(b?.[0], 400);
+    assert.deepEqual(a, b);
   });
 });
 

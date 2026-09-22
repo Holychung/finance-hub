@@ -323,6 +323,30 @@ SELECT UPPER(TRIM(symbol)), market, price_date, last_price, 'manual'
       db.exec("ALTER TABLE accounts ADD COLUMN access TEXT NOT NULL DEFAULT 'liquid'");
     },
   },
+
+  {
+    version: 8,
+    name: 'holdings decimals',
+    // How many places a holding's quantity is written to. Shares were shown by
+    // asking whether the number had a fraction and then printing four places,
+    // which reports 0.00000001 BTC as `0.0000`; a coin needs eight. The scale
+    // now belongs to the holding, with a per-market default in
+    // `shared/kinds.js`'s MARKETS.
+    //
+    // 4 for every existing row because it is exactly the display they already
+    // had — `quantity()` defaulted to four places — so a book upgrades with
+    // nothing on screen changing. New holdings take their market's default
+    // instead (TW 0, US 4, CRYPTO 8), which is why the migration default and
+    // the TW default differ on purpose. Nothing is rounded on the way in:
+    // this is the scale a quantity is shown at, not a precision to truncate
+    // stored values to.
+    //
+    // Step 1 still says `market … -- TW | US`. That comment is frozen with the
+    // step it belongs to; the list of markets is MARKETS now, CRYPTO included.
+    up(db) {
+      db.exec('ALTER TABLE holdings ADD COLUMN decimals INTEGER NOT NULL DEFAULT 4');
+    },
+  },
 ];
 
 const LATEST = MIGRATIONS[MIGRATIONS.length - 1].version;
