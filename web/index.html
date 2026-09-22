@@ -71,10 +71,11 @@
   shared/ is the domain logic Node and the browser load from the same files:
   csv.js parses a statement identically in both, and money.js does the
   arithmetic. Order matters where one reads another off the global, because
-  there is no require() to call: kinds.js before money.js, sha1.js before
-  csv.js. All of them are self-contained IIFEs, so nothing here lands in the
-  script scope the view files share.
+  there is no require() to call: currency.js and kinds.js before money.js,
+  sha1.js before csv.js. All of them are self-contained IIFEs, so nothing here
+  lands in the script scope the view files share.
 -->
+<script src="/shared/currency.js"></script>
 <script src="/shared/kinds.js"></script>
 <script src="/shared/sha1.js"></script>
 <script src="/shared/money.js"></script>

@@ -63,7 +63,14 @@
 // on Windows writes UTF-8 with a BOM. Both have to just work.
 
 (function (root) {
-  const { sha1Hex } = typeof module !== 'undefined' && module.exports ? require('./sha1') : root;
+  const NODE = typeof module !== 'undefined' && module.exports;
+  const { sha1Hex } = NODE ? require('./sha1') : root;
+  // This file used to declare its own `round2` so it depended on nothing but
+  // the hash. Three copies assigning the same name to the global meant
+  // whichever loaded last won — harmless while they agreed, and an arithmetic
+  // difference nobody would look for if they ever stopped. One definition
+  // instead, reached the same way the hash already is.
+  const { round2 } = NODE ? require('./currency') : root;
 
   function decode(buf, encoding = 'auto') {
     if (encoding === 'auto') encoding = sniffEncoding(buf);
@@ -208,7 +215,6 @@
     return Number.isFinite(n) ? round2(sign * n) : null;
   }
 
-  const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
   // ---------------------------------------------------------------------------
   // Mapping

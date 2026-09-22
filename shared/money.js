@@ -15,10 +15,9 @@
 (function (root) {
   // Same two-environment require as `shared/csv.js` uses for sha1: a module in
   // Node, a global the browser already loaded in index.html's order.
-  const { LIABILITY_KINDS } =
-    typeof module !== 'undefined' && module.exports ? require('./kinds') : root;
-
-  const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const NODE = typeof module !== 'undefined' && module.exports;
+  const { LIABILITY_KINDS } = NODE ? require('./kinds') : root;
+  const { round2, roundTo } = NODE ? require('./currency') : root;
 
   // Every snapshot converts with the rate that was true on its own date, so
   // looking back at last year does not get re-priced at today's rate. Rows must

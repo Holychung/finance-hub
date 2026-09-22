@@ -204,7 +204,7 @@ function accountFromCsvForm(s) {
         ${KIND_ORDER.map((k) => html`<option value="${k}" ${k === s.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
       </select></label>
       <label class="field"><span>幣別</span><select id="a-cur">
-        ${['TWD', 'USD'].map((c) => html`<option ${c === s.currency ? 'selected' : ''}>${c}</option>`)}
+        ${CURRENCY_CODES.map((c) => html`<option ${c === s.currency ? 'selected' : ''}>${c}</option>`)}
       </select></label>
     </div>
 

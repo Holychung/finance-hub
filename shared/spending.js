@@ -17,9 +17,10 @@
 // says transfer — a manually marked one has the kind and no group.
 
 (function (root) {
-  const { normalise } = typeof module !== 'undefined' && module.exports ? require('./rules') : root;
+  const NODE = typeof module !== 'undefined' && module.exports;
+  const { normalise } = NODE ? require('./rules') : root;
+  const { round2 } = NODE ? require('./currency') : root;
 
-  const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   const isTransfer = (t) => !!t.transfer_group || t.kind === 'transfer';
 
   // Uncategorised is a category, reported alongside the others rather than
