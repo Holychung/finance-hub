@@ -241,8 +241,13 @@
       // They never pass through checking, so they are income here rather than
       // one leg of a transfer. Fixed amounts, and no call on the jitter, so
       // every other row in the book comes out exactly as it did without them.
-      add('k401', dayIn(m, 28), 650, 'EMPLOYEE DEFERRAL', { kind: 'income', category: '退休提撥' });
-      add('k401', dayIn(m, 28), 325, 'EMPLOYER MATCH', { kind: 'income', category: '退休提撥' });
+      //
+      // On payday, the 5th, like the salary. The book is built to today, and a
+      // row later in the month is a row from the future: on the 28th the plan
+      // spent most of every month short of its balance and a month behind on
+      // the coverage page.
+      add('k401', dayIn(m, 5), 650, 'EMPLOYEE DEFERRAL', { kind: 'income', category: '退休提撥' });
+      add('k401', dayIn(m, 5), 325, 'EMPLOYER MATCH', { kind: 'income', category: '退休提撥' });
 
       // A brokerage buy every third month: cash moves across (a transfer),
       // then the purchase itself leaves the settlement account (not a
