@@ -10,7 +10,10 @@ views.holdings = async () => {
   const sum = (rows, key) => rows.reduce((s, r) => s + (r[key] || 0), 0);
 
   const section = (mkt, label) => {
-    const rows = holdings.filter((h) => h.market === mkt);
+    // Sorted by market value so the biggest position leads — the allocation
+    // chart below reads top-down and its colours run largest-first.
+    const rows = holdings.filter((h) => h.market === mkt)
+      .slice().sort((a, b) => b.market_value - a.market_value);
     if (!rows.length) return '';
     const mv = sum(rows, 'market_value');
     const cost = sum(rows, 'cost_total');
@@ -18,6 +21,10 @@ views.holdings = async () => {
     return html`<section class="card">
       <h2 class="sec">${label} — 市值 ${money(mv, cur)} ／ 成本 ${money(cost, cur)} ／ 損益
         <span class="${cls(mv - cost)}">${signed(mv - cost, cur)}</span></h2>
+
+      <h2 class="sec">配置</h2>
+      ${barBreakdown(rows.map((h) => [h.symbol, h.market_value]), mv, cur)}
+
       <div class="table-wrap"><table>
         <thead><tr>
           <th>代號</th><th>名稱</th><th>帳戶</th><th class="num">股數</th><th class="num">均價</th>

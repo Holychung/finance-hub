@@ -81,7 +81,11 @@
   const HOLDINGS = [
     { account: 'sinopac', symbol: '2330', name: '台積電', market: 'TW', shares: 500, avg_cost: 982, last_price: 1085, currency: 'TWD' },
     { account: 'sinopac', symbol: '0050', name: '元大台灣50', market: 'TW', shares: 3000, avg_cost: 171.4, last_price: 195.2, currency: 'TWD' },
+    { account: 'sinopac', symbol: '2454', name: '聯發科', market: 'TW', shares: 200, avg_cost: 1105, last_price: 1420, currency: 'TWD' },
+    { account: 'sinopac', symbol: '2412', name: '中華電', market: 'TW', shares: 1000, avg_cost: 121.5, last_price: 135, currency: 'TWD' },
     { account: 'firstrade', symbol: 'VTI', name: 'Vanguard Total Stock Market', market: 'US', shares: 80, avg_cost: 251.3, last_price: 288.4, currency: 'USD' },
+    { account: 'firstrade', symbol: 'NVDA', name: 'NVIDIA Corp.', market: 'US', shares: 60, avg_cost: 94.2, last_price: 178.5, currency: 'USD' },
+    { account: 'firstrade', symbol: 'MSFT', name: 'Microsoft Corp.', market: 'US', shares: 25, avg_cost: 384.6, last_price: 505.2, currency: 'USD' },
     { account: 'firstrade', symbol: 'AAPL', name: 'Apple Inc.', market: 'US', shares: 40, avg_cost: 205.8, last_price: 242.1, currency: 'USD' },
   ];
 
