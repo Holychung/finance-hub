@@ -8,15 +8,13 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { execFileSync, spawnSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
 const PATHS = path.join(__dirname, '..', 'server', 'paths.js');
 const DB_JS = path.join(__dirname, '..', 'server', 'db.js');
-const SERVER = path.join(__dirname, '..', 'server', 'index.js');
-const LEGACY = path.join(__dirname, '..', 'data', 'finance.db');
 
 const fakeHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'finance-hub-home-'));
 
@@ -139,107 +137,5 @@ describe('帳本位置', () => {
     assert.equal(blank.PROFILE, 'personal');
 
     fs.rmSync(HOME, { recursive: true, force: true });
-  });
-});
-
-describe('搬移腳本', () => {
-  const MIGRATE = path.join(__dirname, '..', 'scripts', 'migrate-data-dir.js');
-
-  const run = (HOME) => {
-    const env = { ...process.env, HOME };
-    delete env.FINANCE_DB;
-    delete env.FINANCE_PROFILE;
-    return spawnSync(process.execPath, [MIGRATE], { env, encoding: 'utf8', timeout: 20000 });
-  };
-
-  it('複製過去、逐表核對，而且一個位元組都不動舊檔', (t) => {
-    if (fs.existsSync(LEGACY)) return t.skip('這個 checkout 真的有 data/finance.db，不動它');
-
-    const HOME = fakeHome();
-    fs.mkdirSync(path.dirname(LEGACY), { recursive: true });
-    try {
-      // A legacy book with rows still sitting in the WAL, which is exactly the
-      // case a plain file copy would silently truncate.
-      const { DatabaseSync } = require('node:sqlite');
-      const seed = new DatabaseSync(LEGACY);
-      seed.exec('PRAGMA journal_mode = WAL');
-      seed.exec(`
-        CREATE TABLE institutions (id INTEGER PRIMARY KEY, name TEXT);
-        CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT);
-        CREATE TABLE txns (id INTEGER PRIMARY KEY, amount REAL);
-        CREATE TABLE holdings (id INTEGER PRIMARY KEY);
-        CREATE TABLE fx_rates (date TEXT);
-        CREATE TABLE balance_checks (id INTEGER PRIMARY KEY);
-        CREATE TABLE imports (id INTEGER PRIMARY KEY);
-        CREATE TABLE mappings (id INTEGER PRIMARY KEY);
-        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
-        INSERT INTO institutions (name) VALUES ('玉山銀行'), ('Bank of America');
-        INSERT INTO accounts (name) VALUES ('玉山活存'), ('Adv Plus Banking');
-        INSERT INTO meta VALUES ('schema_version', '1');
-      `);
-      for (let i = 0; i < 250; i++) seed.prepare('INSERT INTO txns (amount) VALUES (?)').run(i * 1.5);
-      seed.close();
-
-      const sizeBefore = fs.statSync(LEGACY).size;
-      const res = run(HOME);
-      assert.equal(res.status, 0, `搬移應該成功：${res.stderr}`);
-
-      const dest = path.join(HOME, '.finance-hub', 'finance.db');
-      assert.ok(fs.existsSync(dest), '新位置要有檔案');
-
-      const { DatabaseSync: DS } = require('node:sqlite');
-      const out = new DS(dest, { readOnly: true });
-      assert.equal(out.prepare('SELECT COUNT(*) AS n FROM txns').get().n, 250, 'WAL 裡的 250 筆都要在');
-      assert.equal(out.prepare('SELECT COUNT(*) AS n FROM institutions').get().n, 2);
-      out.close();
-
-      assert.ok(fs.existsSync(LEGACY), '舊檔必須還在');
-      assert.equal(fs.statSync(LEGACY).size, sizeBefore, '舊檔不能被改動');
-
-      // Running it again must not overwrite the book that is now in use.
-      const again = run(HOME);
-      assert.equal(again.status, 1, '第二次要拒絕');
-      assert.match(again.stderr, /不會覆蓋/);
-    } finally {
-      for (const s of ['', '-wal', '-shm']) fs.rmSync(LEGACY + s, { force: true });
-      fs.rmSync(path.dirname(LEGACY), { recursive: true, force: true });
-      fs.rmSync(HOME, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('舊帳本還留在 repo 時', () => {
-  it('偵測得到，而且拒絕啟動而不是開一本空的', (t) => {
-    // Never fabricate a legacy file over a real one.
-    if (fs.existsSync(LEGACY)) return t.skip('這個 checkout 真的有 data/finance.db，不動它');
-
-    const HOME = fakeHome();
-    fs.mkdirSync(path.dirname(LEGACY), { recursive: true });
-    fs.writeFileSync(LEGACY, '');
-    try {
-      const p = resolveUnder({ HOME, FINANCE_DB: undefined, FINANCE_PROFILE: undefined });
-      assert.equal(p.strandedLegacyDb, LEGACY, '舊帳本應該被認出來');
-
-      const env = { ...process.env, HOME, PORT: '0' };
-      delete env.FINANCE_DB;
-      delete env.FINANCE_PROFILE;
-      const run = spawnSync(process.execPath, [SERVER], { env, encoding: 'utf8', timeout: 15000 });
-
-      assert.equal(run.status, 1, '應該直接結束，而不是把空帳本開起來');
-      assert.match(run.stderr, /migrate-data-dir/, '訊息要指出怎麼搬');
-      assert.ok(
-        !fs.existsSync(path.join(HOME, '.finance-hub', 'finance.db')),
-        '拒絕啟動時不可以已經建好新的空帳本'
-      );
-
-      // An explicit path means the caller knows which book it wants.
-      const chosen = path.join(HOME, 'chosen.db');
-      const p2 = resolveUnder({ HOME, FINANCE_DB: chosen, FINANCE_PROFILE: undefined });
-      assert.equal(p2.strandedLegacyDb, null, 'FINANCE_DB 指定時不該擋');
-    } finally {
-      fs.rmSync(LEGACY, { force: true });
-      fs.rmSync(path.dirname(LEGACY), { recursive: true, force: true });
-      fs.rmSync(HOME, { recursive: true, force: true });
-    }
   });
 });

@@ -4,29 +4,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Consulted before anything opens a database: ./paths has no side effects,
-// while requiring ./api pulls in ./db, which creates the file it is told to
-// open. Refusing here is the difference between a clear instruction and a
-// brand new empty ledger sitting beside the real one.
 const paths = require('./paths');
-if (paths.strandedLegacyDb) {
-  console.error('');
-  console.error('  帳本位置已經改了，但舊的那本還在 repo 裡面。');
-  console.error('');
-  console.error(`    舊：${paths.strandedLegacyDb}`);
-  console.error(`    新：${paths.DB_PATH}`);
-  console.error('');
-  console.error('  現在直接啟動會在新位置開一本空帳，舊的那本原封不動留在 repo，');
-  console.error('  而 repo 裡的東西會被 git clean -xdf 一起刪掉。先搬過去：');
-  console.error('');
-  console.error('    node scripts/migrate-data-dir.js');
-  console.error('');
-  console.error('  搬完舊檔還會留著，確認新的沒問題再自己刪。');
-  console.error('  真的想開一本新的空帳：FINANCE_PROFILE=<名字> node server/index.js');
-  console.error('');
-  process.exit(1);
-}
-
 const { csp, LOCAL } = require('./csp');
 const { routes, HttpError } = require('./api');
 const { db, DB_PATH } = require('./db');

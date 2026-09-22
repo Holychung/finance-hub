@@ -8,21 +8,9 @@
 ~/.finance-hub/backups/       ← 匯入前、升級結構前的自動快照
 ```
 
-以前這些放在 `<repo>/data/`，雖然有 `.gitignore` 擋著不會被 commit，但**`git clean -xdf`
-會把整個 `data/` 刪掉**——連快照一起，那是「整理工作區」的標準指令不是危險指令。而且每開
-一個 worktree 就多一個空的 `data/`，在裡面跑會看到一本空帳。
-
-## 從舊版搬過來
-
-```bash
-node scripts/migrate-data-dir.js
-```
-
-用 SQLite 自己的 backup API 複製（不是 `cp`——WAL 模式下光複製 `.db` 會漏掉還沒寫回主檔的
-交易），逐表核對筆數，然後**舊檔原封不動留在原地**。確認新的跑起來沒問題，再自己把 `data/`
-刪掉。
-
-沒搬之前伺服器會直接拒絕啟動，不會偷偷在新位置開一本空帳。
+放在 `<repo>/data/` 會是什麼結果：`.gitignore` 擋得住 commit，但**`git clean -xdf` 會把整
+個 `data/` 刪掉**——連快照一起，而那是「整理工作區」的標準指令，不是危險指令。而且每開一個
+worktree 就多一個空的 `data/`，在裡面跑會看到一本空帳。
 
 ## 同時要一本測試用的帳
 

@@ -95,7 +95,6 @@ test/export.test.js  the CSV bytes: BOM, CRLF, escaping, each sheet's columns
 test/html.test.js    the frontend escaping rules below
 test/pack.test.js    what the hosted copy contains, and what it must not
 test/deps.test.js    zero dependencies and no external URLs, as mechanisms
-scripts/migrate-data-dir.js   one-time move of a pre-0.2 data/finance.db
 scripts/seed-demo.js          invented data for a demo profile; refuses the
                               personal ledger outright
 scripts/pack-demo.js          copies web/ + shared/ into dist/ for a static
@@ -150,8 +149,7 @@ shape, invented content in a real bank's shape. See "Adding a bank".
 
 `test/paths.test.js` evaluates `server/paths.js` in a child process under a
 throwaway `HOME`, so it can assert where the real ledger would go without ever
-creating it. Tests that need a legacy `data/finance.db` fabricate one and skip
-outright if the checkout already has a real one.
+creating it.
 
 Note: `node --test test/` does not work on Node 22 — pass the file or no
 argument at all.
