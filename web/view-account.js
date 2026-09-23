@@ -19,8 +19,8 @@ views.account = async () => {
   }
 
   const qs = new URLSearchParams({ account: id, limit: acctState.limit, offset: acctState.offset });
-  const [data, checks, imports] = await Promise.all([
-    api(`/api/txns?${qs}`), api('/api/reconcile'), api('/api/imports'),
+  const [data, checks, imports, points] = await Promise.all([
+    api(`/api/txns?${qs}`), api('/api/reconcile'), api('/api/imports'), api(`/api/accounts/${id}/series`),
   ]);
   const mine = checks.filter((c) => c.account_id === id);
   const off = mine.filter((c) => !c.ok);
@@ -64,17 +64,24 @@ views.account = async () => {
     </section>
 
     ${TAX_ADVANTAGED_KINDS.has(a.kind) ? html`<section><div class="note">
-      退休帳戶通常沒有可以匯入的逐筆明細。裡面買的是基金的話，記在「持股」；只拿得到餘額的話（例如勞退專戶），
-      提繳和收益各記一筆交易，再拿每一期的對帳單記一筆對帳，確認兩邊對得上。
-      餘額填對帳單上的總額；還沒歸屬的部分另外填在帳戶設定裡，淨值會扣掉它。
+      計畫網站下載得到交易紀錄的話（例如 Fidelity），直接匯進來：提撥和配息會變成交易，基金之間的轉換和已實現損益不算進出。
+      所以這個帳戶的餘額和下面的線，是<b>放進去的錢</b>，不含基金的漲跌；跟對帳單上的市值差多少，記一筆對帳就看得到。
+      只拿得到餘額的話（例如勞退專戶），提繳和收益各記一筆交易。還沒歸屬的部分填在帳戶設定裡，淨值會扣掉它。
     </div></section>` : ''}
 
     ${off.length ? html`<section><div class="note warn">
       這個帳戶的實際餘額跟交易累計對不起來：${off.map((c) => html`
         <div>${c.date} 網銀 ${money(c.stated, a.currency)}，帳面 ${money(c.computed, a.currency)}，
         差 <b>${signed(c.diff, a.currency)}</b></div>`)}
-      通常是 CSV 漏匯，或期初餘額填錯。
+      ${TAX_ADVANTAGED_KINDS.has(a.kind)
+        ? '帳面只算放進去的錢，差額多半是基金的漲跌；也可能是期初餘額填錯。'
+        : '通常是 CSV 漏匯，或期初餘額填錯。'}
     </div></section>` : ''}
+
+    <section class="card">
+      <h2 class="sec">餘額走勢（月底）</h2>
+      ${lineChart(points, a.currency)}
+    </section>
 
     <section class="card">
       <h2 class="sec">交易</h2>

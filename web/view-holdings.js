@@ -5,11 +5,14 @@
 // adding the market value back would count it twice.
 
 views.holdings = async () => {
-  const [holdings, accounts] = await Promise.all([api('/api/holdings'), api('/api/accounts')]);
+  const [holdings, accounts, settings] = await Promise.all([
+    api('/api/holdings'), api('/api/accounts'), api('/api/settings'),
+  ]);
   // Any account whose kind can hold positions. This used to be
   // `kind === 'brokerage'`, so a wallet could never be given a coin at all.
   const holders = accounts.filter((a) => HOLDING_KINDS.has(a.kind));
   const sum = (rows, key) => rows.reduce((s, r) => s + (r[key] || 0), 0);
+  const lastFetch = localTime(settings.prices_fetched_at);
 
   // One section per market and, within it, per currency. A section's header
   // is a sum, so it has to be a sum in one currency — and a coin can be priced
@@ -28,7 +31,10 @@ views.holdings = async () => {
   const currenciesIn = (m) => new Set(holdings.filter((h) => h.market === m).map((h) => h.currency));
 
   const section = (mkt, cur) => {
-    const rows = holdings.filter((h) => h.market === mkt && h.currency === cur);
+    // Sorted by market value so the biggest position leads — the allocation
+    // chart below reads top-down and its colours run largest-first.
+    const rows = holdings.filter((h) => h.market === mkt && h.currency === cur)
+      .slice().sort((a, b) => b.market_value - a.market_value);
     const u = unitsOf(mkt);
     const label = `${u.label}${currenciesIn(mkt).size > 1 ? `（${cur}）` : ''}`;
     const mv = sum(rows, 'market_value');
@@ -36,6 +42,10 @@ views.holdings = async () => {
     return html`<section class="card">
       <h2 class="sec">${label} — 市值 ${money(mv, cur)} ／ 成本 ${money(cost, cur)} ／ 損益
         <span class="${cls(mv - cost)}">${signed(mv - cost, cur)}</span></h2>
+
+      <h2 class="sec">配置</h2>
+      ${barBreakdown(rows.map((h) => [h.symbol, h.market_value]), mv, cur)}
+
       <div class="table-wrap"><table>
         <thead><tr>
           <th>代號</th><th>名稱</th><th>帳戶</th><th class="num">${u.unit}</th><th class="num">均價</th>
@@ -79,8 +89,23 @@ views.holdings = async () => {
 
     ${groups.map(([mkt, cur]) => section(mkt, cur))}
     ${holdings.length ? '' : html`<section class="card">${empty('還沒有持股。')}</section>`}
+
+    ${settings.auto_prices ? html`<div class="prices-foot muted small">
+      <span>收盤價${lastFetch ? ` ${lastFetch} 更新` : '尚未更新'}</span>
+      <button class="icon-btn" id="prices-now" title="重新抓收盤價" aria-label="重新抓收盤價">${icon('refresh')}</button>
+    </div>` : ''}
   `);
 
+  if ($('#prices-now')) $('#prices-now').onclick = async () => {
+    const btn = $('#prices-now');
+    btn.disabled = true;
+    toast('更新中…');
+    try {
+      const r = await post('/api/prices/refresh');
+      toast(`收盤價：更新 ${r.updated.length} 檔${r.failed.length ? `，${r.failed.length} 檔未更新` : ''}`, 'ok');
+      render();
+    } catch (e) { toast(e.message, 'err'); }
+  };
   if ($('#add-h')) $('#add-h').onclick = () => holdingForm(null, accounts);
   $$('[data-hist]').forEach((b) => (b.onclick = () => holdingPrices(holdings.find((h) => h.id === +b.dataset.hist))));
   $$('[data-edit]').forEach((b) => (b.onclick = () => holdingForm(holdings.find((h) => h.id === +b.dataset.edit), accounts)));

@@ -191,6 +191,8 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/spending?from=2026-01-01&to=2026-09-30',
     '/api/recurring?from=2025-01-01&to=2026-09-30',
     '/api/export/json',
+    '/api/accounts/1/series?to=2026-09-30',
+    '/api/accounts/5/series?to=2026-09-30',
   ];
 
   for (const p of SAME) {
@@ -217,6 +219,14 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     for (const cur of Object.keys(a.series)) {
       assert.deepEqual(a.series[cur][0], b.series[cur][0], `${cur} 的第一個點`);
     }
+    // The same for each half the overview's switch can show.
+    assert.deepEqual(Object.keys(a.series_by_access).sort(), Object.keys(b.series_by_access).sort());
+    for (const [access, s] of Object.entries(a.series_by_access)) {
+      assert.deepEqual(Object.keys(s).sort(), Object.keys(b.series_by_access[access]).sort(), access);
+      for (const cur of Object.keys(s)) {
+        assert.deepEqual(s[cur][0], b.series_by_access[access][cur][0], `${access} ${cur} 的第一個點`);
+      }
+    }
   });
 
   it('同一份對帳單，兩邊預覽出同一批資料列', async () => {
@@ -229,6 +239,20 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     assert.deepEqual(a.summary, b.summary, '每一種狀態的筆數');
     assert.deepEqual(a.reconcile, b.reconcile, '匯入後會不會對得上');
     assert.deepEqual(a.rows, b.rows, '每一行的指紋、狀態、金額');
+  });
+
+  // A retirement plan's history, previewed with no account: the rows held
+  // back, the kind each imported row carries and the account it suggests all
+  // come from shared/csv.js, and both sides have to report them the same.
+  it('退休計畫的交易紀錄，兩邊預覽出同一批資料列和同一個建議', async () => {
+    const content_base64 = fs.readFileSync(path.join(FIXTURES, 'fidelity-401k.csv')).toString('base64');
+    const body = { filename: 'fidelity-401k.csv', content_base64 };
+    const [a, b] = [await demo.post('/api/import/preview', body), await live.post('/api/import/preview', body)];
+    assert.deepEqual(a.mapping, b.mapping);
+    assert.deepEqual(a.summary, b.summary);
+    assert.equal(a.summary.internal, 15);
+    assert.deepEqual(a.rows, b.rows);
+    assert.deepEqual(a.suggested_account, b.suggested_account);
   });
 
   it('同一份對帳單，兩邊匯入後的帳本一致', async () => {
@@ -292,6 +316,17 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     // the last migration added, so it is that version; it said 6 for two
     // steps because nothing compared it.
     assert.equal(a.schema_version, b.schema_version, 'demo 的 schema 版本要跟全新的伺服器一樣');
+    // Both default to off: the real server is offline until asked, and the demo
+    // can never fetch at all.
+    assert.equal(a.auto_prices, false);
+    assert.equal(b.auto_prices, false);
+  });
+
+  it('抓價 refresh：關閉時兩邊都是 disabled 的 no-op', async () => {
+    // auto_prices is off on both, so neither touches the network here.
+    const [a, b] = [await demo.post('/api/prices/refresh', {}), await live.post('/api/prices/refresh', {})];
+    assert.deepEqual(a, { enabled: false, updated: [], failed: [] });
+    assert.deepEqual(b, { enabled: false, updated: [], failed: [] });
   });
 
   it('沒有這條 route 時兩邊都是 404', async () => {
