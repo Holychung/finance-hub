@@ -66,7 +66,7 @@ const axisLabel = (rawN, step) => {
 // every other box in the app, and the one caller was passing the same number
 // every time.
 // Nothing to draw still takes a chart's room — see `.chart-empty`.
-const chartEmpty = (msg) => html`<div class="chart"><div class="chart-plot chart-empty">${msg}</div></div>`;
+const chartEmpty = (msg) => html`<div class="chart"><div class="chart-plot chart-empty">${empty(msg)}</div></div>`;
 
 function lineChart(series, cur = 'TWD') {
   const pts = series.filter((p) => p.value !== null);
