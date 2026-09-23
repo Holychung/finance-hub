@@ -50,9 +50,8 @@ views.coverage = async () => {
         <h1>帳本完整度</h1>
         <div class="sub">每個帳戶、每個月，帳本到底有沒有資料</div>
       </div>
-      <div class="row shrink">${[12, 24, 36].map((n) => html`
-        <button class="sm" data-months="${n}" aria-pressed="${n === coverageMonths}">${n} 個月</button>`)}
-      </div>
+      <div class="seg" role="group" aria-label="看幾個月">${[12, 24, 36].map((n) => html`<button
+        data-months="${n}" aria-pressed="${n === coverageMonths}">${n} 個月</button>`)}</div>
     </div>
 
     ${d.accounts.length ? html`

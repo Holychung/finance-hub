@@ -331,6 +331,23 @@ describe('前端靜態防線', () => {
       `${offenders.map((f) => f.name).join('、')} 自己寫死了兩位小數，用 roundTo`);
   });
 
+  // A pressed toggle is styled only inside `.seg`. Written as loose buttons in
+  // a `.row`, the overview's 可動用／受限制／全部 came out as three full-width
+  // buttons stacked down the page head, because `.row > *` stretches every
+  // child. With the pressed style moved into the component, a toggle outside
+  // one would also lose its pressed look, so the two stay together.
+  it('按下狀態的切換按鈕都在分段按鈕 .seg 裡', () => {
+    const offenders = FILES.flatMap(({ name, src }) => {
+      const lines = src.split('\n');
+      return lines.reduce((hits, line, i) => {
+        if (!/aria-pressed=/.test(line)) return hits;
+        const near = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
+        return /class="seg"/.test(near) ? hits : [...hits, `${name}:${i + 1}`];
+      }, []);
+    });
+    assert.deepEqual(offenders, [], `${offenders.join('、')} 的切換按鈕不在 .seg 裡`);
+  });
+
   // renderPreview reads imp.preview and imp.mapping together, and views.import
   // ends by calling it whenever a preview is held. Clearing one without the
   // other throws *inside* the view, so render() swaps the page for the error

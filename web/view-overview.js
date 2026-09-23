@@ -23,9 +23,10 @@ views.overview = async () => {
   const accessOf = new Map(d.accounts.map((a) => [a.id, a.access || DEFAULT_ACCESS]));
   const inScope = (access) => scope === 'all' || access === scope;
   const series = scope === 'all' ? d.series : d.series_by_access[scope];
-  // A currency with nothing in this half has no card: 受限制 in a book whose
-  // only restricted account is a USD 401(k) shows the USD card alone.
-  const order = nw.order.filter((cur) => scope === 'all' || Object.keys(nw.currencies[cur][scope].by_kind).length);
+  // Every currency keeps its card in every view, in the same place. One with
+  // nothing in this half says so where its number and chart would be, rather
+  // than dropping out and leaving the other card to jump across the page.
+  const order = nw.order;
 
   // Each check carries its own severity and the page that resolves it. What
   // this replaced was one amber block of `⚠︎` lines: a sign error doubling a
@@ -79,6 +80,8 @@ views.overview = async () => {
   const perCurrency = (cur) => {
     const whole = nw.currencies[cur];
     const c = scope === 'all' ? whole : whole[scope];
+    // Any account or holding in this half gives the block a kind to report.
+    const has = Object.keys(c.by_kind).length > 0;
     const s = series[cur] || [];
     const prev = s.length > 1 ? s[s.length - 2].value : null;
     const change = prev === null ? null : round2(c.ledger - prev);
@@ -103,12 +106,13 @@ views.overview = async () => {
         <span class="muted">${nAcc} 個帳戶${nHold ? ` · ${nHold} 檔持股` : ''}</span>
       </h2>
 
-      <div class="cur-total ${level(c.total)}">${money(c.total, cur)}</div>
+      <div class="cur-total ${has ? level(c.total) : 'dim'}">${has ? money(c.total, cur) : '—'}</div>
       <div class="cur-sub">
-        帳戶 ${money(c.ledger, cur)}${c.securities ? html` ＋ 持股 ${money(c.securities, cur)}` : ''}${c.unvested
+        ${has ? html`帳戶 ${money(c.ledger, cur)}${c.securities ? html` ＋ 持股 ${money(c.securities, cur)}` : ''}${c.unvested
           ? html` － 未歸屬 ${money(c.unvested, cur)}` : ''}
         <span class="${change === null ? 'dim' : cls(change)}">
-          ${change === null ? '· 無上期可比' : `· 較上月 ${signed(change, cur)}`}</span>
+          ${change === null ? '· 無上期可比' : `· 較上月 ${signed(change, cur)}`}</span>`
+          : `沒有${scopeLabel}的 ${cur} 帳戶`}
         ${aside ? html`<span class="sub-line">${aside}</span>` : ''}
       </div>
 
@@ -124,10 +128,9 @@ views.overview = async () => {
     <div class="page-head">
       <div><h1>總覽</h1><div class="sub">${d.counts.txns} 筆交易 · ${nw.as_of}</div></div>
       <div class="row shrink">
-        ${split ? html`<div class="row shrink" role="group" aria-label="淨值要看哪一部分">${OVERVIEW_SCOPES.map((s) => html`
-          <button class="sm" data-scope="${s.key}" aria-pressed="${s.key === scope}">${s.label}</button>`)}
-        </div>` : ''}
-        <button class="btn" id="refresh">重新整理</button>
+        ${split ? html`<div class="seg" role="group" aria-label="淨值要看哪一部分">${OVERVIEW_SCOPES.map((s) => html`<button
+          data-scope="${s.key}" aria-pressed="${s.key === scope}">${s.label}</button>`)}</div>` : ''}
+        <button class="sm shrink" id="refresh">重新整理</button>
       </div>
     </div>
 
@@ -135,9 +138,7 @@ views.overview = async () => {
 
     ${order.length
       ? html`<section class="grid g2">${order.map(perCurrency)}</section>`
-      : html`<section class="card">${empty(nw.order.length
-        ? `沒有${scopeLabel}的帳戶。`
-        : '還沒有帳戶。丟一個 CSV 到「匯入」頁就會幫你建。')}</section>`}
+      : html`<section class="card">${empty('還沒有帳戶。丟一個 CSV 到「匯入」頁就會幫你建。')}</section>`}
 
     ${order.length ? html`<section><div class="muted small">
       持股在第一階段只有當前市值、沒有歷史價格，所以不畫進走勢，避免畫出一條從來不存在的線。
@@ -145,7 +146,10 @@ views.overview = async () => {
 
     <section class="card">
       <h2 class="sec">帳戶餘額${split ? ` · ${scopeLabel}` : ''}</h2>
-      <div class="table-wrap">${accountTable(d.accounts.filter((a) => inScope(a.access || DEFAULT_ACCESS)))}</div>
+      <div class="table-wrap">${accountTable(
+        d.accounts.filter((a) => inScope(a.access || DEFAULT_ACCESS)),
+        d.accounts.length ? `沒有${scopeLabel}的帳戶。` : undefined
+      )}</div>
     </section>
 
     ${d.reconcile.latest.length ? html`<section class="card">
@@ -185,8 +189,10 @@ function todoList(todos) {
   </div>`;
 }
 
-function accountTable(accounts) {
-  if (!accounts.length) return empty('還沒有帳戶。先到「帳戶」頁新增。');
+// `none` is for a book that has accounts, none of them in the view on screen:
+// telling that reader to go and add one would be wrong.
+function accountTable(accounts, none = '還沒有帳戶。先到「帳戶」頁新增。') {
+  if (!accounts.length) return empty(none);
   return html`<table>
     <thead><tr><th>帳戶</th><th>類型</th><th>幣別</th><th class="num">餘額</th></tr></thead>
     <tbody>${accounts.map((a) => html`<tr>
