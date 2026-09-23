@@ -6,8 +6,9 @@
 
 function accountForm(acct, institutions) {
   const a = acct || {
-    name: '', kind: 'cash', currency: 'TWD', opening_balance: 0,
+    name: '', kind: DEFAULT_ACCOUNT_KIND, currency: 'TWD', opening_balance: 0,
     opening_date: today(), institution_id: null, is_active: 1, note: '',
+    access: defaultAccessFor(DEFAULT_ACCOUNT_KIND), tax_status: null, unvested: 0,
   };
   modal(acct ? `編輯 ${acct.name}` : '新增帳戶', html`
     <label class="field"><span>帳戶名稱</span><input id="f-name" value="${a.name}" placeholder="玉山活存"></label>
@@ -29,6 +30,22 @@ function accountForm(acct, institutions) {
     </div>
     <div class="note small">期初餘額是「你開始匯入 CSV 那天之前的餘額」。之後所有交易都在這個基礎上加減。設錯了餘額會整體偏移，但隨時可以回來改。</div>
     <div class="note warn small" id="f-liability" hidden></div>
+    <div id="f-plan" hidden>
+      <div class="row">
+        <label class="field"><span>稅務性質</span><select id="f-tax">
+          <option value="">（不註明）</option>
+          ${TAX_STATUS.map((t) => html`<option value="${t.key}" ${t.key === a.tax_status ? 'selected' : ''}>${t.label}</option>`)}
+        </select></label>
+        <label class="field"><span>未歸屬（原幣）</span><input id="f-unvested" type="number" step="any" min="0" value="${a.unvested || 0}"></label>
+      </div>
+      <div class="note small">餘額填對帳單上的總額。未歸屬是雇主提撥裡還不屬於你的部分，照計畫文件上的數字填：
+        淨值會扣掉它，餘額不會。稅務性質只是標示，不會拿任何稅率去折算。</div>
+    </div>
+    <label class="field"><span>這筆錢能不能動</span><select id="f-access">
+      ${ACCESS.map((x) => html`<option value="${x.key}" ${x.key === (a.access || DEFAULT_ACCESS) ? 'selected' : ''}>${x.label}</option>`)}
+    </select></label>
+    <div class="note small">「受限制」是指你和這筆錢之間有一道規則 —— 年齡、通知期、提早解約的罰則，例如退休帳戶或鎖倉。
+      不是「不好賣」：一間房子沒有人攔著你賣，它仍然算可動用。</div>
     <label class="field"><span>備註</span><input id="f-note" value="${a.note}"></label>
     <label class="field"><span><input type="checkbox" id="f-active" ${a.is_active ? 'checked' : ''}> 啟用中</span></label>
     <div class="modal-foot">
@@ -55,10 +72,27 @@ function accountForm(acct, institutions) {
       }
       note.hidden = !show;
     };
-    $('#f-kind', body).onchange = syncLiability;
+    // Tax status and unvested mean something only on a tax-advantaged kind.
+    // They stay on screen for any account already carrying one, so changing
+    // the kind cannot hide a figure net worth is still subtracting.
+    const plan = $('#f-plan', body);
+    const syncPlan = () => {
+      plan.hidden = !(TAX_ADVANTAGED_KINDS.has($('#f-kind', body).value)
+        || $('#f-tax', body).value || Number($('#f-unvested', body).value) > 0);
+    };
+
+    // A new account takes its kind's starting access, in the select where it
+    // can be seen and changed. An existing one keeps what it was given: a
+    // change of kind is not a reason to overturn a choice somebody made.
+    $('#f-kind', body).onchange = () => {
+      if (!acct) $('#f-access', body).value = defaultAccessFor($('#f-kind', body).value);
+      syncLiability();
+      syncPlan();
+    };
     $('#f-cur', body).onchange = syncLiability;
     $('#f-ob', body).oninput = syncLiability;
     syncLiability();
+    syncPlan();
 
     $('#f-save', body).onclick = async () => {
       const payload = {
@@ -70,6 +104,9 @@ function accountForm(acct, institutions) {
         opening_date: $('#f-od').value || today(),
         is_active: $('#f-active').checked ? 1 : 0,
         note: $('#f-note').value,
+        access: $('#f-access').value,
+        tax_status: $('#f-tax').value,
+        unvested: $('#f-unvested').value,
       };
       if (!payload.name) return toast('帳戶名稱必填', 'err');
       try {

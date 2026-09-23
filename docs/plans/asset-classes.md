@@ -257,10 +257,22 @@ appears in the calculation.
    as a large drop the day a retirement account is added. My recommendation is the first,
    with the split immediately under it, because the number is not wrong; it was only ever
    under-labelled.
+
+   *Answered 2026-09-22:* the spendable half is the headline, because that is what the
+   page is opened to find out, with a 可動用／受限制／全部 switch, since the halves are
+   usually looked at separately. The half not on screen is named under the headline, so
+   neither is ever hidden. A segmented control rather than a button cycling through three
+   states: every option stays visible, and each is one click away.
 2. **`market` → `venue` on `holdings`, or a third `market` value?** A migration for
    clarity, against living with a column whose name stopped being true.
 3. **Does `/coverage` show restricted accounts?** They have no statements to import, so
    every month is a gap by construction.
+
+   *Answered 2026-09-22:* the question was never about access. A wallet is liquid and
+   has no statements either. An account with nothing to import is kept by hand, only its
+   latest figure matters, and it leaves the grid and every count, named under the grid
+   so it does not silently vanish. Keyed on the kind's `statements` flag in
+   `shared/kinds.js`: wallets first, retirement when it is needed.
 
 ---
 

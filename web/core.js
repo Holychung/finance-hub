@@ -144,6 +144,23 @@ function icon(name) {
 
 const empty = (msg) => html`<div class="empty">${icon('file')}<div>${msg}</div></div>`;
 
+// An ARIA state written out as the word it has to be. html`` renders a
+// boolean as nothing, which is what lets `${cond && html`…`}` work — and it
+// also means an aria-pressed filled straight from a comparison always comes
+// out empty. That is how every range switch in the app shipped with no
+// pressed state: no highlight on screen, and nothing for a screen reader.
+const ariaBool = (on) => (on ? 'true' : 'false');
+
+// The status pills an account carries wherever its name is written: no longer
+// in use, money behind a rule, and which kind of tax figure its balance is.
+// Kind and currency are not pills — they have columns of their own. This was
+// two copies of the same two conditionals until a third pill arrived.
+const accountPills = (a) => [
+  a.is_active ? '' : html` <span class="pill">已停用</span>`,
+  a.access === 'restricted' ? html` <span class="pill">${accessName(a.access)}</span>` : '',
+  a.tax_status ? html` <span class="pill">${taxStatusName(a.tax_status)}</span>` : '',
+];
+
 // Rebuilding a container replaces every node in it, so whatever had focus is
 // gone and the caret with it — type in the transactions search box, press
 // Enter, and you have to click back into it to change a letter. Nothing here

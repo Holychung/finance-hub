@@ -19,8 +19,8 @@ views.account = async () => {
   }
 
   const qs = new URLSearchParams({ account: id, limit: acctState.limit, offset: acctState.offset });
-  const [data, checks, imports] = await Promise.all([
-    api(`/api/txns?${qs}`), api('/api/reconcile'), api('/api/imports'),
+  const [data, checks, imports, points] = await Promise.all([
+    api(`/api/txns?${qs}`), api('/api/reconcile'), api('/api/imports'), api(`/api/accounts/${id}/series`),
   ]);
   const mine = checks.filter((c) => c.account_id === id);
   const off = mine.filter((c) => !c.ok);
@@ -36,7 +36,7 @@ views.account = async () => {
         <div class="sub">
           ${kindName(a.kind)} · <span class="cur">${a.currency}</span> ·
           ${data.total} 筆交易 · ${span}
-          ${a.is_active ? '' : html` <span class="pill">已停用</span>`}
+          ${accountPills(a)}
         </div>
       </div>
       <div class="row shrink">
@@ -49,7 +49,8 @@ views.account = async () => {
     <section class="grid g4">
       <div class="card kpi"><div class="label">目前餘額</div>
         <div class="value ${level(a.balance)}">${money(a.balance, a.currency)}</div>
-        <div class="meta">${LIABILITY_KINDS.has(a.kind) ? '負數代表欠款' : a.currency}</div></div>
+        <div class="meta">${LIABILITY_KINDS.has(a.kind) ? '負數代表欠款'
+          : a.unvested ? `其中未歸屬 ${money(a.unvested, a.currency)}，淨值不算這部分` : a.currency}</div></div>
       <div class="card kpi"><div class="label">交易筆數</div>
         <div class="value">${data.total}</div>
         <div class="meta">${span}</div></div>
@@ -62,12 +63,25 @@ views.account = async () => {
         <div class="meta">${mine.length ? `共 ${mine.length} 次紀錄` : '還沒對過帳'}</div></div>
     </section>
 
+    ${TAX_ADVANTAGED_KINDS.has(a.kind) ? html`<section><div class="note">
+      計畫網站下載得到交易紀錄的話（例如 Fidelity），直接匯進來：提撥和配息會變成交易，基金之間的轉換和已實現損益不算進出。
+      所以這個帳戶的餘額和下面的線，是<b>放進去的錢</b>，不含基金的漲跌；跟對帳單上的市值差多少，記一筆對帳就看得到。
+      只拿得到餘額的話（例如勞退專戶），提繳和收益各記一筆交易。還沒歸屬的部分填在帳戶設定裡，淨值會扣掉它。
+    </div></section>` : ''}
+
     ${off.length ? html`<section><div class="note warn">
       這個帳戶的實際餘額跟交易累計對不起來：${off.map((c) => html`
         <div>${c.date} 網銀 ${money(c.stated, a.currency)}，帳面 ${money(c.computed, a.currency)}，
         差 <b>${signed(c.diff, a.currency)}</b></div>`)}
-      通常是 CSV 漏匯，或期初餘額填錯。
+      ${TAX_ADVANTAGED_KINDS.has(a.kind)
+        ? '帳面只算放進去的錢，差額多半是基金的漲跌；也可能是期初餘額填錯。'
+        : '通常是 CSV 漏匯，或期初餘額填錯。'}
     </div></section>` : ''}
+
+    <section class="card">
+      <h2 class="sec">餘額走勢（月底）</h2>
+      ${lineChart(points, a.currency)}
+    </section>
 
     <section class="card">
       <h2 class="sec">交易</h2>

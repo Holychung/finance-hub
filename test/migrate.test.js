@@ -23,6 +23,7 @@ const path = require('node:path');
 
 const { runMigrations, readVersion, tableCounts, MigrationError } = require('../server/migrate');
 const { MIGRATIONS, LATEST } = require('../server/migrations');
+const { quantity } = require('../shared/currency');
 
 const DB_JS = path.join(__dirname, '..', 'server', 'db.js');
 
@@ -742,6 +743,96 @@ describe('v4：imports 的日期區間', () => {
     assert.equal(got.date_from, null);
     assert.equal(got.date_to, null);
 
+    db.close();
+    s.rm();
+  });
+});
+
+describe('v7：帳戶的 access', () => {
+  // The whole point of 'liquid' as the default: every account that already
+  // exists is money you can reach this week, so a book upgrades with every
+  // figure unchanged. A different default would quietly move balances out of
+  // the spendable half the day PR 6 starts reading it.
+  it('既有的帳戶一律補成 liquid，筆數一個都不動', () => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db, 3);
+    db.prepare("INSERT INTO accounts (institution_id, name, kind) VALUES (1, '信用卡', 'card')").run();
+
+    runMigrations(db, {});
+
+    const rows = db.prepare('SELECT name, access FROM accounts ORDER BY id').all().map((r) => ({ ...r }));
+    assert.deepEqual(rows, [
+      { name: '活存', access: 'liquid' },
+      { name: '信用卡', access: 'liquid' },
+    ]);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM txns').get().n, 3);
+
+    db.close();
+    s.rm();
+  });
+
+  it('新插入的帳戶沒說的話也是 liquid', () => {
+    const s = scratch();
+    const db = s.open();
+    runMigrations(db, {});
+    db.prepare("INSERT INTO accounts (name) VALUES ('新的')").run();
+    assert.equal(db.prepare('SELECT access FROM accounts').get().access, 'liquid');
+    db.close();
+    s.rm();
+  });
+});
+
+describe('v8：持股的小數位數', () => {
+  // Four, not the plan's two: four places is what every holding was already
+  // shown at, because quantity() defaulted to it. Two would have quietly cut
+  // a fractional US share on the first render after the upgrade.
+  it('既有的持股補成四位，畫面跟升級前一模一樣', () => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db, 0);
+    db.prepare("INSERT INTO holdings (account_id, symbol, market, shares, currency) VALUES (1, 'VTI', 'US', 12.3456, 'USD')").run();
+    db.prepare("INSERT INTO holdings (account_id, symbol, market, shares) VALUES (1, '2330', 'TW', 1000)").run();
+
+    runMigrations(db, {});
+
+    for (const h of db.prepare('SELECT symbol, shares, decimals FROM holdings').all()) {
+      assert.equal(h.decimals, 4, `${h.symbol}`);
+      assert.equal(quantity(h.shares, h.decimals), quantity(h.shares), `${h.symbol} 的顯示變了`);
+    }
+    assert.equal(db.prepare('SELECT shares FROM holdings WHERE symbol = ?').get('VTI').shares, 12.3456,
+      '只是顯示的位數，存的數字不該被四捨五入');
+
+    db.close();
+    s.rm();
+  });
+});
+
+describe('v9：稅務性質與未歸屬', () => {
+  // Net worth subtracts unvested, so anything but 0 on an existing account
+  // would move a figure on upgrade. And a tax status is a statement about the
+  // balance; defaulting one would state something nobody said.
+  it('既有的帳戶沒有未歸屬、也沒有註明稅務性質', () => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db, 2);
+
+    runMigrations(db, {});
+
+    const a = db.prepare('SELECT tax_status, unvested FROM accounts').get();
+    assert.equal(a.tax_status, null);
+    assert.equal(a.unvested, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM txns').get().n, 2);
+
+    db.close();
+    s.rm();
+  });
+
+  it('未歸屬不能是 NULL——淨值要拿它來減', () => {
+    const s = scratch();
+    const db = s.open();
+    runMigrations(db, {});
+    assert.throws(() => db.prepare("INSERT INTO accounts (name, unvested) VALUES ('x', NULL)").run(), /NOT NULL/);
     db.close();
     s.rm();
   });

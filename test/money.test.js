@@ -197,6 +197,145 @@ describe('computeNetWorth', () => {
   });
 });
 
+// Unvested is the one retirement figure that is arithmetic, and the rule is
+// where it is subtracted: from net worth, never from the balance. The balance
+// is what the statement says, unvested share included, and it is what every
+// balance check is compared against.
+// The verification the plan asked for: a book with a checking account and a
+// retirement account, whose two halves add up to the old total, with the old
+// total still reported and no rate anywhere in the arithmetic.
+describe('computeNetWorth — 可動用與受限制', () => {
+  const accounts = [
+    { ...acct({ id: 1, currency: 'USD', kind: 'cash', access: 'liquid' }), balance: 5000 },
+    { ...acct({ id: 2, currency: 'USD', kind: 'retirement', access: 'restricted', unvested: 2940 }), balance: 41850 },
+    { ...acct({ id: 3, currency: 'USD', kind: 'brokerage', access: 'liquid' }), balance: 1000 },
+    { ...acct({ id: 4, currency: 'TWD', kind: 'cash', access: 'liquid' }), balance: 90000 },
+  ];
+  const holdings = [
+    { account_id: 3, currency: 'USD', market_value: 12000 },
+    { account_id: 2, currency: 'USD', market_value: 30000 },
+  ];
+  const nw = M.computeNetWorth({ accounts, holdings, asOf: '2026-09-22' });
+  const usd = nw.currencies.USD;
+
+  it('兩半加起來就是原本的總額，原本的總額也還在', () => {
+    assert.equal(usd.total, 5000 + 41850 + 1000 + 12000 + 30000 - 2940);
+    for (const field of ['ledger', 'securities', 'unvested', 'total']) {
+      assert.equal(M.round2(usd.liquid[field] + usd.restricted[field]), usd[field], field);
+    }
+  });
+
+  it('持股跟著它的帳戶走，未歸屬跟著它的計畫走', () => {
+    assert.equal(usd.liquid.securities, 12000, '券商的持股是可動用的');
+    assert.equal(usd.restricted.securities, 30000, '401(k) 裡的基金是受限制的');
+    assert.equal(usd.restricted.unvested, 2940);
+    assert.equal(usd.liquid.unvested, 0);
+    assert.equal(usd.restricted.total, 41850 + 30000 - 2940);
+    assert.equal(usd.liquid.by_kind.retirement, undefined, '退休金不出現在可動用的分布裡');
+  });
+
+  // Every currency gets both halves, empty or not, so a view never has to
+  // ask whether one exists.
+  it('沒有受限制帳戶的幣別，受限制那半是空的，不是缺的', () => {
+    assert.equal(nw.currencies.TWD.restricted.total, 0);
+    assert.deepEqual(nw.currencies.TWD.restricted.by_kind, {});
+    assert.equal(nw.currencies.TWD.liquid.total, 90000);
+  });
+
+  // `acct()` carries no access at all, which is what a row that predates the
+  // column looks like.
+  it('沒寫 access 的帳戶算可動用，跟升級前的每個帳戶一樣', () => {
+    const bare = { ...acct({ id: 9, currency: 'USD' }), balance: 100 };
+    const n = M.computeNetWorth({ accounts: [bare], holdings: [] }).currencies.USD;
+    assert.equal(n.liquid.total, 100);
+    assert.equal(n.restricted.total, 0);
+  });
+
+  // No discount, no projection, no conversion: the halves are the same sums
+  // over fewer rows. Checked on the source because a rate that crept in would
+  // still produce plausible numbers.
+  it('算淨值的地方沒有任何匯率或比率', () => {
+    const start = MONEY_SRC.indexOf('function computeNetWorth(');
+    const end = MONEY_SRC.indexOf('function computeNetWorthSeries(');
+    const body = MONEY_SRC.slice(start, end).replace(/\/\/[^\n]*/g, '');
+    assert.ok(start > 0 && end > start, '找不到 computeNetWorth');
+    assert.ok(!/\bfx\b|\brate\b|\bconvert\(/i.test(body), 'computeNetWorth 碰到了匯率');
+  });
+
+  it('走勢也可以只畫一半', () => {
+    const rows = [
+      acct({ id: 1, currency: 'USD', access: 'liquid', opening_balance: 5000 }),
+      acct({ id: 2, currency: 'USD', access: 'restricted', opening_balance: 41850 }),
+    ];
+    const txns = [{ account_id: 2, date: '2026-02-05', amount: 975 }, { account_id: 1, date: '2026-02-06', amount: -100 }];
+    const last = (access) => {
+      const s = M.computeNetWorthSeries({ accounts: rows, txns, from: '2026-01-01', to: '2026-02-28', access }).USD;
+      return s[s.length - 1].value;
+    };
+    assert.equal(last('liquid'), 4900);
+    assert.equal(last('restricted'), 42825);
+    assert.equal(last(null), 47725, '不給 access 就是整本');
+  });
+});
+
+describe('computeNetWorth — 未歸屬', () => {
+  const plan = { ...acct({ id: 1, currency: 'USD', kind: 'retirement', tax_status: 'pretax', unvested: 2940 }), balance: 41850 };
+  const cash = { ...acct({ id: 2, currency: 'USD', kind: 'cash' }), balance: 5000 };
+
+  it('從淨值扣掉，餘額本身不動', () => {
+    const usd = M.computeNetWorth({ accounts: [plan, cash], holdings: [] }).currencies.USD;
+    assert.equal(usd.ledger, 46850, '帳戶合計照樣是對帳單上的總額');
+    assert.equal(usd.unvested, 2940);
+    assert.equal(usd.total, 43910);
+    assert.equal(usd.by_kind.retirement, 41850, '退休金那一列是餘額，不是扣過的');
+  });
+
+  // The breakdown is shares of the total, so the rows have to add up to it.
+  it('依類型的每一列加起來還是淨值，未歸屬是負的那一列', () => {
+    const usd = M.computeNetWorth({ accounts: [plan, cash], holdings: [] }).currencies.USD;
+    assert.equal(usd.by_kind.unvested, -2940);
+    const sum = Object.values(usd.by_kind).reduce((s, v) => s + v, 0);
+    assert.equal(Math.round(sum * 100) / 100, usd.total);
+  });
+
+  // Why it is its own row and not taken off the kind: a plan held entirely in
+  // funds has a cash balance of zero.
+  it('全部放在基金裡、現金是 0 的計畫，退休金那一列也不會變成負的', () => {
+    const inFunds = { ...plan, balance: 0 };
+    const usd = M.computeNetWorth({
+      accounts: [inFunds], holdings: [{ currency: 'USD', market_value: 41850 }],
+    }).currencies.USD;
+    assert.equal(usd.total, 38910);
+    assert.equal(usd.by_kind.retirement, 0);
+    assert.equal(usd.by_kind.unvested, -2940);
+  });
+
+  // Face value, never discounted: nothing here may read tax_status.
+  it('同樣餘額的 Roth 和稅前帳戶，算出來一模一樣', () => {
+    const nwOf = (tax_status) => M.computeNetWorth({ accounts: [{ ...plan, tax_status }], holdings: [] }).currencies.USD;
+    assert.deepEqual(nwOf('roth'), nwOf('pretax'));
+    assert.deepEqual(nwOf('aftertax'), nwOf(null));
+    assert.ok(!/\btax_status\b/.test(MONEY_SRC.replace(/\/\/[^\n]*/g, '')), 'shared/money.js 不該讀 tax_status');
+  });
+
+  it('沒有未歸屬的幣別，total 還是帳戶加持股，也沒有未歸屬那一列', () => {
+    const usd = M.computeNetWorth({ accounts: [cash], holdings: [] }).currencies.USD;
+    assert.equal(usd.unvested, 0);
+    assert.equal(usd.total, 5000);
+    assert.ok(!('unvested' in usd.by_kind));
+  });
+
+  // The series is ledger only, and its last point is today's summed balance.
+  // Unvested stays out of both, so that invariant does not move.
+  it('淨值走勢不扣未歸屬', () => {
+    const series = M.computeNetWorthSeries({
+      accounts: [acct({ id: 1, currency: 'USD', kind: 'retirement', opening_balance: 41850, unvested: 2940 })],
+      txns: [], from: '2026-01-01', to: '2026-03-31',
+    });
+    assert.equal(series.USD[series.USD.length - 1].value, 41850);
+  });
+});
+
 describe('computeNetWorthSeries', () => {
   const accounts = [
     { id: 1, currency: 'TWD', opening_balance: 1000, opening_date: '2026-01-01' },
@@ -468,6 +607,30 @@ describe('computeCoverage', () => {
       months,
     });
     assert.equal(g.accounts[0].cells[2].check, 'off', '順序不該影響結論');
+  });
+
+  // A wallet has no statement to import, so it has no month it could be
+  // incomplete about. Left in, every month it existed was a gap nobody could
+  // close — and it topped 最久沒匯入, above accounts with a real one.
+  it('沒有對帳單的帳戶不在表上、不算進任何數字，但會被點名', () => {
+    const wallet = { id: 2, name: '冷錢包', kind: 'wallet', currency: 'USD', opening_date: '2026-01-01', is_active: 1 };
+    const g = M.computeCoverage({
+      accounts: [a, wallet],
+      activity: [{ account_id: 1, month: '2026-01', n: 4, net: 0 }],
+      checks: [],
+      to,
+      months,
+    });
+    assert.deepEqual(g.accounts.map((r) => r.id), [1], '只剩活存');
+    assert.deepEqual(g.manual, [{ id: 2, name: '冷錢包', kind: 'wallet' }]);
+    assert.equal(g.summary.gaps, 2, '只有活存的兩個缺口，錢包的三個不算');
+    assert.equal(g.summary.accounts_with_gaps, 1);
+    assert.deepEqual(g.summary.stale.map((s) => s.name), ['活存']);
+  });
+
+  it('沒有這種帳戶的時候，點名的清單是空的，不是 undefined', () => {
+    const g = M.computeCoverage({ accounts: [a], activity: [], checks: [], to, months });
+    assert.deepEqual(g.manual, []);
   });
 });
 

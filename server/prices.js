@@ -21,6 +21,13 @@
 
 const https = require('node:https');
 const { roundTo } = require('../shared/currency');
+const { marketInfo } = require('../shared/kinds');
+
+// The markets this fetch knows how to ask Yahoo about. A coin is not one of
+// them: its bare symbol is not Yahoo's ticker for the coin, and a bare `BTC`
+// can resolve to a listed fund quoted in USD, which would pass the currency
+// check below and be stored as the coin's price. Coins stay priced by hand.
+const FETCHABLE = new Set(['TW', 'US']);
 
 // The only external address in the app. Kept as a base so the deps-test
 // exception can be anchored to this file.
@@ -91,7 +98,10 @@ function httpsGetJson(url) {
 // something else on Yahoo, and storing it would corrupt the valuation, so it is
 // treated as a miss rather than trusted.
 async function fetchSymbol(symbol, market, get) {
-  const want = market === 'US' ? 'USD' : 'TWD';
+  if (!FETCHABLE.has(market)) return null;
+  // The market's own currency, from the one list that says what a market
+  // implies (shared/kinds.js MARKETS), rather than a ternary of its own.
+  const want = marketInfo(market).currency;
   const tickers = market === 'TW'
     ? [yahooTicker(symbol, 'TW', 'TW'), yahooTicker(symbol, 'TW', 'TWO')]
     : [yahooTicker(symbol, market)];
@@ -125,6 +135,9 @@ async function updatePrices({ get = httpsGetJson, nowMs = Date.now(), deps } = {
   const updated = [];
   const failed = [];
   for (const h of held) {
+    // Not asked about, so not a failure: a coin is priced by hand, and
+    // reporting it as failed every day would be a warning nobody can clear.
+    if (!FETCHABLE.has(h.market)) continue;
     let q = null;
     try { q = await fetchSymbol(h.symbol, h.market, get); } catch { q = null; }
     if (q) { ins.run(h.symbol, h.market, q.date, q.close); updated.push(h.symbol); }

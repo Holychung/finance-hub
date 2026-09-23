@@ -2,8 +2,8 @@
 
 // The one networked feature, tested with nothing leaving the machine.
 //
-// `server/prices.js` requires only node:https and shared/currency at load —
-// never ./db — so this file imports it in-process without opening a ledger. The
+// `server/prices.js` requires only node:https and shared/ at load — never
+// ./db — so this file imports it in-process without opening a ledger. The
 // pure halves (yahooTicker, parseQuote) take data and return data; updatePrices
 // takes its network getter and its database handle as arguments, so a canned
 // getter and a throwaway db drive the whole path offline. See [[never-require-db]].
@@ -140,6 +140,25 @@ describe('updatePrices（注入假 getter 與拋棄式 db，全程離線）', ()
     const r = await P.updatePrices({ get, nowMs: now, deps: s.deps });
     assert.deepEqual(r.failed, ['0050']);
     assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM prices').get().n, 0, '寧可不寫，也不寫錯幣別的價');
+    s.rm();
+  });
+
+  // The dangerous case is not a miss but a hit: a bare `BTC` can resolve to a
+  // listed fund quoted in USD, which passes a USD check and would be stored as
+  // the coin's price. So a coin is never asked about, and not being asked is
+  // not a failure — it would otherwise be reported as one every single day.
+  it('幣不去抓：就算 Yahoo 對 BTC 回了一個美元報價，也不寫、也不算失敗', async () => {
+    const s = scratch();
+    s.db.exec("INSERT INTO accounts (id, name, kind, currency) VALUES (3,'冷錢包','wallet','USD')");
+    s.db.exec("INSERT INTO holdings (account_id, symbol, market, shares, avg_cost, last_price, currency, decimals) VALUES (3,'BTC','CRYPTO',0.5,50000,60000,'USD',8)");
+    let called = 0;
+    const answer = getter({ BTC: chart('USD', [['2026-06-12', 41.2]]) });
+    const get = async (url) => { called++; return answer(url); };
+    const r = await P.updatePrices({ get, nowMs: now, deps: s.deps });
+    assert.equal(called, 0, '幣的代號不是 Yahoo 上那個幣');
+    assert.deepEqual(r.updated, []);
+    assert.deepEqual(r.failed, [], '沒去問就不是失敗');
+    assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM prices').get().n, 0);
     s.rm();
   });
 

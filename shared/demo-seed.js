@@ -27,6 +27,7 @@
   const dep = typeof module !== 'undefined' && module.exports;
   const { round2 } = dep ? require('./money') : root;
   const { fingerprint } = dep ? require('./csv') : root;
+  const { defaultAccessFor } = dep ? require('./kinds') : root;
 
   // A linear congruential generator, four lines, because "no dependencies"
   // includes not reaching for a seeded-random package to wobble a rent
@@ -59,9 +60,10 @@
     { key: 'sinopac', name: '永豐金證券', kind: 'broker', country: 'TW' },
     { key: 'chase', name: 'Chase', kind: 'bank', country: 'US' },
     { key: 'firstrade', name: 'Firstrade', kind: 'broker', country: 'US' },
+    { key: 'fidelity', name: 'Fidelity', kind: 'broker', country: 'US' },
   ];
 
-  // Five kinds across two currencies, which is the point: with only cash
+  // Six kinds across two currencies, which is the point: with only cash
   // accounts every breakdown reads 100% and the diverging asset/liability
   // scale the charts were built for never appears. `openAt` is an offset in
   // months from the start of the window — 國泰 opens late on purpose, so the
@@ -76,17 +78,33 @@
     { key: 'chase', inst: 'chase', name: 'Chase Checking', kind: 'cash', currency: 'USD', openAt: 0, target: 14580 },
     { key: 'sapphire', inst: 'chase', name: 'Chase Sapphire', kind: 'card', currency: 'USD', openAt: 0, target: -2140 },
     { key: 'firstrade', inst: 'firstrade', name: 'Firstrade', kind: 'brokerage', currency: 'USD', openAt: 0, target: 4260 },
+    // Self-custody: no institution and no cash of its own — its whole value is
+    // the coin in `holdings`, which is what a wallet is. It has no statements
+    // either, so it stays off the coverage grid and is named under it instead.
+    { key: 'coldwallet', inst: null, name: '冷錢包', kind: 'wallet', currency: 'USD', openAt: 12, target: 0 },
+    // A plan with the three things only a retirement account says: it starts
+    // restricted (from its kind), its balance is pre-tax, and part of the
+    // employer's match has not vested, which net worth subtracts and the
+    // balance keeps. The contributions below keep its months in the coverage
+    // grid, the same way a payslip would.
+    { key: 'k401', inst: 'fidelity', name: '401(k)', kind: 'retirement', currency: 'USD', openAt: 0, target: 41850, tax_status: 'pretax', unvested: 2940 },
   ];
 
   const HOLDINGS = [
-    { account: 'sinopac', symbol: '2330', name: '台積電', market: 'TW', shares: 500, avg_cost: 982, last_price: 1085, currency: 'TWD' },
-    { account: 'sinopac', symbol: '0050', name: '元大台灣50', market: 'TW', shares: 3000, avg_cost: 171.4, last_price: 195.2, currency: 'TWD' },
-    { account: 'sinopac', symbol: '2454', name: '聯發科', market: 'TW', shares: 200, avg_cost: 1105, last_price: 1420, currency: 'TWD' },
-    { account: 'sinopac', symbol: '2412', name: '中華電', market: 'TW', shares: 1000, avg_cost: 121.5, last_price: 135, currency: 'TWD' },
-    { account: 'firstrade', symbol: 'VTI', name: 'Vanguard Total Stock Market', market: 'US', shares: 80, avg_cost: 251.3, last_price: 288.4, currency: 'USD' },
-    { account: 'firstrade', symbol: 'NVDA', name: 'NVIDIA Corp.', market: 'US', shares: 60, avg_cost: 94.2, last_price: 178.5, currency: 'USD' },
-    { account: 'firstrade', symbol: 'MSFT', name: 'Microsoft Corp.', market: 'US', shares: 25, avg_cost: 384.6, last_price: 505.2, currency: 'USD' },
-    { account: 'firstrade', symbol: 'AAPL', name: 'Apple Inc.', market: 'US', shares: 40, avg_cost: 205.8, last_price: 242.1, currency: 'USD' },
+    // `decimals` is each market's default (TW whole shares, US to four, a coin
+    // to eight), stated rather than left to the column default so the book the
+    // browser builds and the one SQLite stores are the same rows.
+    { account: 'sinopac', symbol: '2330', name: '台積電', market: 'TW', shares: 500, avg_cost: 982, last_price: 1085, currency: 'TWD', decimals: 0 },
+    { account: 'sinopac', symbol: '0050', name: '元大台灣50', market: 'TW', shares: 3000, avg_cost: 171.4, last_price: 195.2, currency: 'TWD', decimals: 0 },
+    { account: 'sinopac', symbol: '2454', name: '聯發科', market: 'TW', shares: 200, avg_cost: 1105, last_price: 1420, currency: 'TWD', decimals: 0 },
+    { account: 'sinopac', symbol: '2412', name: '中華電', market: 'TW', shares: 1000, avg_cost: 121.5, last_price: 135, currency: 'TWD', decimals: 0 },
+    { account: 'firstrade', symbol: 'VTI', name: 'Vanguard Total Stock Market', market: 'US', shares: 80, avg_cost: 251.3, last_price: 288.4, currency: 'USD', decimals: 4 },
+    { account: 'firstrade', symbol: 'NVDA', name: 'NVIDIA Corp.', market: 'US', shares: 60, avg_cost: 94.2, last_price: 178.5, currency: 'USD', decimals: 4 },
+    { account: 'firstrade', symbol: 'MSFT', name: 'Microsoft Corp.', market: 'US', shares: 25, avg_cost: 384.6, last_price: 505.2, currency: 'USD', decimals: 4 },
+    { account: 'firstrade', symbol: 'AAPL', name: 'Apple Inc.', market: 'US', shares: 40, avg_cost: 205.8, last_price: 242.1, currency: 'USD', decimals: 4 },
+    // Eight places, all of them carrying a digit, so the page shows a quantity
+    // the old four-place rule would have printed as 0.1235.
+    { account: 'coldwallet', symbol: 'BTC', name: 'Bitcoin', market: 'CRYPTO', shares: 0.12345678, avg_cost: 51800, last_price: 63250.4, currency: 'USD', decimals: 8 },
   ];
 
   // Only the card rows carry a category, which is what the real files do: six
@@ -141,8 +159,15 @@
     const { wobble, rnd, pick } = makeRandom(20260921);
     const stamp = now();
 
+    // Stepped back from the first of `to`'s month, never from `to` itself.
+    // `setUTCMonth` keeps the day, so from the 30th one month back from March
+    // is 30 February, which is 2 March: February vanished and March came out
+    // twice, with two salaries and two rents in it. From the 31st, seven
+    // months went that way. The hosted demo is built from today's date, so
+    // how broken it looked depended on the day it was opened.
     const months = [];
-    for (let i = monthCount - 1; i >= 0; i--) months.push(monthKey(addMonths(to, -i)));
+    const first = `${monthKey(to)}-01`;
+    for (let i = monthCount - 1; i >= 0; i--) months.push(monthKey(addMonths(first, -i)));
 
     // --- the transactions, still keyed by account name ---------------------
 
@@ -213,6 +238,18 @@
           { account: 'sapphire', date: dayIn(months[i + 1], 18), amount: pay, description: 'AUTOPAY PAYMENT THANK YOU' });
       }
 
+      // Payroll deferral and the employer's match, straight into the plan.
+      // They never pass through checking, so they are income here rather than
+      // one leg of a transfer. Fixed amounts, and no call on the jitter, so
+      // every other row in the book comes out exactly as it did without them.
+      //
+      // On payday, the 5th, like the salary. The book is built to today, and a
+      // row later in the month is a row from the future: on the 28th the plan
+      // spent most of every month short of its balance and a month behind on
+      // the coverage page.
+      add('k401', dayIn(m, 5), 650, 'EMPLOYEE DEFERRAL', { kind: 'income', category: '退休提撥' });
+      add('k401', dayIn(m, 5), 325, 'EMPLOYER MATCH', { kind: 'income', category: '退休提撥' });
+
       // A brokerage buy every third month: cash moves across (a transfer),
       // then the purchase itself leaves the settlement account (not a
       // transfer — the money became shares, which live in `holdings`).
@@ -247,7 +284,8 @@
     // and the reconciliation figures below actually reconcile.
     const accounts = ACCOUNTS.map((a, n) => ({
       id: n + 1,
-      institution_id: instId.get(a.inst),
+      // null for a wallet: self-custody has no institution, and the FK allows it.
+      institution_id: a.inst ? instId.get(a.inst) : null,
       name: a.name,
       kind: a.kind,
       currency: a.currency,
@@ -256,6 +294,14 @@
       is_active: 1,
       sort_order: n,
       note: '示範資料',
+      // What creating the account in the app would give it: its kind's
+      // starting access. Only the 401(k) is restricted.
+      access: defaultAccessFor(a.kind),
+      // On every row, not just the plan's: the seeder writes the union of the
+      // rows' columns, and a row without `unvested` would insert NULL into a
+      // NOT NULL column.
+      tax_status: a.tax_status || null,
+      unvested: a.unvested || 0,
     }));
 
     // Everything but the last few months is already paired, the way a book
@@ -303,6 +349,7 @@
       price_date: to,
       currency: h.currency,
       note: '示範資料',
+      decimals: h.decimals,
     }));
 
     // A short price history per holding, so the price panel opens with a series
@@ -373,6 +420,9 @@
     const balance_checks = [
       { id: 1, account_id: acctId.get('esun'), date: checkDate, stated: balanceOn('esun', checkDate), note: '網銀截圖，對得上' },
       { id: 2, account_id: acctId.get('cathay'), date: checkDate, stated: round2(balanceOn('cathay', checkDate) - 3250), note: '對不上，示範漏匯的樣子' },
+      // How a plan with no importable history is kept honest: its quarterly
+      // statement's total, unvested share included, against the ledger.
+      { id: 3, account_id: acctId.get('k401'), date: checkDate, stated: balanceOn('k401', checkDate), note: '季對帳單總額，含未歸屬' },
     ];
 
     const rules = RULES.map((r, n) => ({ id: n + 1, ...r, created_at: stamp }));
@@ -380,7 +430,10 @@
     return {
       institutions, accounts, txns, holdings, prices, imports, fx_rates, balance_checks, rules,
       mappings: [],
-      meta: [{ key: 'base_currency', value: 'TWD' }, { key: 'schema_version', value: '6' }],
+      // No schema_version: the demo reports its own (SCHEMA_VERSION in
+      // web/storage-demo.js). A second copy here was never read, and had
+      // fallen behind unnoticed.
+      meta: [{ key: 'base_currency', value: 'TWD' }],
       // Not a table — what the seeder prints and what the demo's copy says.
       span: { from: months[0], to: monthKey(to) },
     };

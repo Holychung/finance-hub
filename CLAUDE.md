@@ -64,8 +64,10 @@ server/csp.js     the CSP, both of them — local 'self', hosted 'none'
 server/migrations.js  every schema version, in order — the only schema there is
 server/migrate.js     applies them; takes a handle, opens nothing, knows no paths
 server/db.js      connection, migrate-on-open, snapshot/backup helpers
-shared/currency.js  symbol and decimal places per currency, roundTo, round2
-shared/kinds.js   what kinds of account and transaction exist — the only list
+shared/currency.js  symbol and decimal places per currency, roundTo, round2,
+                  and how a quantity and a unit price are written
+shared/kinds.js   what kinds of account, transaction and market exist — the
+                  only list
 shared/sha1.js    synchronous SHA-1, because the browser's is async
 shared/csv.js     decode, parse, map, dedup    (no DB access — pure functions)
 shared/money.js   the pure half: every `compute*`, plus round2 and the dates
@@ -141,14 +143,17 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-445 tests across 75 suites cover Big5 decoding, ROC dates, two-digit years,
+516 tests across 85 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
-overlapping-range dedup, cross-currency transfer pairing, net worth, the
+overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
+eight places and its market's case surviving every endpoint, unvested coming
+off net worth and never off a balance, the
 price-history lookup (latest at or before a date, and nothing dragged back
 before the first observation) and the v6 backfill that seeds it,
 pre-import backup, balance reconciliation, import revert, CSV BOM, the three
 request guards and the CSP, the malformed-statement handling below, the
-pipeline invariant over every bank fixture, pending rows never importing, the
+pipeline invariant over every bank fixture, pending rows and a retirement
+plan's exchanges never importing, the
 zero-dependency and no-outbound rules (with the one opt-in close fetch tested
 offline through an injected getter, and the deps scan pinning Yahoo to
 `server/prices.js`), the ledger location rules, the
@@ -297,6 +302,42 @@ thousand random Unicode strings.
   brokerage account (a txn) plus shares into `holdings`. A currency's net worth
   is `sum(its account balances) + sum(its holding market values)`. Never fold
   market value into an account balance — that double counts.
+- **A coin is a holding, and a wallet is an account that holds it.** The
+  market is `TW` | `US` | `CRYPTO`, from `MARKETS` in `shared/kinds.js`, and
+  that entry is also where a holding's default currency and quantity places
+  come from — never a ternary on the market, which is how a third market was
+  once priced in TWD (`test/html.test.js` fails on `market === '…'`). Markets
+  are upper case and refused outside the list at every endpoint, holdings and
+  prices alike: `/api/prices` upper-cases, so a holding stored in any other
+  case never finds its series and says nothing. `holdings.decimals` is the
+  scale a quantity is *shown* at, not a precision stored values are rounded
+  to; a unit price shows at least two places and every place it carries.
+- **`accounts.access` says whether there is a rule between you and the
+  money** — `liquid` or `restricted`, from `ACCESS` in `shared/kinds.js`. It
+  is a property, never inferred from the kind: a self-custody wallet and a
+  locked stake can be the same kind and opposite answers. `computeNetWorth`
+  reports each currency whole **and** in two halves, `liquid` and
+  `restricted`, each the same shape as the whole; a holding goes with its
+  account and unvested with its plan, so the halves add up to the total by
+  construction, and `test/money.test.js` fails if a rate appears anywhere in
+  that arithmetic. Face value, never discounted, projected or annualised —
+  the same reason there is no cross-currency total. The overview opens on
+  可動用 with a 可動用／受限制／全部 switch, and always names the half not on
+  screen. The API refuses an access outside the list rather than defaulting
+  it, because a typo that became `liquid` is a retirement balance back in the
+  spendable figure with nothing on screen to say so. A kind's `access` in
+  `shared/kinds.js` is only where a new account starts (`defaultAccessFor`):
+  retirement starts restricted.
+- **A retirement balance is the statement's figure, and `unvested` comes off
+  net worth, never off the balance.** The statement counts the unvested share
+  in its total and every balance check is compared against that total, so
+  taking it off the balance would put each check out by exactly that amount.
+  `computeNetWorth` subtracts it per currency as its own negative
+  `by_kind.unvested` row — not off the account's kind, because a plan held
+  entirely in funds has a cash balance of zero — and the series, being
+  ledger only, leaves it out. `tax_status` is a label and never arithmetic;
+  `test/money.test.js` fails if `shared/money.js` reads it. The API refuses a
+  negative or unreadable `unvested` rather than letting `N()` make it 0.
 - Net worth series is **ledger only**. Holdings have no price history in phase 1,
   so folding today's market value into past points draws a line that never
   existed. Keep it that way until broker sync supplies real history.
@@ -413,6 +454,22 @@ of the duplicate slots the posted row will need. Only a word that positively
 means "not final yet" holds a row back (`PENDING_WORDS`): an unrecognised
 status is a final status, so the check can only ever cost an import a row,
 never let one through.
+
+**A row that moves no money must not be imported either.** A retirement
+plan's history (Fidelity's) says what each row is in `Transaction Type`. An
+`Exchanges` row sells one fund to buy another inside the same plan, and the
+day's legs net to zero; a `Realized Gain/Loss` row reports a gain already
+inside the exchange beside it. Imported, the first is an expense and an
+income of the same amount in the spending breakdown, and the second is money
+nobody put in — and both parse perfectly. `markDuplicates` gives them status
+`internal`, before the dedup like `pending`, and the rows that do import
+carry the kind their word names (`Contributions` → income, `Dividend` →
+dividend) instead of the import's single default. The column is recognised
+by its cells (`activityColumn`), never its header: Chase's `Type` and Capital
+One's `Transaction Type` would otherwise qualify. Only the plan's exact words
+count, so the check only ever holds a row back. With no balance column, what
+such a file imports is the money put in, not the market value, and the
+account page says so.
 
 ## Where the ledger lives
 
