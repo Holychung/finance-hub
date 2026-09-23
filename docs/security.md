@@ -39,6 +39,21 @@ request handler 最上面設定一次，所以每個 response 都帶著，403 �
 這個專案也沒有 `package.json`：`test/deps.test.js` 和 `githooks/pre-commit` 都會拒絕
 `package.json` 或 lockfile 出現，因為這是最容易被一個「其他部分都正常」的 commit 破壞的規則。
 
+## 唯一的例外：自動抓收盤價（預設關）
+
+有一個、而且只有一個對外連線：使用者在設定裡打開後，每天啟動服務時會到 Yahoo 抓每一檔持股
+的最新收盤價（收盤後更新最準）。它守著幾條線，讓「離線」仍然是預設而不是被推翻：
+
+- **預設關**。不開，整個 app 一個外部請求都不發，跟以前一樣。
+- **在後端抓**（`server/prices.js`，`node:https`）。**瀏覽器那頁仍然不外連**——它的 CSP
+  沒有變，`connect-src` 還是 `'self'`，第四道守衛原封不動。是 Node 去抓，不是頁面。
+- **只有一個端點**。`test/deps.test.js` 的外連掃描只在 `server/prices.js` 這一個檔案放行
+  `query1.finance.yahoo.com`，別的檔案出現一樣會失敗——把網路關在一個看得到的地方。
+- **隱私代價說清楚**：抓價會把**代號**送到 Yahoo，所以它會知道你持有哪些股（不含股數、
+  金額）。任何抓價都免不了這件事;要完全不外送,就別開。
+- 示範版（`dist/`）根本沒有這個檔（打包只複製 `web/`、`shared/`），且 CSP 是
+  `connect-src 'none'`，所以它**沒有能力**抓——這個功能只存在於你自己跑的本機版。
+
 ## 放上網路的那份，CSP 更緊
 
 示範版（`node scripts/pack-demo.js` 打出來的 `dist/`）沒有伺服器：每一條 `/api/...` 都是
