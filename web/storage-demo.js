@@ -934,12 +934,22 @@
       // There is no file. The chrome reads this to say where the data lives,
       // and for the demo the honest answer is "nowhere that survives".
       db_path: null,
+      // The hosted demo is incapable of an outbound call (its CSP ships
+      // `connect-src 'none'`), so auto price fetch is always off here and the
+      // settings card that toggles it is hidden — it keys on db_path.
+      auto_prices: false,
+      prices_fetched_on: null,
+      prices_fetched_at: null,
     }));
 
     on('PUT', '/api/settings', (_p, b) => {
       if (b.base_currency) raw.put('meta', { key: 'base_currency', value: String(b.base_currency).toUpperCase() });
       return { ok: true };
     });
+
+    // Answered so the route exists, but the demo can never reach the network,
+    // so it is always a no-op reporting itself disabled.
+    on('POST', '/api/prices/refresh', () => ({ enabled: false, updated: [], failed: [] }));
 
     const exportJson = () => ({
       exported_at: now(),

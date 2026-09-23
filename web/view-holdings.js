@@ -5,9 +5,12 @@
 // adding the market value back would count it twice.
 
 views.holdings = async () => {
-  const [holdings, accounts] = await Promise.all([api('/api/holdings'), api('/api/accounts')]);
+  const [holdings, accounts, settings] = await Promise.all([
+    api('/api/holdings'), api('/api/accounts'), api('/api/settings'),
+  ]);
   const brokerages = accounts.filter((a) => a.kind === 'brokerage');
   const sum = (rows, key) => rows.reduce((s, r) => s + (r[key] || 0), 0);
+  const lastFetch = localTime(settings.prices_fetched_at);
 
   const section = (mkt, label) => {
     // Sorted by market value so the biggest position leads — the allocation
@@ -69,8 +72,23 @@ views.holdings = async () => {
     ${section('TW', '台股')}
     ${section('US', '美股')}
     ${holdings.length ? '' : html`<section class="card">${empty('還沒有持股。')}</section>`}
+
+    ${settings.auto_prices ? html`<div class="prices-foot muted small">
+      <span>收盤價${lastFetch ? ` ${lastFetch} 更新` : '尚未更新'}</span>
+      <button class="icon-btn" id="prices-now" title="重新抓收盤價" aria-label="重新抓收盤價">${icon('refresh')}</button>
+    </div>` : ''}
   `);
 
+  if ($('#prices-now')) $('#prices-now').onclick = async () => {
+    const btn = $('#prices-now');
+    btn.disabled = true;
+    toast('更新中…');
+    try {
+      const r = await post('/api/prices/refresh');
+      toast(`收盤價：更新 ${r.updated.length} 檔${r.failed.length ? `，${r.failed.length} 檔未更新` : ''}`, 'ok');
+      render();
+    } catch (e) { toast(e.message, 'err'); }
+  };
   if ($('#add-h')) $('#add-h').onclick = () => holdingForm(null, brokerages);
   $$('[data-hist]').forEach((b) => (b.onclick = () => holdingPrices(holdings.find((h) => h.id === +b.dataset.hist))));
   $$('[data-edit]').forEach((b) => (b.onclick = () => holdingForm(holdings.find((h) => h.id === +b.dataset.edit), brokerages)));

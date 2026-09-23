@@ -43,12 +43,17 @@ holdings, and every transaction, in one place. Data lives in
   directory whose name merely starts with `web`. There are two roots now —
   `web/` and, under `/shared/`, `shared/` — and the rule is per root, not a
   single check widened to cover both.
-- **No outbound network calls** anywhere in phase 1. Price fetching and broker
-  APIs are phase 2 and must be opt-in with an off switch. `test/deps.test.js`
-  scans `web/`, `shared/`, `server/` and `scripts/` for external URLs and `style.css` for
-  external `url()` / `@import` — a font import is the quiet version of this,
-  and it tells a stranger's server, on every page load, that this machine just
-  opened its ledger.
+- **No outbound network calls, with exactly one opt-in exception.** The default
+  is still offline: `test/deps.test.js` scans `web/`, `shared/`, `server/` and
+  `scripts/` for external URLs and `style.css` for external `url()` / `@import` —
+  a font import is the quiet version of this, and it tells a stranger's server,
+  on every page load, that this machine just opened its ledger. The one
+  exception is the daily close fetch in `server/prices.js` (Yahoo), **off by
+  default**, run **server-side** so the browser page still never connects out
+  (its CSP is unchanged), and allowed by the deps scan **only in that one file**
+  — the exception is pinned to a file, not loosened everywhere. Broker APIs are
+  still to come and hold to the same shape: opt-in, off switch, server-side.
+  Anything new that reaches the network is one of these or it is a bug.
 - **No AI features.** Deliberate product decision, not an oversight.
 
 ## Layout
@@ -70,6 +75,8 @@ shared/export.js  rows -> a CSV file, BOM and CRLF for Excel
 shared/demo-seed.js  the demo book, and the sample statement — invented, built
                   fresh from a date, opened by both the seeder and the browser
 server/money.js   the loaders — one query-runner per `compute*` in shared/
+server/prices.js  the app's one outbound call — opt-in daily close fetch, off
+                  by default, server-side; deps-test allows Yahoo only here
 server/api.js     JSON handlers, registered via on(method, pattern, fn)
 server/index.js   HTTP server, request guards, routing, static files; loads the
                   rows the CSV export formats and names the download
@@ -90,6 +97,7 @@ test/paths.test.js   ledger location, profiles, the data-dir migration script
 test/migrate.test.js the schema migration runner
 test/seed.test.js    what the demo seeder must produce to be worth running
 test/money.test.js   the pure half of money.js, over plain arrays
+test/prices.test.js  the close fetch, offline — injected getter, throwaway db
 test/currency.test.js  the scale follows the currency, and round2 is unchanged
 test/kinds.test.js   the kind list is complete, and the rules encoded in it
 test/sha1.test.js    SHA-1 against node:crypto, and shared/ loaded both ways
@@ -133,7 +141,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-408 tests across 68 suites cover Big5 decoding, ROC dates, two-digit years,
+445 tests across 75 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, the
 price-history lookup (latest at or before a date, and nothing dragged back
@@ -141,7 +149,9 @@ before the first observation) and the v6 backfill that seeds it,
 pre-import backup, balance reconciliation, import revert, CSV BOM, the three
 request guards and the CSP, the malformed-statement handling below, the
 pipeline invariant over every bank fixture, pending rows never importing, the
-zero-dependency and no-outbound rules, the ledger location rules, the
+zero-dependency and no-outbound rules (with the one opt-in close fetch tested
+offline through an injected getter, and the deps scan pinning Yahoo to
+`server/prices.js`), the ledger location rules, the
 schema migration runner, the pure half of `money.js`, the demo adapter
 answering the same as a real server, the demo book being one definition the
 seeder and the browser both open, `shared/` loading
@@ -878,8 +888,12 @@ Step 1 is today's schema verbatim and is frozen. It keeps every
 sync can land beside CSV rows without a schema rewrite. Same for
 `holdings.price_date`.
 
-Planned: Shioaji / Fubon for TW brokers, IBKR Flex Web Service for US (token
-fetch, no login), then holdings history, XIRR, and time-weighted return.
+**Done:** the opt-in daily close fetch (`server/prices.js`, Yahoo) writes
+`prices` rows with `source: 'api'`, off by default, server-side. Direction is
+now a visualisation dashboard driven by the user's own statement numbers, not a
+computation engine — no derived cost basis, realised P/L, or XIRR (deliberately
+dropped 2026-09-22). Broker *position* sync (upload a holdings statement to
+update the numbers) is the next candidate, not transaction-derived lots.
 Taiwanese **banks** stay CSV-only — Plaid has no Taiwan coverage, open banking
 phase 3 is not open to individuals, and scraping one's own online banking hits
 OTP and violates the terms.

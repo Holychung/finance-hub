@@ -307,12 +307,14 @@
 
     // A short price history per holding, so the price panel opens with a series
     // rather than a single dot. Deterministic and RNG-free on purpose — it must
-    // not perturb the jittered transactions above — and the final point lands
-    // exactly on `last_price` at `to`, so each position still values to the same
-    // figure the single `last_price` column used to give.
+    // not perturb the jittered transactions above. The latest point is dated
+    // about a week back rather than today: it reads as a book last priced a week
+    // ago, and — the reason it matters — turning on auto price fetch then has
+    // newer closes to bring in, instead of being shadowed by a same-day price.
+    const priceAsOf = new Date(Date.parse(to) - 7 * 86400000).toISOString().slice(0, 10);
     const prices = holdings.flatMap((h) => {
-      const dates = [...new Set([...months.slice(-4).map(lastDayOf), to])]
-        .filter((d) => d <= to)
+      const dates = [...new Set([...months.slice(-4).map(lastDayOf), priceAsOf])]
+        .filter((d) => d <= priceAsOf)
         .sort();
       const start = round2((h.avg_cost + h.last_price) / 2);
       return dates.map((date, i) => ({

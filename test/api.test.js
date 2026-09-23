@@ -555,6 +555,28 @@ describe('匯入回復', () => {
   });
 });
 
+describe('自動抓價設定', () => {
+  it('預設關閉，開關存得住', async () => {
+    const before = await GET('/api/settings');
+    assert.equal(before.auto_prices, false, '離線是預設');
+    assert.equal(before.prices_fetched_on, null);
+
+    await req('PUT', '/api/settings', { auto_prices: true });
+    assert.equal((await GET('/api/settings')).auto_prices, true);
+
+    await req('PUT', '/api/settings', { auto_prices: false });
+    assert.equal((await GET('/api/settings')).auto_prices, false);
+  });
+
+  it('關閉時 refresh 不連網，只回報 disabled', async () => {
+    // auto_prices is off, so this must not touch the network — it reports itself
+    // disabled. The fetch path itself is covered offline, with an injected
+    // getter and a throwaway db, in test/prices.test.js.
+    const r = await req('POST', '/api/prices/refresh', {});
+    assert.deepEqual(r, { enabled: false, updated: [], failed: [] });
+  });
+});
+
 describe('匯出', () => {
   it('JSON 備份含所有資料表', async () => {
     const j = await GET('/api/export/json');
