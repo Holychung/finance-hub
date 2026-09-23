@@ -4,6 +4,9 @@
 // 不是「這個月有沒有花錢」。四種狀態的理由寫在 server/money.js 的
 // computeCoverage 上面。
 //
+// 沒有對帳單可匯的帳戶（錢包）不在表上，但會在最下面點名：從表上消失而沒有
+// 一句話，比留著一排補不了的缺口還讓人困惑。
+//
 // 格子裡是字不是只有顏色：有資料的顯示筆數，確認過的安靜月份是 `–`，缺口是
 // `?`，帳戶還沒開始的留白。顏色只是讓它掃得快，拿掉顏色這張表照樣讀得懂。
 
@@ -47,9 +50,8 @@ views.coverage = async () => {
         <h1>帳本完整度</h1>
         <div class="sub">每個帳戶、每個月，帳本到底有沒有資料</div>
       </div>
-      <div class="row shrink">${[12, 24, 36].map((n) => html`
-        <button class="sm" data-months="${n}" aria-pressed="${n === coverageMonths}">${n} 個月</button>`)}
-      </div>
+      <div class="seg" role="group" aria-label="看幾個月">${[12, 24, 36].map((n) => html`<button
+        data-months="${n}" aria-pressed="${ariaBool(n === coverageMonths)}">${n} 個月</button>`)}</div>
     </div>
 
     ${d.accounts.length ? html`
@@ -116,7 +118,11 @@ views.coverage = async () => {
           <span><i class="cov cov-data off">3</i> 那個月的對帳對不起來</span>
         </div>
       </section>`
-      : empty('還沒有帳戶，所以也還沒有東西可以缺。')}
+      : d.manual.length ? '' : empty('還沒有帳戶，所以也還沒有東西可以缺。')}
+
+    ${d.manual.length ? html`<div class="note">
+      ${d.manual.map((a) => a.name).join('、')} 不列在這裡：這類帳戶沒有對帳單可以匯，價值是你手動填的，看最新的一筆就好。
+    </div>` : ''}
   `);
 
   $$('[data-months]').forEach((b) => (b.onclick = () => {

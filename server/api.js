@@ -7,8 +7,9 @@ const csv = require('../shared/csv');
 const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
+const PRICES = require('./prices');
 const {
-  DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, DEFAULT_ACCESS,
+  DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, defaultAccessFor, TAX_STATUS_KEYS,
   MARKET_KEYS, DEFAULT_MARKET, marketInfo,
 } = require('../shared/kinds');
 const { MAX_DECIMALS } = require('../shared/currency');
@@ -53,6 +54,9 @@ on('GET', '/api/overview', () => {
     accounts,
     holdings,
     series: M.netWorthSeries(from, asOf),
+    // The same line for each half of the book, so the chart can follow the
+    // overview's 可動用／受限制 switch instead of drawing the whole under it.
+    series_by_access: Object.fromEntries(ACCESS_KEYS.map((k) => [k, M.netWorthSeries(from, asOf, k)])),
     reconcile: {
       total: checks.length,
       off: checks.filter((c) => !c.ok).length,
@@ -105,19 +109,43 @@ function accessOf(v, fallback) {
   return a;
 }
 
+// Empty means "not stated" and clears it; anything else must be on the list.
+// A typo stored as a tax status would be a label on screen that means nothing.
+function taxStatusOf(v) {
+  if (v === null || v === '') return null;
+  const t = S(v);
+  if (!TAX_STATUS_KEYS.includes(t)) bad(`tax_status 只能是 ${TAX_STATUS_KEYS.join('、')} 或留空`);
+  return t;
+}
+
+// Refused rather than coerced. N() turns garbage into 0, which is harmless
+// for most fields and wrong here: net worth subtracts this, so a negative one
+// would add money nobody has, and a typo quietly becoming 0 would hand the
+// employer's share back to the total.
+function unvestedOf(v) {
+  if (v === null || v === '') return 0;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) bad('unvested 要是 0 或正數');
+  return M.round2(n);
+}
+
 on('POST', '/api/accounts', (_p, b) => {
   if (!S(b.name).trim()) bad('帳戶名稱必填');
+  const kind = S(b.kind, DEFAULT_ACCOUNT_KIND);
   const r = db
     .prepare(
-      `INSERT INTO accounts (institution_id, name, kind, currency, opening_balance, opening_date, is_active, sort_order, note, access)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO accounts (institution_id, name, kind, currency, opening_balance, opening_date, is_active, sort_order, note,
+                             access, tax_status, unvested)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       OPT(b.institution_id) === null ? null : N(b.institution_id),
-      S(b.name).trim(), S(b.kind, DEFAULT_ACCOUNT_KIND), S(b.currency, 'TWD'),
+      S(b.name).trim(), kind, S(b.currency, 'TWD'),
       N(b.opening_balance), S(b.opening_date, '2020-01-01'),
       B(b.is_active), N(b.sort_order), S(b.note),
-      accessOf(b.access, DEFAULT_ACCESS)
+      accessOf(b.access, defaultAccessFor(kind)),
+      b.tax_status === undefined ? null : taxStatusOf(b.tax_status),
+      b.unvested === undefined ? 0 : unvestedOf(b.unvested)
     );
   return { id: Number(r.lastInsertRowid) };
 });
@@ -127,7 +155,8 @@ on('PUT', '/api/accounts/:id', (p, b) => {
   if (!cur) missing('帳戶不存在');
   db.prepare(
     `UPDATE accounts SET institution_id=?, name=?, kind=?, currency=?,
-            opening_balance=?, opening_date=?, is_active=?, sort_order=?, note=?, access=?
+            opening_balance=?, opening_date=?, is_active=?, sort_order=?, note=?, access=?,
+            tax_status=?, unvested=?
       WHERE id=?`
   ).run(
     b.institution_id === undefined ? cur.institution_id : (OPT(b.institution_id) === null ? null : N(b.institution_id)),
@@ -136,7 +165,10 @@ on('PUT', '/api/accounts/:id', (p, b) => {
     S(b.opening_date, cur.opening_date),
     b.is_active === undefined ? cur.is_active : B(b.is_active),
     b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
-    S(b.note, cur.note), accessOf(b.access, cur.access), N(p.id)
+    S(b.note, cur.note), accessOf(b.access, cur.access),
+    b.tax_status === undefined ? cur.tax_status : taxStatusOf(b.tax_status),
+    b.unvested === undefined ? cur.unvested : unvestedOf(b.unvested),
+    N(p.id)
   );
   return { ok: true };
 });
@@ -144,6 +176,15 @@ on('PUT', '/api/accounts/:id', (p, b) => {
 on('DELETE', '/api/accounts/:id', (p) => ({
   deleted: db.prepare('DELETE FROM accounts WHERE id = ?').run(N(p.id)).changes,
 }));
+
+// The account page's line. `to` defaults to today and can be pinned, so the
+// same question can be asked of the demo adapter and get the same answer.
+on('GET', '/api/accounts/:id/series', (p, _b, q) => {
+  const to = q.to ? csv.parseDate(q.to, 'auto') || bad(`日期無法解析：${q.to}`) : M.todayISO();
+  const points = M.accountSeries(N(p.id), to);
+  if (!points) missing('帳戶不存在');
+  return points;
+});
 
 // --- transactions ----------------------------------------------------------
 
@@ -367,6 +408,15 @@ on('DELETE', '/api/prices', (_p, _b, q) => ({
     .prepare('DELETE FROM prices WHERE symbol = ? AND market = ? AND date = ?')
     .run(S(q.symbol).trim().toUpperCase(), marketOf(q.market, DEFAULT_MARKET), S(q.date)).changes,
 }));
+
+// Opt-in daily fetch of each holding's previous close (server/prices.js). Off
+// unless the user turned it on in settings, and when off this does nothing and
+// says so, so the button can stay hidden without the endpoint pretending. Async
+// because the network wait is the one place a handler genuinely is not sync.
+on('POST', '/api/prices/refresh', async () => {
+  if (getMeta('auto_prices', '0') !== '1') return { enabled: false, updated: [], failed: [] };
+  return { enabled: true, ...(await PRICES.updatePrices()) };
+});
 
 // --- fx --------------------------------------------------------------------
 
@@ -600,7 +650,7 @@ on('POST', '/api/import/preview', (_p, b) => {
 
   const summary = rows.reduce(
     (acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; },
-    { new: 0, duplicate: 0, error: 0, pending: 0 }
+    { new: 0, duplicate: 0, error: 0, pending: 0, internal: 0 }
   );
   const fresh = rows.filter((r) => r.status === 'new');
   const net = M.round2(fresh.reduce((s, r) => s + r.amount, 0));
@@ -759,7 +809,9 @@ on('POST', '/api/import/commit', (_p, b) => {
           account_id: accountId, date: r.date, amount: r.amount,
           description: r.description,
           category: r.category || R.categorise(r.description, ruleList),
-          kind: S(b.default_kind, DEFAULT_TXN_KIND),
+          // A row that names its own kind — a plan's contribution or dividend
+          // — keeps it, the way a file's own category beats a rule.
+          kind: r.kind || S(b.default_kind, DEFAULT_TXN_KIND),
           source: 'csv', external_id: r.externalId, fingerprint: r.fingerprint,
         },
         importId
@@ -812,10 +864,17 @@ on('GET', '/api/settings', () => ({
   profile: paths.PROFILE,
   is_personal: paths.IS_PERSONAL,
   db_path: paths.DB_PATH,
+  // Off unless the user turned it on: the whole app is offline by default and
+  // this is the one switch that lets it reach out. `prices_fetched_on` lets the
+  // holdings view say when it last ran.
+  auto_prices: getMeta('auto_prices', '0') === '1',
+  prices_fetched_on: getMeta('prices_fetched_on', null),
+  prices_fetched_at: getMeta('prices_fetched_at', null),
 }));
 
 on('PUT', '/api/settings', (_p, b) => {
   if (b.base_currency) setMeta('base_currency', String(b.base_currency).toUpperCase());
+  if (b.auto_prices !== undefined) setMeta('auto_prices', b.auto_prices ? '1' : '0');
   return { ok: true };
 });
 

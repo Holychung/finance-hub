@@ -39,7 +39,7 @@
   // the seed rather than a version anything migrates to. It has to be the
   // last step in server/migrations.js, because the seed carries every column
   // that step added; test/demo-store.test.js compares it with a fresh server.
-  const SCHEMA_VERSION = '8';
+  const SCHEMA_VERSION = '9';
 
   // ---------------------------------------------------------------------
   // The raw store
@@ -307,17 +307,17 @@
       const dates = raw.all('txns').map((t) => t.date).sort();
       const opens = raw.all('accounts').map((a) => a.opening_date).sort();
       const from = dates[0] || opens[0] || asOf;
+      const upTo = raw.all('txns').filter((t) => t.date <= asOf).sort(by('date'));
+      const seriesOf = (access) => M.computeNetWorthSeries({
+        accounts: raw.all('accounts'), txns: upTo, from, to: asOf, access,
+      });
 
       return {
         net_worth: M.computeNetWorth({ accounts, holdings, asOf }),
         accounts,
         holdings,
-        series: M.computeNetWorthSeries({
-          accounts: raw.all('accounts'),
-          txns: raw.all('txns').filter((t) => t.date <= asOf).sort(by('date')),
-          from,
-          to: asOf,
-        }),
+        series: seriesOf(null),
+        series_by_access: Object.fromEntries(ACCESS_KEYS.map((k) => [k, seriesOf(k)])),
         reconcile: {
           total: checks.length,
           off: checks.filter((c) => !c.ok).length,
@@ -367,6 +367,20 @@
       if (!ACCESS_KEYS.includes(a)) bad(`access 只能是 ${ACCESS_KEYS.join(' 或 ')}`);
       return a;
     };
+    // Both as server/api.js: empty clears a tax status, and a negative or
+    // unreadable unvested figure is refused rather than becoming 0.
+    const taxStatusOf = (v) => {
+      if (v === null || v === '') return null;
+      const t = S(v);
+      if (!TAX_STATUS_KEYS.includes(t)) bad(`tax_status 只能是 ${TAX_STATUS_KEYS.join('、')} 或留空`);
+      return t;
+    };
+    const unvestedOf = (v) => {
+      if (v === null || v === '') return 0;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) bad('unvested 要是 0 或正數');
+      return M.round2(n);
+    };
 
     // The market and the quantity's scale, normalised and refused exactly as
     // server/api.js does. A market stored in a different case from its price
@@ -386,13 +400,16 @@
 
     on('POST', '/api/accounts', (_p, b) => {
       if (!S(b.name).trim()) bad('帳戶名稱必填');
+      const kind = S(b.kind, DEFAULT_ACCOUNT_KIND);
       return {
         id: raw.insert('accounts', {
           institution_id: OPT(b.institution_id) === null ? null : N(b.institution_id),
-          name: S(b.name).trim(), kind: S(b.kind, DEFAULT_ACCOUNT_KIND), currency: S(b.currency, 'TWD'),
+          name: S(b.name).trim(), kind, currency: S(b.currency, 'TWD'),
           opening_balance: N(b.opening_balance), opening_date: S(b.opening_date, '2020-01-01'),
           is_active: B(b.is_active), sort_order: N(b.sort_order), note: S(b.note),
-          access: accessOf(b.access, DEFAULT_ACCESS),
+          access: accessOf(b.access, defaultAccessFor(kind)),
+          tax_status: b.tax_status === undefined ? null : taxStatusOf(b.tax_status),
+          unvested: b.unvested === undefined ? 0 : unvestedOf(b.unvested),
         }).id,
       };
     });
@@ -411,6 +428,8 @@
         sort_order: b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
         note: S(b.note, cur.note),
         access: accessOf(b.access, cur.access),
+        tax_status: b.tax_status === undefined ? cur.tax_status : taxStatusOf(b.tax_status),
+        unvested: b.unvested === undefined ? cur.unvested : unvestedOf(b.unvested),
       });
       return { ok: true };
     });
@@ -422,6 +441,17 @@
       raw.remove('holdings', (h) => h.account_id === id);
       raw.remove('balance_checks', (c) => c.account_id === id);
       return { deleted: raw.remove('accounts', (a) => a.id === id) };
+    });
+
+    // As server/money.js's accountSeries: the net worth walk over a book of
+    // one, starting on the opening date.
+    on('GET', '/api/accounts/:id/series', (p, _b, q) => {
+      const to = q.to ? csv.parseDate(q.to, 'auto') || bad(`日期無法解析：${q.to}`) : today();
+      const a = raw.get('accounts', N(p.id));
+      if (!a) missing('帳戶不存在');
+      const txns = raw.all('txns').filter((t) => t.account_id === a.id && t.date <= to).sort(by('date'));
+      const from = a.opening_date || (txns[0] && txns[0].date) || to;
+      return M.computeNetWorthSeries({ accounts: [a], txns, from, to })[a.currency] || [];
     });
 
     // --- transactions ----------------------------------------------------
@@ -821,7 +851,7 @@
 
       const summary = rows.reduce(
         (acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; },
-        { new: 0, duplicate: 0, error: 0, pending: 0 }
+        { new: 0, duplicate: 0, error: 0, pending: 0, internal: 0 }
       );
       const fresh = rows.filter((r) => r.status === 'new');
       const net = M.round2(fresh.reduce((s, r) => s + r.amount, 0));
@@ -914,7 +944,7 @@
             account_id: accountId, date: r.date, amount: r.amount,
             description: r.description,
             category: r.category || R.categorise(r.description, ruleList),
-            kind: S(b.default_kind, DEFAULT_TXN_KIND),
+            kind: r.kind || S(b.default_kind, DEFAULT_TXN_KIND),
             source: 'csv', external_id: r.externalId, fingerprint: r.fingerprint,
           }, imp.id);
         }
@@ -972,12 +1002,22 @@
       // There is no file. The chrome reads this to say where the data lives,
       // and for the demo the honest answer is "nowhere that survives".
       db_path: null,
+      // The hosted demo is incapable of an outbound call (its CSP ships
+      // `connect-src 'none'`), so auto price fetch is always off here and the
+      // settings card that toggles it is hidden — it keys on db_path.
+      auto_prices: false,
+      prices_fetched_on: null,
+      prices_fetched_at: null,
     }));
 
     on('PUT', '/api/settings', (_p, b) => {
       if (b.base_currency) raw.put('meta', { key: 'base_currency', value: String(b.base_currency).toUpperCase() });
       return { ok: true };
     });
+
+    // Answered so the route exists, but the demo can never reach the network,
+    // so it is always a no-op reporting itself disabled.
+    on('POST', '/api/prices/refresh', () => ({ enabled: false, updated: [], failed: [] }));
 
     const exportJson = () => ({
       exported_at: now(),

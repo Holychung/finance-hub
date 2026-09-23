@@ -242,6 +242,9 @@ textarea:focus-visible,
 }
 
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-8); }
+/* A path has no spaces to break at, so a long FINANCE_DB ran straight out of
+   the sidebar and across the page. */
+.sidebar-foot code { overflow-wrap: anywhere; }
 
 /* Neutral, not green: the reassurance is the lock glyph and the words, and
    green is spoken for. Amber below is a label, which is what amber is for. */
@@ -282,6 +285,12 @@ textarea:focus-visible,
 }
 .page-head h1 { font-size: var(--fs-xl); font-weight: 700; margin: 0; letter-spacing: -.3px; }
 .page-head .sub { color: var(--ink-3); font-size: var(--fs-sm); }
+/* A page's actions are a row of buttons at their own width. `.row > *` is a
+   form rule — fields share the width — and applied here it gave every action
+   a 150px basis: next to a long subtitle the group shrank and its buttons
+   wrapped into a column of full-width bars. When the head is too narrow the
+   whole group moves under the title instead. */
+.page-head > .row, .page-head > .row > * { flex: 0 0 auto; }
 
 section { margin-bottom: var(--sp-24); }
 h2.sec {
@@ -338,6 +347,20 @@ h2.sec.cur-head .muted { font-weight: 400; font-size: var(--fs-xs); }
 .spaced { margin-top: var(--sp-12); }
 /* A form control the width of a wide screen is not easier to fill in. */
 .constrained { max-width: 420px; }
+
+/* A checkbox and its label on one line — settings toggles. */
+.check { display: flex; align-items: center; gap: var(--sp-8); margin-top: var(--sp-12); cursor: pointer; }
+.check input { accent-color: var(--brand); }
+
+/* The "prices last updated · refresh" line at the foot of the holdings page —
+   a proper page footer: separated from the last card, a hairline above it, and
+   room to breathe rather than a cramped line hugging the table. */
+.prices-foot {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-8);
+  margin-top: var(--sp-24);
+  padding: var(--sp-24) 0 var(--sp-16);
+  border-top: 1px solid var(--line);
+}
 
 .grid { display: grid; gap: var(--sp-12); }
 .g2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
@@ -433,6 +456,31 @@ button.danger:hover {
 }
 
 button.sm { min-height: var(--h-control-sm); padding: 0 var(--sp-8); font-size: var(--fs-xs); }
+
+/* A segmented control: a few mutually exclusive views as one control — one
+   border round the group, a hairline between options, the chosen one filled
+   with the brand tint. The overview's 可動用／受限制／全部 and coverage's
+   month range. It sizes to its content even inside `.row`, whose `> *` rule
+   stretched each option into its own full-width button when these were
+   written as a row of loose buttons. */
+.seg {
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--line-strong); border-radius: var(--r-1);
+  background: var(--surface-2);
+}
+.row > .seg { flex: 0 0 auto; }
+.seg > button {
+  min-height: var(--h-control-sm); padding: 0 var(--sp-12); font-size: var(--fs-xs);
+  border: 0; border-radius: 0; background: transparent; color: var(--ink-2);
+}
+.seg > button + button { border-left: 1px solid var(--line-strong); }
+.seg > button:first-child { border-radius: var(--r-1) 0 0 var(--r-1); }
+.seg > button:last-child { border-radius: 0 var(--r-1) var(--r-1) 0; }
+/* The divider keeps its colour: the global button hover would brighten it on
+   one side of the option under the pointer. */
+.seg > button:hover { background: var(--surface-3); border-color: var(--line-strong); color: var(--ink); }
+/* Brand, because it is a control; the numbers beside it own green and red. */
+.seg > button[aria-pressed="true"] { background: var(--brand-tint); color: var(--brand); }
 .icon-btn {
   background: none; border-color: transparent; color: var(--ink-3);
   min-height: var(--h-control-sm); padding: 0 var(--sp-6);
@@ -586,6 +634,10 @@ code {
 .chart { --chart-gutter: 46px; }
 .chart-plot { position: relative; height: 150px; margin-left: var(--chart-gutter); }
 .chart-plot > svg { width: 100%; height: 100%; display: block; }
+/* Nothing to draw keeps the chart's room: the same plot box, holding the same
+   empty state every other list in the app shows, so a card with no data still
+   lines up with the one beside it and reads as empty rather than as missing. */
+.chart-plot.chart-empty { display: flex; align-items: center; justify-content: center; }
 /* The area's fill is not here: each chart generates its own gradient id, so
    the reference has to be written where the id is. */
 .chart .line { fill: none; stroke: var(--brand); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
@@ -810,11 +862,6 @@ tbody tr:hover .cov-name { background: var(--surface-3); }
   font-style: normal; text-align: center;
 }
 
-/* The range switch: pressed state says which span is on screen. Brand, because
-   it is a control — the grid's own colours mean something else. */
-button[aria-pressed="true"] {
-  background: var(--brand-tint); border-color: var(--brand-line); color: var(--brand);
-}
 
 /* ---------- narrow ---------- */
 

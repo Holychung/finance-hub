@@ -27,12 +27,13 @@ views.accounts = async () => {
               <tbody>${accounts.map((a) => {
                 const inst = institutions.find((i) => i.id === a.institution_id);
                 return html`<tr>
-                  <td>${a.name}${a.is_active ? '' : html` <span class="pill">已停用</span>`}${a.access === 'restricted' ? html` <span class="pill">${accessName(a.access)}</span>` : ''}</td>
+                  <td>${a.name}${accountPills(a)}</td>
                   <td class="dim">${inst ? inst.name : '—'}</td>
                   <td>${kindName(a.kind)}</td>
                   <td class="cur">${a.currency}</td>
                   <td class="num dim">${money(a.opening_balance, a.currency)}<br><span class="small">${a.opening_date}</span></td>
-                  <td class="num ${level(a.balance)}">${money(a.balance, a.currency)}</td>
+                  <td class="num ${level(a.balance)}">${money(a.balance, a.currency)}${a.unvested
+                    ? html`<span class="sub-line">其中未歸屬 ${money(a.unvested, a.currency)}</span>` : ''}</td>
                   <td class="num nowrap row-actions">
                     <button class="sm" data-check="${a.id}">對帳</button>
                     <button class="icon-btn" data-edit="${a.id}" title="編輯" aria-label="編輯「${a.name}」">${icon('edit')}</button>

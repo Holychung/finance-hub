@@ -808,6 +808,36 @@ describe('v8：持股的小數位數', () => {
   });
 });
 
+describe('v9：稅務性質與未歸屬', () => {
+  // Net worth subtracts unvested, so anything but 0 on an existing account
+  // would move a figure on upgrade. And a tax status is a statement about the
+  // balance; defaulting one would state something nobody said.
+  it('既有的帳戶沒有未歸屬、也沒有註明稅務性質', () => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db, 2);
+
+    runMigrations(db, {});
+
+    const a = db.prepare('SELECT tax_status, unvested FROM accounts').get();
+    assert.equal(a.tax_status, null);
+    assert.equal(a.unvested, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM txns').get().n, 2);
+
+    db.close();
+    s.rm();
+  });
+
+  it('未歸屬不能是 NULL——淨值要拿它來減', () => {
+    const s = scratch();
+    const db = s.open();
+    runMigrations(db, {});
+    assert.throws(() => db.prepare("INSERT INTO accounts (name, unvested) VALUES ('x', NULL)").run(), /NOT NULL/);
+    db.close();
+    s.rm();
+  });
+});
+
 describe('比程式新的帳本會讓 server 停下來', () => {
   // db.js prints and exits rather than throwing, for the same reason
   // index.js does it for a stranded data/finance.db: the person needs an
