@@ -2172,6 +2172,18 @@ describe('消費分析：一個幣別一組數字，轉帳不算', () => {
     near(cats['測試分類'], 600, '有分類的那兩筆');
   });
 
+  // The account page prints "N 筆交易 · first → last" over a page of rows. It
+  // read both ends off the page, so past one page the first date was wrong.
+  it('交易清單的第一天和最後一天看的是全部，不是這一頁', async () => {
+    const page = await GET(`/api/txns?account=${jpy}&limit=2`);
+    assert.equal(page.rows.length, 2);
+    assert.equal(page.first, '2026-01-03', '最早那筆不在這一頁上');
+    assert.equal(page.last, '2026-04-05');
+    const none = await GET(`/api/txns?account=${jpy}&from=2030-01-01`);
+    assert.equal(none.first, null);
+    assert.equal(none.last, null);
+  });
+
   it('窗內每個月都有一個點，空月份不會被跳過', async () => {
     const d = (await GET(`/api/spending?${SPEND_WINDOW}`)).currencies.JPY;
     assert.equal(d.months.length, 6, '1 月到 6 月');

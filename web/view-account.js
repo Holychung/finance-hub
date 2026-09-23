@@ -25,9 +25,9 @@ views.account = async () => {
   const mine = checks.filter((c) => c.account_id === id);
   const off = mine.filter((c) => !c.ok);
   const myImports = imports.filter((i) => i.account_id === id);
-  const span = data.rows.length
-    ? `${data.rows[data.rows.length - 1].date} → ${data.rows[0].date}`
-    : '還沒有交易';
+  // The account's, not the page's: past a page of rows, the page's oldest row
+  // is not the account's first.
+  const span = data.total ? `${data.first} → ${data.last}` : '還沒有交易';
 
   mount(main, html`
     <div class="page-head">

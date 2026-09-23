@@ -198,7 +198,11 @@ on('GET', '/api/txns', (_p, _b, q) => {
   if (q.q) { where.push('(t.description LIKE ? OR t.category LIKE ? OR t.note LIKE ?)'); const k = `%${q.q}%`; args.push(k, k, k); }
   const sql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
 
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM txns t${sql}`).get(...args).n;
+  // `first` and `last` span every matching row, not the page: an account with
+  // more rows than a page has its first row somewhere the page does not reach.
+  const { n: total, first, last } = db
+    .prepare(`SELECT COUNT(*) AS n, MIN(t.date) AS first, MAX(t.date) AS last FROM txns t${sql}`)
+    .get(...args);
   const limit = Math.min(N(q.limit, 200), 2000);
   const offset = N(q.offset, 0);
 
@@ -210,7 +214,7 @@ on('GET', '/api/txns', (_p, _b, q) => {
     )
     .all(...args, limit, offset);
 
-  return { total, limit, offset, rows };
+  return { total, first, last, limit, offset, rows };
 });
 
 function insertTxn(b, importId = null) {

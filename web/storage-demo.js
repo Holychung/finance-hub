@@ -473,8 +473,12 @@
       const total = rows.length;
       const limit = Math.min(N(q.limit, 200), 2000);
       const offset = N(q.offset, 0);
+      const dates = rows.map((t) => t.date).sort();
       return {
         total,
+        // Every matching row's, like the server's MIN/MAX — null when none match.
+        first: dates[0] || null,
+        last: dates[dates.length - 1] || null,
         limit,
         offset,
         rows: rows.sort(by('-date', '-id')).slice(offset, offset + limit).map((t) => withAccount(t, acct)),
