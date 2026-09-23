@@ -135,7 +135,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-499 tests across 81 suites cover Big5 decoding, ROC dates, two-digit years,
+500 tests across 81 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
