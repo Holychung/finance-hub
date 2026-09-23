@@ -7,6 +7,7 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
+const crypto = require('node:crypto');
 const http = require('node:http');
 const net = require('node:net');
 const fs = require('node:fs');
@@ -35,6 +36,11 @@ const loadedFixtures = new Set();
 const fixture = (name) => {
   loadedFixtures.add(name);
   return fs.readFileSync(path.join(FIXTURE_DIR, name), 'utf8');
+};
+// A PDF is bytes, and is recorded the same way.
+const fixtureBytes = (name) => {
+  loadedFixtures.add(name);
+  return fs.readFileSync(path.join(FIXTURE_DIR, name));
 };
 
 let BASE;
@@ -253,6 +259,15 @@ const CITI_POSTED = CITI_CSV
 // between funds, and the realized gain/loss lines beside them, move none.
 const FIDELITY_401K_CSV = fixture('fidelity-401k.csv');
 
+// One invented account seen twice, 01/01/2024 to 09/18/2026: its history in the
+// shape above, and the Statement Details page NetBenefits shows for the same
+// period, saved from Chrome as a PDF. The JSON is every figure that page prints,
+// with the PDF's SHA-256. All three come out of one run of
+// scripts/fixtures/fidelity-401k-2024.js.
+const FIDELITY_401K_2024_CSV = fixture('fidelity-401k-2024.csv');
+const FIDELITY_STATEMENT_PDF = fixtureBytes('fidelity-401k-2024.pdf');
+const FIDELITY_STATEMENT = JSON.parse(fixture('fidelity-401k-2024.json'));
+
 // Every statement shape, so the pipeline guard below runs each of them through
 // the combination that has broken it twice. Adding a bank means adding its
 // fixture here; nothing else.
@@ -269,6 +284,7 @@ const BANK_FIXTURES = [
   ['Capital One checking', C1_CHECKING_CSV],
   ['Capital One card', C1_CARD_CSV],
   ['Fidelity 401(k)', FIDELITY_401K_CSV],
+  ['Fidelity 401(k) 2024', FIDELITY_401K_2024_CSV],
 ];
 
 // --- lifecycle -------------------------------------------------------------
@@ -1744,18 +1760,19 @@ describe('Citi 的匯出：同一個標題列，兩種完全不同的檔案', ()
 // local. Injecting one into a fixture must leave every other row byte for
 // byte as it was, and must not let the injected row through with a different
 // amount.
-// `.gitignore` blocks `*.csv` across the whole repo because a real statement
-// arrives named `stmt.csv` and matches nothing specific. test/fixtures/ is the
-// single hole in that, so it is now the easiest place in the repo for real
-// transactions to reach version control — a statement dropped in there to try
-// something out is tracked by default and nothing else would say so.
+// `.gitignore` blocks `*.csv` and `*.pdf` across the whole repo because a real
+// statement arrives named `stmt.csv` or `Statement.pdf` and matches nothing
+// specific. test/fixtures/ is the single hole in that, so it is now the easiest
+// place in the repo for real transactions to reach version control — a
+// statement dropped in there to try something out is tracked by default and
+// nothing else would say so.
 //
-// So the hole is only as wide as what is declared: a .csv sitting in that
-// directory without a line in BANK_FIXTURES fails the suite. That turns
-// "forgot to delete it" into a red test instead of a commit.
+// So the hole is only as wide as what is read: any file in that directory,
+// whatever its extension, that no test loads through fixture() fails the suite.
+// That turns "forgot to delete it" into a red test instead of a commit.
 describe('樣本目錄裡不准有沒讀到的檔案', () => {
-  it('test/fixtures 的每一個 .csv 都被這份測試讀過', () => {
-    const onDisk = fs.readdirSync(FIXTURE_DIR).filter((f) => f.endsWith('.csv')).sort();
+  it('test/fixtures 的每一個檔案都被這份測試讀過（README 除外）', () => {
+    const onDisk = fs.readdirSync(FIXTURE_DIR).filter((f) => f !== 'README.md').sort();
     assert.deepEqual(
       [...loadedFixtures].sort(),
       onDisk,
@@ -2774,10 +2791,124 @@ describe('Fidelity 的 401(k) 交易紀錄', () => {
   // `Transaction Type`, and neither may start holding rows back.
   it('其他每一家的檔案都不會被當成退休計畫的紀錄', async () => {
     for (const [name, text] of BANK_FIXTURES) {
-      if (text === FIDELITY_401K_CSV) continue;
+      if (text === FIDELITY_401K_CSV || text === FIDELITY_401K_2024_CSV) continue;
       const p = await POST('/api/import/preview', { content_base64: b64(text) });
       assert.equal(p.mapping.activityCol, null, `${name} 被認出了交易類型欄`);
       assert.equal(p.summary.internal, 0, `${name} 有行被當成不影響餘額`);
+    }
+  });
+});
+
+// The same invented account twice over: what its history download says and what
+// its statement prints for the same thirty-three months. The history is money
+// moving into and between funds; the statement is what the funds are worth. They
+// meet in the units: every row's Shares/Unit, added to the shares the statement
+// opens with, lands on the shares it closes with, and those at the statement's
+// closing prices are its market value to the cent. That is the arithmetic a
+// reader of either file has to get right, pinned before anything reads the PDF.
+describe('同一個 401(k)：對帳單和交易紀錄對得上', () => {
+  const st = FIDELITY_STATEMENT;
+  const s = st.account_summary;
+  const csvMod = require('../shared/csv.js');
+  const cents = (n) => Math.round(n * 100);
+  const milli = (n) => Math.round(n * 1000);
+
+  // parseAmount rounds to the cent, and a unit count has three places.
+  const history = (() => {
+    const grid = csvMod.parseCsv(FIDELITY_401K_2024_CSV);
+    const head = csvMod.detectHeaderRow(grid);
+    const [cols, ...body] = grid.slice(head - 1);
+    const at = (name) => cols.indexOf(name);
+    return body.map((r) => ({
+      fund: r[at('Investment')],
+      type: r[at('Transaction Type')],
+      amount: csvMod.parseAmount(r[at('Amount')]),
+      units: milli(Number(r[at('Shares/Unit')].replace(/,/g, ''))),
+    }));
+  })();
+  const total = (fund, type, key) => history
+    .filter((r) => r.fund === fund && (!type || r.type === type))
+    .reduce((t, r) => t + r[key], 0);
+  const activityOf = (f) => st.account_activity.find((a) => a.investment === f.investment);
+
+  it('PDF 是產生器印出來的那一份，不是誰下載的對帳單', () => {
+    const sha = crypto.createHash('sha256').update(FIDELITY_STATEMENT_PDF).digest('hex');
+    assert.equal(sha, st.pdf_sha256, 'PDF 和 JSON 不是同一次產生的：重跑 scripts/fixtures/fidelity-401k-2024.js');
+    // Asserted on the pieces, not the file: a failure must not print a PDF.
+    const raw = FIDELITY_STATEMENT_PDF.toString('latin1');
+    const creator = (raw.match(/^\/Creator \((.*)\)$/m) || [])[1] || '';
+    assert.match(creator, /HeadlessChrome\//, '一般人存下來的對帳單是 Chrome 印的，不是 HeadlessChrome');
+    assert.ok(!raw.includes('/URI'), '真的頁面上有連結，網址可能帶著帳戶的識別碼');
+    assert.equal((raw.match(/\/Type \/Page\b/g) || []).length, 3);
+  });
+
+  it('對帳單自己每一格都加得起來', () => {
+    near(s.beginning_balance + s.your_contributions + s.employer_contributions + s.change_in_market_value, s.ending_balance);
+    for (const a of st.account_activity) {
+      near(a.beginning_balance + a.your_contributions + a.employer_contributions + a.exchanges + a.change_in_market_value,
+        a.ending_balance, a.investment);
+    }
+    near(st.account_activity.reduce((t, a) => t + a.exchanges, 0), 0, '基金之間的轉換加起來是零');
+    for (const f of st.market_value) {
+      assert.equal(cents(f.shares_begin * f.price_begin), cents(f.value_begin), `${f.investment} 期初股數乘價格`);
+      assert.equal(cents(f.shares_end * f.price_end), cents(f.value_end), `${f.investment} 期末股數乘價格`);
+    }
+    near(st.market_value.reduce((t, f) => t + f.value_end, 0), s.ending_balance);
+    near(st.contribution_summary.reduce((t, c) => t + c.total_account_balance, 0), s.ending_balance, '兩個來源加起來就是整個帳戶');
+    near(st.contribution_summary.reduce((t, c) => t + c.total_vested_balance, 0), s.vested_balance);
+  });
+
+  it('交易紀錄每一行的股數，加上對帳單的期初，剛好是期末的股數，乘上價格就是 198,807.71', () => {
+    let value = 0;
+    for (const f of st.market_value) {
+      const units = total(f.history_name, null, 'units');
+      assert.equal(milli(f.shares_begin) + units, milli(f.shares_end), `${f.investment} 的股數對不上`);
+      value += cents(f.shares_end * f.price_end);
+    }
+    assert.equal(value, cents(s.ending_balance));
+    assert.equal(value, cents(198807.71));
+  });
+
+  it('提撥、轉換、配息，每一檔都和對帳單的 Account Activity 是同一個數', () => {
+    for (const f of st.market_value) {
+      const a = activityOf(f);
+      near(total(f.history_name, 'Contributions', 'amount'), a.your_contributions + a.employer_contributions, `${f.investment} 提撥`);
+      near(total(f.history_name, 'Exchanges', 'amount'), a.exchanges, `${f.investment} 轉換`);
+      near(total(f.history_name, 'Dividend', 'amount'), a.dividends_and_interest, `${f.investment} 配息`);
+    }
+    near(history.filter((r) => r.type === 'Contributions').reduce((t, r) => t + r.amount, 0),
+      s.your_contributions + s.employer_contributions);
+  });
+
+  // A target-date fund and a money market sold out on one day and the proceeds
+  // bought into two funds: four legs and a gain line, none of which moves money
+  // into or out of the plan. The older fixture only ever sells one fund.
+  it('同一天兩檔全數賣出、兩檔買進：五行都擋下來，而且淨額是零', async () => {
+    const p = await POST('/api/import/preview', { content_base64: b64(FIDELITY_401K_2024_CSV), filename: 'fidelity-401k-2024.csv' });
+    const held = p.rows.filter((r) => r.status === 'internal');
+    assert.equal(held.length, 5);
+    assert.deepEqual([...new Set(held.map((r) => r.date))], ['2024-02-09']);
+    near(held.filter((r) => r.raw[2] === 'Exchanges').reduce((t, r) => t + r.amount, 0), 0);
+    assert.equal(p.summary.new, 79, '六十六筆提撥、十三筆配息和利息');
+  });
+
+  it('匯進帳本：餘額是放進去的錢，和對帳單差的正好是交易紀錄裡沒有的漲跌', async () => {
+    const p = await POST('/api/import/preview', { content_base64: b64(FIDELITY_401K_2024_CSV), filename: 'fidelity-401k-2024.csv' });
+    const acct = await POST('/api/accounts', {
+      name: '401(k) 2024', kind: 'retirement', currency: 'USD',
+      opening_balance: s.beginning_balance, opening_date: '2023-12-31',
+    });
+    try {
+      const r = await POST('/api/import/commit', {
+        account_id: acct.id, content_base64: b64(FIDELITY_401K_2024_CSV), mapping: p.mapping, filename: 'fidelity-401k-2024.csv',
+      });
+      assert.equal(r.imported, 79);
+      const balance = (await GET('/api/accounts')).find((a) => a.id === acct.id).balance;
+      near(balance, s.beginning_balance + s.your_contributions + s.employer_contributions + s.dividends_and_interest);
+      near(s.ending_balance - balance, s.change_in_market_value - s.dividends_and_interest,
+        '差額就是股價的漲跌；配息已經在交易紀錄裡了');
+    } finally {
+      await DEL(`/api/accounts/${acct.id}`);
     }
   });
 });

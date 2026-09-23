@@ -23,12 +23,12 @@ where a bank writes something ugly — a trailing space inside a description, a
 the fixture writes it too.
 
 **Never put a downloaded statement in here.** `.gitignore` ignores `*.csv`
-everywhere except this directory and `githooks/pre-commit` refuses one
-anywhere else, so this is the one path where the guard is off. It is off by
-path, not by content: nothing checks whether what you added is real. The
-backstop is `樣本目錄裡不准有沒讀到的檔案` in `api.test.js` — every `.csv` in
-here must actually be loaded by a test, so a file dropped in and forgotten
-does not sit here quietly.
+and `*.pdf` everywhere except this directory and `githooks/pre-commit` refuses
+them anywhere else, so this is the one path where the guard is off. It is off
+by path, not by content: nothing checks whether what you added is real. The
+backstop is `樣本目錄裡不准有沒讀到的檔案` in `api.test.js` — every file in
+here but this README must actually be loaded by a test, so a file dropped in
+and forgotten does not sit here quietly.
 
 ## Loading one
 
@@ -40,7 +40,8 @@ const CITI_CSV = fixture('citi-checking.csv');
 Read as bytes, not rebuilt from an array of lines: the line endings and the
 trailing delimiters are part of what is being tested. `fixture()` records
 every name it loads, which is what the registry test compares against the
-directory — so there is no separate list to keep in step.
+directory — so there is no separate list to keep in step. A PDF goes through
+`fixtureBytes()`, which records the same way and hands back a Buffer.
 
 ## What is here
 
@@ -60,6 +61,9 @@ directory — so there is no separate list to keep in step.
 | `capitalone-venture-card.csv` | Capital One card export: two date columns (`Posted Date`, spelled unlike Chase's), `Debit`/`Credit` in two columns, a `Category` column, no balance column | LF |
 | `capitalone-venture-card-empty.csv` | What Capital One hands back for a year with no activity: the header row and nothing else | LF |
 | `fidelity-401k.csv` | Fidelity retirement plan history: a blank line, a `Plan name:` line and a `Date Range` line above the header, one signed `Amount`, a `Transaction Type` saying what each row is, a `Shares/Unit` column, newest first, no balance column | LF |
+| `fidelity-401k-2024.csv` | The same history shape over a different account: a day on which two funds are sold out and two bought, a money market at $1.00 whose interest is a `Dividend` row, unit counts above a thousand grouped inside the quotes | LF |
+| `fidelity-401k-2024.pdf` | That account's NetBenefits *Statement Details* page, saved from Chrome as a PDF: Chrome's own header and footer on every page, and a table header printed again where the table breaks across a page | — |
+| `fidelity-401k-2024.json` | Every figure the PDF prints, as numbers, and the PDF's SHA-256 | LF |
 
 The 換行 column is not a typo. Citi and Capital One ship LF, the others ship
 CRLF, and both have to parse — `.gitattributes` marks the directory `-text` so
@@ -168,6 +172,46 @@ every rebalance day nets to zero, so an exchange imported as a flow shows up as
 an expense and an income of the same amount rather than in the total. Unit
 prices follow an invented path, so the file's units carry a market value the
 ledger does not read.
+
+`fidelity-401k-2024.csv`, `fidelity-401k-2024.pdf`, `fidelity-401k-2024.json`
+
+One invented account, 01/01/2024 to 09/18/2026, three ways. All three come out
+of one run of `scripts/fixtures/fidelity-401k-2024.js`, which needs Google
+Chrome. Change the account there and run it again; never edit these files by
+hand. The JSON carries the PDF's SHA-256, so a PDF from any other run fails the
+suite.
+
+- the history is `fidelity-401k.csv`'s shape exactly — the preamble, the
+  quoting, newest first, LF — over a different account. Contributions split
+  80/20 between an S&P 500 index fund and a growth tech fund, matched at 50%,
+  stepping up each January; quarterly dividends on the index fund and a yearly
+  one on tech
+- one day, 02/09/2024, on which a target-date fund and a money market are sold
+  out entirely and the proceeds bought into the two funds: four `Exchanges`
+  legs and one `Realized Gain/Loss` line, the first file where more than one
+  fund leaves on the same day. All five must be held back
+- a money market at $1.00 whose interest is a `Dividend` row, and unit counts
+  above a thousand, grouped with a comma inside the quotes
+- the statement is NetBenefits' Statement Details page as Chrome saves it:
+  Chrome's header (the time it was printed, the page title) and footer (the
+  page's address, `1/3`) on every page, and the Market Value table's column
+  header printed again where the table breaks across a page. A PDF saved from
+  the browser comes out of Skia's writer, and so does this one. The logo, the
+  phone glyph and the allocation chart are pictures, so they add nothing to the
+  text layer
+- nothing reads the PDF yet. It is here so that whatever reads it is written
+  against the real kind of file. Extractors merge text that shares a baseline
+  (PDFKit puts the repeated table header on the same line as the page header's
+  date), so a reader has to work from glyph positions, not from extracted lines
+- the JSON is every figure the PDF prints, as numbers, for a reader's output to
+  be compared against
+
+The history's units, added to the shares the statement opens with, are the
+shares it closes with, exactly. At the statement's closing prices they come to
+its ending balance, **198,807.71**. Imported into an account opened at the
+statement's beginning balance, the ledger holds **140,328.58**: the money put in
+plus the dividends. The difference, **58,479.13**, is the change in market value
+the history does not carry.
 
 ## Adding a bank
 

@@ -23,6 +23,13 @@ data/
 # forgotten does not sit there quietly.
 !test/fixtures/*.csv
 
+# Statements that arrive as a PDF: a plan's quarterly statement, a statement page
+# saved with "Save as PDF". The same wholesale block and the same single
+# exception, for the same reason — and the same test in api.test.js fails on a
+# .pdf in test/fixtures/ that nothing reads.
+*.pdf
+!test/fixtures/*.pdf
+
 # Local backups and exports
 *.json.bak
 finance_backup*.json
