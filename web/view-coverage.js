@@ -51,7 +51,7 @@ views.coverage = async () => {
         <div class="sub">每個帳戶、每個月，帳本到底有沒有資料</div>
       </div>
       <div class="seg" role="group" aria-label="看幾個月">${[12, 24, 36].map((n) => html`<button
-        data-months="${n}" aria-pressed="${n === coverageMonths}">${n} 個月</button>`)}</div>
+        data-months="${n}" aria-pressed="${ariaBool(n === coverageMonths)}">${n} 個月</button>`)}</div>
     </div>
 
     ${d.accounts.length ? html`

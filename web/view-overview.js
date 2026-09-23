@@ -129,7 +129,7 @@ views.overview = async () => {
       <div><h1>總覽</h1><div class="sub">${d.counts.txns} 筆交易 · ${nw.as_of}</div></div>
       <div class="row shrink">
         ${split ? html`<div class="seg" role="group" aria-label="淨值要看哪一部分">${OVERVIEW_SCOPES.map((s) => html`<button
-          data-scope="${s.key}" aria-pressed="${s.key === scope}">${s.label}</button>`)}</div>` : ''}
+          data-scope="${s.key}" aria-pressed="${ariaBool(s.key === scope)}">${s.label}</button>`)}</div>` : ''}
         <button class="sm shrink" id="refresh">重新整理</button>
       </div>
     </div>
