@@ -316,6 +316,17 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     // the last migration added, so it is that version; it said 6 for two
     // steps because nothing compared it.
     assert.equal(a.schema_version, b.schema_version, 'demo 的 schema 版本要跟全新的伺服器一樣');
+    // Both default to off: the real server is offline until asked, and the demo
+    // can never fetch at all.
+    assert.equal(a.auto_prices, false);
+    assert.equal(b.auto_prices, false);
+  });
+
+  it('抓價 refresh：關閉時兩邊都是 disabled 的 no-op', async () => {
+    // auto_prices is off on both, so neither touches the network here.
+    const [a, b] = [await demo.post('/api/prices/refresh', {}), await live.post('/api/prices/refresh', {})];
+    assert.deepEqual(a, { enabled: false, updated: [], failed: [] });
+    assert.deepEqual(b, { enabled: false, updated: [], failed: [] });
   });
 
   it('沒有這條 route 時兩邊都是 404', async () => {

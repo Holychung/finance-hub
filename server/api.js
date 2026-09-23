@@ -7,6 +7,7 @@ const csv = require('../shared/csv');
 const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
+const PRICES = require('./prices');
 const {
   DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, defaultAccessFor, TAX_STATUS_KEYS,
   MARKET_KEYS, DEFAULT_MARKET, marketInfo,
@@ -407,6 +408,15 @@ on('DELETE', '/api/prices', (_p, _b, q) => ({
     .prepare('DELETE FROM prices WHERE symbol = ? AND market = ? AND date = ?')
     .run(S(q.symbol).trim().toUpperCase(), marketOf(q.market, DEFAULT_MARKET), S(q.date)).changes,
 }));
+
+// Opt-in daily fetch of each holding's previous close (server/prices.js). Off
+// unless the user turned it on in settings, and when off this does nothing and
+// says so, so the button can stay hidden without the endpoint pretending. Async
+// because the network wait is the one place a handler genuinely is not sync.
+on('POST', '/api/prices/refresh', async () => {
+  if (getMeta('auto_prices', '0') !== '1') return { enabled: false, updated: [], failed: [] };
+  return { enabled: true, ...(await PRICES.updatePrices()) };
+});
 
 // --- fx --------------------------------------------------------------------
 
@@ -854,10 +864,17 @@ on('GET', '/api/settings', () => ({
   profile: paths.PROFILE,
   is_personal: paths.IS_PERSONAL,
   db_path: paths.DB_PATH,
+  // Off unless the user turned it on: the whole app is offline by default and
+  // this is the one switch that lets it reach out. `prices_fetched_on` lets the
+  // holdings view say when it last ran.
+  auto_prices: getMeta('auto_prices', '0') === '1',
+  prices_fetched_on: getMeta('prices_fetched_on', null),
+  prices_fetched_at: getMeta('prices_fetched_at', null),
 }));
 
 on('PUT', '/api/settings', (_p, b) => {
   if (b.base_currency) setMeta('base_currency', String(b.base_currency).toUpperCase());
+  if (b.auto_prices !== undefined) setMeta('auto_prices', b.auto_prices ? '1' : '0');
   return { ok: true };
 });
 
