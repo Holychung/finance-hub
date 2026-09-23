@@ -15,13 +15,20 @@
 // totals at once and the net still looks right, which is why it survives so
 // long unnoticed. A row is excluded if it is in a transfer group or its kind
 // says transfer — a manually marked one has the kind and no group.
+//
+// **Neither is a change in what something is worth.** A `valuation` row moves
+// no money at all (see `flow` in shared/kinds.js); counted here, a plan's
+// down month would be the largest expense on the page and its up month the
+// largest income.
 
 (function (root) {
   const NODE = typeof module !== 'undefined' && module.exports;
   const { normalise } = NODE ? require('./rules') : root;
   const { round2 } = NODE ? require('./currency') : root;
+  const { NON_FLOW_KINDS } = NODE ? require('./kinds') : root;
 
   const isTransfer = (t) => !!t.transfer_group || t.kind === 'transfer';
+  const notSpending = (t) => isTransfer(t) || NON_FLOW_KINDS.has(t.kind);
 
   // Uncategorised is a category, reported alongside the others rather than
   // dropped. Hiding it would make every percentage in the chart wrong in the
@@ -35,7 +42,7 @@
     const of = (c) => (cur[c] ||= { months: new Map(), categories: new Map(), income: 0, expense: 0, uncategorised: { total: 0, count: 0 } });
 
     for (const t of txns) {
-      if (isTransfer(t)) continue;
+      if (notSpending(t)) continue;
       if (t.date < from || t.date > to) continue;
       const c = of(currencyOf.get(t.account_id) || 'TWD');
       const month = t.date.slice(0, 7);
@@ -143,7 +150,7 @@
     const groups = new Map();
 
     for (const t of txns) {
-      if (isTransfer(t) || t.amount >= 0) continue;
+      if (notSpending(t) || t.amount >= 0) continue;
       const key = normalise(t.description);
       if (!key) continue;
       const id = `${t.account_id}\u0000${key}`;

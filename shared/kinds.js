@@ -106,18 +106,30 @@
   // excluded from spending, so the row would quietly leave the totals. The two
   // pickers used to hold two hand-written subsets that agreed on excluding it
   // and disagreed about 換匯 for no stated reason.
+  //
+  // **`flow` says whether any money moved at all.** A `valuation` row is a
+  // statement saying the funds are now worth this much more or less: nobody
+  // paid it and nobody spent it. Recorded, it brings a balance to the
+  // statement's figure — which is what a retirement balance is — and it stays
+  // out of everything that asks where money came from or went. Without the
+  // flag a fund's bad month would be the biggest expense in the spending
+  // breakdown, and could be offered as the other leg of a card payment. A
+  // transfer *is* a flow — money really left one account — which is why it
+  // keeps its own rule for leaving spending and this flag does not cover it.
   const TXN_KINDS = [
-    { key: 'other', label: '其他', pickable: true },
-    { key: 'income', label: '收入', pickable: true },
-    { key: 'expense', label: '支出', pickable: true },
-    { key: 'trade', label: '買賣', pickable: true },
-    { key: 'dividend', label: '股利', pickable: true },
-    { key: 'fee', label: '手續費', pickable: true },
-    { key: 'fx', label: '換匯', pickable: true },
-    { key: 'transfer', label: '轉帳', pickable: false },
+    { key: 'other', label: '其他', pickable: true, flow: true },
+    { key: 'income', label: '收入', pickable: true, flow: true },
+    { key: 'expense', label: '支出', pickable: true, flow: true },
+    { key: 'trade', label: '買賣', pickable: true, flow: true },
+    { key: 'dividend', label: '股利', pickable: true, flow: true },
+    { key: 'fee', label: '手續費', pickable: true, flow: true },
+    { key: 'fx', label: '換匯', pickable: true, flow: true },
+    { key: 'valuation', label: '市值變動', pickable: true, flow: false },
+    { key: 'transfer', label: '轉帳', pickable: false, flow: true },
   ];
 
   const TXN_KIND_ORDER = TXN_KINDS.filter((k) => k.pickable).map((k) => k.key);
+  const NON_FLOW_KINDS = new Set(TXN_KINDS.filter((k) => !k.flow).map((k) => k.key));
 
   // Whether there is a rule between you and the money. Not a kind: a
   // self-custody wallet is as reachable as a current account, a locked stake
@@ -190,7 +202,7 @@
   // onto the global for the browser's classic scripts, onto module.exports for
   // Node.
   const api = {
-    ACCOUNT_KINDS, TXN_KINDS, KIND_ORDER, TXN_KIND_ORDER, KIND_LABEL, kindName,
+    ACCOUNT_KINDS, TXN_KINDS, KIND_ORDER, TXN_KIND_ORDER, NON_FLOW_KINDS, KIND_LABEL, kindName,
     LIABILITY_KINDS, DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND,
     ACCESS, ACCESS_KEYS, DEFAULT_ACCESS, accessName, defaultAccessFor,
     TAX_ADVANTAGED_KINDS, TAX_STATUS, TAX_STATUS_KEYS, taxStatusName, NO_STATEMENT_KINDS,

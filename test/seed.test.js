@@ -22,7 +22,7 @@ const path = require('node:path');
 const M = require('../shared/money');
 const SP = require('../shared/spending');
 const R = require('../shared/rules');
-const { buildDemoBook } = require('../shared/demo-seed');
+const { buildDemoBook, DEMO_MONTHS } = require('../shared/demo-seed');
 
 const SEED = path.join(__dirname, '..', 'scripts', 'seed-demo.js');
 const TO = '2026-09-30';
@@ -112,6 +112,26 @@ describe('示範資料的產生器', () => {
     assert.equal(row.gaps, 0, '提撥每個月都有，完整度不該把它當成沒人匯');
   });
 
+  // Kept the way its statements keep it: contributions on payday, and at every
+  // month-end the change in market value the statement reports. So its line is
+  // the plan's value, the drawdown included, and none of that is spending.
+  it('401(k) 的線跟著市值走：有漲有跌、三年約二十萬，市值變動不算收支', () => {
+    const plan = db.prepare("SELECT id, opening_balance FROM accounts WHERE kind = 'retirement'").get();
+    const txns = db.prepare('SELECT date, amount, kind FROM txns WHERE account_id = ? ORDER BY date').all(plan.id);
+    const valuations = txns.filter((t) => t.kind === 'valuation');
+    assert.equal(valuations.length, DEMO_MONTHS - 1, '每個過完的月份一筆；這個月的對帳單還沒來');
+    assert.ok(valuations.some((v) => v.amount < 0), '沒有跌過的月份，線就只是另一條斜線');
+    assert.ok(valuations.some((v) => v.amount > 0));
+    const balance = plan.opening_balance + txns.reduce((s, t) => s + t.amount, 0);
+    assert.ok(balance > 190000 && balance < 210000, `期末 ${balance}`);
+
+    const { txns: all, accounts } = rows(db);
+    const contributed = txns.filter((t) => t.kind === 'income').reduce((s, t) => s + t.amount, 0);
+    const planOnly = SP.computeSpending({ txns: all.filter((t) => t.account_id === plan.id), accounts, from: '2000-01-01', to: TO });
+    assert.equal(planOnly.currencies.USD.expense, 0, '跌的月份不是支出');
+    assert.ok(Math.abs(planOnly.currencies.USD.income - contributed) < 0.01, '收入只有提撥，漲的月份不算');
+  });
+
   it('完整度五種狀態都生得出來', () => {
     const cov = coverage(db);
     const states = new Set();
@@ -139,6 +159,26 @@ describe('示範資料的產生器', () => {
       const d = sp.currencies[cur];
       const share = d.uncategorised.total / d.expense;
       assert.ok(share > 0.05 && share < 0.95, `${cur} 未分類佔 ${(share * 100).toFixed(0)}%，示範不出規則引擎的用處`);
+    }
+  });
+
+  // The overview's pairing to-do is a demo of pairing, so every pair it offers
+  // has to be one the book left open on purpose: two legs of one transfer, the
+  // same day, the same amount. An employer match that, at this book's rates,
+  // came within tolerance of the rent leaving 玉山 the next day was once offered
+  // as a transfer month after month.
+  it('待配對的只有故意留著的轉帳，沒有湊巧對上的', () => {
+    const { accounts } = rows(db);
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    const unpaired = db.prepare('SELECT id, account_id, date, amount, description, kind FROM txns WHERE transfer_group IS NULL ORDER BY date').all()
+      .map((t) => ({ ...t, currency: byId.get(t.account_id).currency, account_name: byId.get(t.account_id).name }));
+    const fx = M.computeFxLookup({ rows: db.prepare("SELECT date, rate FROM fx_rates WHERE pair = 'USDTWD' ORDER BY date").all() });
+    const pairs = M.computeTransferCandidates({ rows: unpaired, fx });
+    assert.ok(pairs.length > 0, '留著沒配的要看得到');
+    for (const p of pairs) {
+      const what = `${p.out.account_name} ${p.out.description} ↔ ${p.in.account_name} ${p.in.description}`;
+      assert.equal(p.out.date, p.in.date, what);
+      assert.equal(p.out.amount, -p.in.amount, what);
     }
   });
 
@@ -184,7 +224,9 @@ describe('示範資料的產生器', () => {
   // ledgers would have drifted the first time either was touched, and a
   // visitor would be looking at something the app does not actually do.
   it('寫進 SQLite 的，跟瀏覽器載進記憶體的，是同一本帳', () => {
-    const book = buildDemoBook({ to: TO, months: 18, now: () => 'x', uuid: () => 'g' });
+    // No `months`, like the seeder above and like web/storage.js: both open
+    // the book at its own default, DEMO_MONTHS.
+    const book = buildDemoBook({ to: TO, now: () => 'x', uuid: () => 'g' });
 
     // created_at is a real clock in the script and transfer_group a real
     // uuid; neither can line up with an injected one, and neither is what is
@@ -249,5 +291,5 @@ function coverage(db) {
     .prepare('SELECT account_id, date FROM balance_checks')
     .all()
     .map((c) => ({ ...c, ok: true }));
-  return M.computeCoverage({ accounts, activity, checks, imports, to: TO, months: 18 });
+  return M.computeCoverage({ accounts, activity, checks, imports, to: TO, months: DEMO_MONTHS });
 }

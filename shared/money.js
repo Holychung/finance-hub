@@ -16,7 +16,7 @@
   // Same two-environment require as `shared/csv.js` uses for sha1: a module in
   // Node, a global the browser already loaded in index.html's order.
   const NODE = typeof module !== 'undefined' && module.exports;
-  const { LIABILITY_KINDS, NO_STATEMENT_KINDS, ACCESS_KEYS, DEFAULT_ACCESS } = NODE ? require('./kinds') : root;
+  const { LIABILITY_KINDS, NO_STATEMENT_KINDS, NON_FLOW_KINDS, ACCESS_KEYS, DEFAULT_ACCESS } = NODE ? require('./kinds') : root;
   const { round2, roundTo } = NODE ? require('./currency') : root;
 
   // Every snapshot converts with the rate that was true on its own date, so
@@ -570,9 +570,13 @@
   // restating what either one is worth. Nothing converted here reaches a balance
   // or a total. Without it, moving money between a TWD and a USD account simply
   // cannot be recognised and both legs go on counting as income and expense.
+  //
+  // A row that moved no money cannot be either leg: a plan's month-end
+  // valuation would otherwise pair with any payment of about the same size.
   function computeTransferCandidates({ rows, fx, windowDays = 3, tolerancePct = 1.5 }) {
-    const outs = rows.filter((r) => r.amount < 0);
-    const ins = rows.filter((r) => r.amount > 0);
+    const moved = rows.filter((r) => !NON_FLOW_KINDS.has(r.kind));
+    const outs = moved.filter((r) => r.amount < 0);
+    const ins = moved.filter((r) => r.amount > 0);
     const used = new Set();
     const pairs = [];
 

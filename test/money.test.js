@@ -520,6 +520,21 @@ describe('computeTransferCandidates', () => {
     }), [], '差 20%');
   });
 
+  // A plan's month-end valuation moved no money, so it is not a leg of
+  // anything, however well its size and date fit.
+  it('市值變動不當任何一腳：同一天同金額也不配', () => {
+    assert.deepEqual(M.computeTransferCandidates({
+      rows: [row({ id: 1, account_id: 1, amount: -5000 }),
+             row({ id: 2, account_id: 2, amount: 5000, kind: 'valuation' })],
+      fx,
+    }), []);
+    assert.deepEqual(M.computeTransferCandidates({
+      rows: [row({ id: 1, account_id: 1, amount: -5000, kind: 'valuation' }),
+             row({ id: 2, account_id: 2, amount: 5000 })],
+      fx,
+    }), [], '跌的那個月也不是一筆付出去的錢');
+  });
+
   it('同一個帳戶內部的一出一進不是轉帳', () => {
     assert.deepEqual(M.computeTransferCandidates({
       rows: [row({ id: 1, account_id: 1, amount: -5000 }), row({ id: 2, account_id: 1, amount: 5000 })],

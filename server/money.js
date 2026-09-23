@@ -130,7 +130,7 @@ function reconcile() {
 function findTransferCandidates({ windowDays = 3, tolerancePct = 1.5 } = {}) {
   const rows = db
     .prepare(
-      `SELECT t.id, t.account_id, t.date, t.amount, t.description, a.currency, a.name AS account_name
+      `SELECT t.id, t.account_id, t.date, t.amount, t.description, t.kind, a.currency, a.name AS account_name
          FROM txns t JOIN accounts a ON a.id = t.account_id
         WHERE t.transfer_group IS NULL
         ORDER BY t.date`

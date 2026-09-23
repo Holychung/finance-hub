@@ -280,7 +280,7 @@
         rows: raw.all('txns').filter((t) => !t.transfer_group).sort(by('date'))
           .map((t) => ({
             id: t.id, account_id: t.account_id, date: t.date, amount: t.amount,
-            description: t.description,
+            description: t.description, kind: t.kind,
             currency: acct.get(t.account_id)?.currency,
             account_name: acct.get(t.account_id)?.name,
           })),
