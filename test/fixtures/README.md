@@ -59,6 +59,7 @@ directory — so there is no separate list to keep in step.
 | `capitalone-360-checking.csv` | Capital One deposit export: an **unsigned** `Transaction Amount` with the direction in `Transaction Type`, `MM/DD/YY` two-digit years, a running balance, newest first | LF |
 | `capitalone-venture-card.csv` | Capital One card export: two date columns (`Posted Date`, spelled unlike Chase's), `Debit`/`Credit` in two columns, a `Category` column, no balance column | LF |
 | `capitalone-venture-card-empty.csv` | What Capital One hands back for a year with no activity: the header row and nothing else | LF |
+| `fidelity-401k.csv` | Fidelity retirement plan history: a blank line, a `Plan name:` line and a `Date Range` line above the header, one signed `Amount`, a `Transaction Type` saying what each row is, a `Shares/Unit` column, newest first, no balance column | LF |
 
 The 換行 column is not a typo. Citi and Capital One ship LF, the others ship
 CRLF, and both have to parse — `.gitattributes` marks the directory `-text` so
@@ -137,6 +138,36 @@ Sums to **-722.93**.
 
 - a real download that contains no rows, which must preview as an empty file
   rather than as an error
+
+`fidelity-401k.csv`
+
+- a preamble above the header: a blank first line, a plan-name line whose
+  name carries an **unquoted comma** (so that line splits into one cell more
+  than it means) and trailing spaces, a `Date Range` line padded with empty
+  cells, and two blank lines. The header has to be found under all of it
+- `Investment` as the description: it names the fund, and nothing else in the
+  file says which row is which
+- `Transaction Type` saying what each row is, in four words. `Contributions`
+  and `Dividend` import, as income and as a dividend. `Exchanges` and
+  `Realized Gain/Loss` move no money in or out of the plan and must not
+  import at all
+- five years of a plan, 160 rows: a monthly contribution split 80/20 between
+  an S&P 500 index fund and a growth tech fund, stepping up once a year;
+  quarterly dividends on the index fund and a yearly one on the tech fund;
+  and a rebalance back to 80/20 every April — one fund sold, the other
+  bought, the same day, with a realized gain/loss line for the fund sold. Four
+  of those sell tech and one, in the first year's fall, sells the index fund
+- amounts and units quoted with thousands separators, negative on the leg
+  that leaves a fund; units to three places
+- no balance column, so nothing to chain and no opening balance to derive
+
+Everything that imports sums to **200,000.00**: 195,000.00 of contributions,
+156,000.00 into the index fund and 39,000.00 into tech, and 5,000.00 of
+dividends. The five gain/loss lines would add 972.77 that nobody put in, and
+every rebalance day nets to zero, so an exchange imported as a flow shows up as
+an expense and an income of the same amount rather than in the total. Unit
+prices follow an invented path, so the file's units carry a market value the
+ledger does not read.
 
 ## Adding a bank
 

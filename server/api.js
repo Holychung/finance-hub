@@ -7,7 +7,12 @@ const csv = require('../shared/csv');
 const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
-const { DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, DEFAULT_ACCESS } = require('../shared/kinds');
+const PRICES = require('./prices');
+const {
+  DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, defaultAccessFor, TAX_STATUS_KEYS,
+  MARKET_KEYS, DEFAULT_MARKET, marketInfo,
+} = require('../shared/kinds');
+const { MAX_DECIMALS } = require('../shared/currency');
 
 // node:sqlite only binds null/number/bigint/string/Uint8Array.
 const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
@@ -49,6 +54,9 @@ on('GET', '/api/overview', () => {
     accounts,
     holdings,
     series: M.netWorthSeries(from, asOf),
+    // The same line for each half of the book, so the chart can follow the
+    // overview's 可動用／受限制 switch instead of drawing the whole under it.
+    series_by_access: Object.fromEntries(ACCESS_KEYS.map((k) => [k, M.netWorthSeries(from, asOf, k)])),
     reconcile: {
       total: checks.length,
       off: checks.filter((c) => !c.ok).length,
@@ -101,19 +109,43 @@ function accessOf(v, fallback) {
   return a;
 }
 
+// Empty means "not stated" and clears it; anything else must be on the list.
+// A typo stored as a tax status would be a label on screen that means nothing.
+function taxStatusOf(v) {
+  if (v === null || v === '') return null;
+  const t = S(v);
+  if (!TAX_STATUS_KEYS.includes(t)) bad(`tax_status 只能是 ${TAX_STATUS_KEYS.join('、')} 或留空`);
+  return t;
+}
+
+// Refused rather than coerced. N() turns garbage into 0, which is harmless
+// for most fields and wrong here: net worth subtracts this, so a negative one
+// would add money nobody has, and a typo quietly becoming 0 would hand the
+// employer's share back to the total.
+function unvestedOf(v) {
+  if (v === null || v === '') return 0;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) bad('unvested 要是 0 或正數');
+  return M.round2(n);
+}
+
 on('POST', '/api/accounts', (_p, b) => {
   if (!S(b.name).trim()) bad('帳戶名稱必填');
+  const kind = S(b.kind, DEFAULT_ACCOUNT_KIND);
   const r = db
     .prepare(
-      `INSERT INTO accounts (institution_id, name, kind, currency, opening_balance, opening_date, is_active, sort_order, note, access)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO accounts (institution_id, name, kind, currency, opening_balance, opening_date, is_active, sort_order, note,
+                             access, tax_status, unvested)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       OPT(b.institution_id) === null ? null : N(b.institution_id),
-      S(b.name).trim(), S(b.kind, DEFAULT_ACCOUNT_KIND), S(b.currency, 'TWD'),
+      S(b.name).trim(), kind, S(b.currency, 'TWD'),
       N(b.opening_balance), S(b.opening_date, '2020-01-01'),
       B(b.is_active), N(b.sort_order), S(b.note),
-      accessOf(b.access, DEFAULT_ACCESS)
+      accessOf(b.access, defaultAccessFor(kind)),
+      b.tax_status === undefined ? null : taxStatusOf(b.tax_status),
+      b.unvested === undefined ? 0 : unvestedOf(b.unvested)
     );
   return { id: Number(r.lastInsertRowid) };
 });
@@ -123,7 +155,8 @@ on('PUT', '/api/accounts/:id', (p, b) => {
   if (!cur) missing('帳戶不存在');
   db.prepare(
     `UPDATE accounts SET institution_id=?, name=?, kind=?, currency=?,
-            opening_balance=?, opening_date=?, is_active=?, sort_order=?, note=?, access=?
+            opening_balance=?, opening_date=?, is_active=?, sort_order=?, note=?, access=?,
+            tax_status=?, unvested=?
       WHERE id=?`
   ).run(
     b.institution_id === undefined ? cur.institution_id : (OPT(b.institution_id) === null ? null : N(b.institution_id)),
@@ -132,7 +165,10 @@ on('PUT', '/api/accounts/:id', (p, b) => {
     S(b.opening_date, cur.opening_date),
     b.is_active === undefined ? cur.is_active : B(b.is_active),
     b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
-    S(b.note, cur.note), accessOf(b.access, cur.access), N(p.id)
+    S(b.note, cur.note), accessOf(b.access, cur.access),
+    b.tax_status === undefined ? cur.tax_status : taxStatusOf(b.tax_status),
+    b.unvested === undefined ? cur.unvested : unvestedOf(b.unvested),
+    N(p.id)
   );
   return { ok: true };
 });
@@ -140,6 +176,15 @@ on('PUT', '/api/accounts/:id', (p, b) => {
 on('DELETE', '/api/accounts/:id', (p) => ({
   deleted: db.prepare('DELETE FROM accounts WHERE id = ?').run(N(p.id)).changes,
 }));
+
+// The account page's line. `to` defaults to today and can be pinned, so the
+// same question can be asked of the demo adapter and get the same answer.
+on('GET', '/api/accounts/:id/series', (p, _b, q) => {
+  const to = q.to ? csv.parseDate(q.to, 'auto') || bad(`日期無法解析：${q.to}`) : M.todayISO();
+  const points = M.accountSeries(N(p.id), to);
+  if (!points) missing('帳戶不存在');
+  return points;
+});
 
 // --- transactions ----------------------------------------------------------
 
@@ -249,19 +294,47 @@ on('DELETE', '/api/transfers/:group', (p) => ({ unlinked: M.unlinkTransfer(Strin
 
 // --- holdings --------------------------------------------------------------
 
+// One normaliser for every place a market arrives: holdings and all three
+// price routes. Holdings used to store the market as sent while /api/prices
+// upper-cased it, so a `crypto` holding looked its price up under `crypto` in
+// a series stored as `CRYPTO` and never found it. Refused outside the list
+// rather than stored, because an unknown market has no section on the
+// holdings page to be shown in.
+function marketOf(v, fallback) {
+  if (v === undefined || v === null || v === '') return fallback;
+  const m = S(v).trim().toUpperCase();
+  if (!MARKET_KEYS.includes(m)) bad(`market 只能是 ${MARKET_KEYS.join('、')}`);
+  return m;
+}
+
+// The quantity's scale. Refused rather than clamped: 12 places would look
+// like precision and be float noise, and 2.5 places is a typo.
+function placesOf(v, fallback) {
+  if (v === undefined || v === null || v === '') return fallback;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > MAX_DECIMALS) bad(`decimals 要是 0 到 ${MAX_DECIMALS} 的整數`);
+  return n;
+}
+
 on('GET', '/api/holdings', () => M.holdingsValued());
 
 on('POST', '/api/holdings', (_p, b) => {
-  if (!S(b.symbol).trim()) bad('股票代號必填');
+  if (!S(b.symbol).trim()) bad('代號必填');
+  const market = marketOf(b.market, DEFAULT_MARKET);
+  // The market's currency and scale are defaults for a holding that did not
+  // say — a coin can be priced in TWD on a Taiwanese exchange — not rules.
+  // This used to be `market === 'US' ? 'USD' : 'TWD'`, which priced any third
+  // market in TWD.
+  const info = marketInfo(market);
   const r = db
     .prepare(
-      `INSERT INTO holdings (account_id, symbol, name, market, shares, avg_cost, last_price, price_date, currency, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO holdings (account_id, symbol, name, market, shares, avg_cost, last_price, price_date, currency, note, decimals)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
-      N(b.account_id), S(b.symbol).trim().toUpperCase(), S(b.name), S(b.market, 'TW'),
+      N(b.account_id), S(b.symbol).trim().toUpperCase(), S(b.name), market,
       N(b.shares), N(b.avg_cost), N(b.last_price), OPT(b.price_date),
-      S(b.currency, S(b.market, 'TW') === 'US' ? 'USD' : 'TWD'), S(b.note)
+      S(b.currency, info.currency), S(b.note), placesOf(b.decimals, info.decimals)
     );
   return { id: Number(r.lastInsertRowid) };
 });
@@ -271,15 +344,15 @@ on('PUT', '/api/holdings/:id', (p, b) => {
   if (!cur) missing('持股不存在');
   db.prepare(
     `UPDATE holdings SET account_id=?, symbol=?, name=?, market=?, shares=?, avg_cost=?,
-            last_price=?, price_date=?, currency=?, note=? WHERE id=?`
+            last_price=?, price_date=?, currency=?, note=?, decimals=? WHERE id=?`
   ).run(
     b.account_id === undefined ? cur.account_id : N(b.account_id),
-    S(b.symbol, cur.symbol).trim().toUpperCase(), S(b.name, cur.name), S(b.market, cur.market),
+    S(b.symbol, cur.symbol).trim().toUpperCase(), S(b.name, cur.name), marketOf(b.market, cur.market),
     b.shares === undefined ? cur.shares : N(b.shares),
     b.avg_cost === undefined ? cur.avg_cost : N(b.avg_cost),
     b.last_price === undefined ? cur.last_price : N(b.last_price),
     b.price_date === undefined ? cur.price_date : OPT(b.price_date),
-    S(b.currency, cur.currency), S(b.note, cur.note), N(p.id)
+    S(b.currency, cur.currency), S(b.note, cur.note), placesOf(b.decimals, cur.decimals), N(p.id)
   );
   return { ok: true };
 });
@@ -303,7 +376,7 @@ on('GET', '/api/prices', (_p, _b, q) => {
     .prepare(
       'SELECT symbol, market, date, price, source FROM prices WHERE symbol = ? AND market = ? ORDER BY date DESC'
     )
-    .all(symbol, S(q.market, 'TW').toUpperCase());
+    .all(symbol, marketOf(q.market, DEFAULT_MARKET));
 });
 
 on('POST', '/api/prices', (_p, b) => {
@@ -322,7 +395,7 @@ on('POST', '/api/prices', (_p, b) => {
       if (!d) bad(`日期無法解析：${r.date}`);
       const price = N(r.price);
       if (price <= 0) bad('價格必須大於 0');
-      stmt.run(symbol, S(r.market, 'TW').toUpperCase(), d, price, S(r.source, 'manual'));
+      stmt.run(symbol, marketOf(r.market, DEFAULT_MARKET), d, price, S(r.source, 'manual'));
       n++;
     }
     db.exec('COMMIT');
@@ -333,8 +406,17 @@ on('POST', '/api/prices', (_p, b) => {
 on('DELETE', '/api/prices', (_p, _b, q) => ({
   deleted: db
     .prepare('DELETE FROM prices WHERE symbol = ? AND market = ? AND date = ?')
-    .run(S(q.symbol).trim().toUpperCase(), S(q.market, 'TW').toUpperCase(), S(q.date)).changes,
+    .run(S(q.symbol).trim().toUpperCase(), marketOf(q.market, DEFAULT_MARKET), S(q.date)).changes,
 }));
+
+// Opt-in daily fetch of each holding's previous close (server/prices.js). Off
+// unless the user turned it on in settings, and when off this does nothing and
+// says so, so the button can stay hidden without the endpoint pretending. Async
+// because the network wait is the one place a handler genuinely is not sync.
+on('POST', '/api/prices/refresh', async () => {
+  if (getMeta('auto_prices', '0') !== '1') return { enabled: false, updated: [], failed: [] };
+  return { enabled: true, ...(await PRICES.updatePrices()) };
+});
 
 // --- fx --------------------------------------------------------------------
 
@@ -568,7 +650,7 @@ on('POST', '/api/import/preview', (_p, b) => {
 
   const summary = rows.reduce(
     (acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; },
-    { new: 0, duplicate: 0, error: 0, pending: 0 }
+    { new: 0, duplicate: 0, error: 0, pending: 0, internal: 0 }
   );
   const fresh = rows.filter((r) => r.status === 'new');
   const net = M.round2(fresh.reduce((s, r) => s + r.amount, 0));
@@ -727,7 +809,9 @@ on('POST', '/api/import/commit', (_p, b) => {
           account_id: accountId, date: r.date, amount: r.amount,
           description: r.description,
           category: r.category || R.categorise(r.description, ruleList),
-          kind: S(b.default_kind, DEFAULT_TXN_KIND),
+          // A row that names its own kind — a plan's contribution or dividend
+          // — keeps it, the way a file's own category beats a rule.
+          kind: r.kind || S(b.default_kind, DEFAULT_TXN_KIND),
           source: 'csv', external_id: r.externalId, fingerprint: r.fingerprint,
         },
         importId
@@ -780,10 +864,17 @@ on('GET', '/api/settings', () => ({
   profile: paths.PROFILE,
   is_personal: paths.IS_PERSONAL,
   db_path: paths.DB_PATH,
+  // Off unless the user turned it on: the whole app is offline by default and
+  // this is the one switch that lets it reach out. `prices_fetched_on` lets the
+  // holdings view say when it last ran.
+  auto_prices: getMeta('auto_prices', '0') === '1',
+  prices_fetched_on: getMeta('prices_fetched_on', null),
+  prices_fetched_at: getMeta('prices_fetched_at', null),
 }));
 
 on('PUT', '/api/settings', (_p, b) => {
   if (b.base_currency) setMeta('base_currency', String(b.base_currency).toUpperCase());
+  if (b.auto_prices !== undefined) setMeta('auto_prices', b.auto_prices ? '1' : '0');
   return { ok: true };
 });
 

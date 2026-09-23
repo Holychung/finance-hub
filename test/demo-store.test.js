@@ -75,6 +75,10 @@ const SCRIPT = async (s) => {
   await s.post('/api/accounts', { institution_id: 1, name: '台幣活存', kind: 'cash', currency: 'TWD', opening_balance: 120000, opening_date: '2026-01-01' });
   await s.post('/api/accounts', { institution_id: 1, name: '信用卡', kind: 'card', currency: 'TWD', opening_balance: -8400, opening_date: '2026-01-01' });
   await s.post('/api/accounts', { institution_id: 2, name: '券商', kind: 'brokerage', currency: 'USD', opening_balance: 3000, opening_date: '2026-02-01', access: 'restricted' });
+  await s.post('/api/accounts', { name: '冷錢包', kind: 'wallet', currency: 'USD', opening_balance: 0, opening_date: '2026-03-01' });
+  // No access given, so both sides have to start it restricted from its kind;
+  // the unvested figure has to come off both net worths and neither balance.
+  await s.post('/api/accounts', { institution_id: 2, name: '401(k)', kind: 'retirement', currency: 'USD', opening_balance: 18000, opening_date: '2026-01-01', tax_status: 'pretax', unvested: 950 });
 
   await s.post('/api/fx', { date: '2026-01-05', pair: 'USDTWD', rate: 31.4 });
   await s.post('/api/fx', { date: '2026-06-05', pair: 'USDTWD', rate: 32.1 });
@@ -92,6 +96,11 @@ const SCRIPT = async (s) => {
   // same resolution has to happen on both sides or the holdings read diverges.
   await s.post('/api/prices', { symbol: 'vti', market: 'US', date: '2026-03-15', price: 251 });
   await s.post('/api/prices', { symbol: 'VTI', market: 'US', date: '2026-05-20', price: 262.4 });
+  // A coin sent the way a hand-written client would: lower-case market, no
+  // currency, no decimals. Both sides have to fill in USD and eight places,
+  // and the price has to land on the same series the holding reads.
+  await s.post('/api/holdings', { account_id: 4, symbol: 'btc', name: 'Bitcoin', market: 'crypto', shares: 0.12345678, avg_cost: 51800, last_price: 63250.4 });
+  await s.post('/api/prices', { symbol: 'btc', market: 'crypto', date: '2026-05-20', price: 64100.25 });
   await s.post('/api/balance-checks', { account_id: 1, date: '2026-03-31', stated: 155349.5 });
   await s.post('/api/rules', { pattern: 'UBER EATS', category: '食', priority: 10 });
 
@@ -165,6 +174,7 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/institutions',
     '/api/holdings',
     '/api/prices?symbol=VTI&market=US',
+    '/api/prices?symbol=BTC&market=CRYPTO',
     '/api/fx',
     '/api/reconcile',
     '/api/rules',
@@ -181,6 +191,8 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/spending?from=2026-01-01&to=2026-09-30',
     '/api/recurring?from=2025-01-01&to=2026-09-30',
     '/api/export/json',
+    '/api/accounts/1/series?to=2026-09-30',
+    '/api/accounts/5/series?to=2026-09-30',
   ];
 
   for (const p of SAME) {
@@ -207,6 +219,14 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     for (const cur of Object.keys(a.series)) {
       assert.deepEqual(a.series[cur][0], b.series[cur][0], `${cur} 的第一個點`);
     }
+    // The same for each half the overview's switch can show.
+    assert.deepEqual(Object.keys(a.series_by_access).sort(), Object.keys(b.series_by_access).sort());
+    for (const [access, s] of Object.entries(a.series_by_access)) {
+      assert.deepEqual(Object.keys(s).sort(), Object.keys(b.series_by_access[access]).sort(), access);
+      for (const cur of Object.keys(s)) {
+        assert.deepEqual(s[cur][0], b.series_by_access[access][cur][0], `${access} ${cur} 的第一個點`);
+      }
+    }
   });
 
   it('同一份對帳單，兩邊預覽出同一批資料列', async () => {
@@ -219,6 +239,20 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     assert.deepEqual(a.summary, b.summary, '每一種狀態的筆數');
     assert.deepEqual(a.reconcile, b.reconcile, '匯入後會不會對得上');
     assert.deepEqual(a.rows, b.rows, '每一行的指紋、狀態、金額');
+  });
+
+  // A retirement plan's history, previewed with no account: the rows held
+  // back, the kind each imported row carries and the account it suggests all
+  // come from shared/csv.js, and both sides have to report them the same.
+  it('退休計畫的交易紀錄，兩邊預覽出同一批資料列和同一個建議', async () => {
+    const content_base64 = fs.readFileSync(path.join(FIXTURES, 'fidelity-401k.csv')).toString('base64');
+    const body = { filename: 'fidelity-401k.csv', content_base64 };
+    const [a, b] = [await demo.post('/api/import/preview', body), await live.post('/api/import/preview', body)];
+    assert.deepEqual(a.mapping, b.mapping);
+    assert.deepEqual(a.summary, b.summary);
+    assert.equal(a.summary.internal, 15);
+    assert.deepEqual(a.rows, b.rows);
+    assert.deepEqual(a.suggested_account, b.suggested_account);
   });
 
   it('同一份對帳單，兩邊匯入後的帳本一致', async () => {
@@ -278,6 +312,21 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     assert.equal(a.db_path, null, 'demo 沒有檔案，不該編一個路徑出來');
     assert.ok(typeof b.db_path === 'string');
     assert.equal(a.base_currency, b.base_currency);
+    // Not one of the differences. The demo's rows are built with every column
+    // the last migration added, so it is that version; it said 6 for two
+    // steps because nothing compared it.
+    assert.equal(a.schema_version, b.schema_version, 'demo 的 schema 版本要跟全新的伺服器一樣');
+    // Both default to off: the real server is offline until asked, and the demo
+    // can never fetch at all.
+    assert.equal(a.auto_prices, false);
+    assert.equal(b.auto_prices, false);
+  });
+
+  it('抓價 refresh：關閉時兩邊都是 disabled 的 no-op', async () => {
+    // auto_prices is off on both, so neither touches the network here.
+    const [a, b] = [await demo.post('/api/prices/refresh', {}), await live.post('/api/prices/refresh', {})];
+    assert.deepEqual(a, { enabled: false, updated: [], failed: [] });
+    assert.deepEqual(b, { enabled: false, updated: [], failed: [] });
   });
 
   it('沒有這條 route 時兩邊都是 404', async () => {
@@ -292,10 +341,25 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       ['/api/fx', { date: '2026-01-01', rate: 0 }],
       ['/api/rules', { pattern: '!!!', category: '食' }],
       ['/api/import/commit', { account_id: 1 }],
+      ['/api/holdings', { account_id: 4, symbol: 'ETH', market: 'NYSE' }],
+      ['/api/holdings', { account_id: 4, symbol: 'ETH', market: 'CRYPTO', decimals: 12 }],
+      ['/api/prices', { symbol: 'ETH', market: 'eth-chain', date: '2026-01-01', price: 1 }],
+      ['/api/accounts', { name: 'IRA', kind: 'retirement', tax_status: 'ira' }],
+      ['/api/accounts', { name: 'IRA', kind: 'retirement', unvested: -1 }],
     ]) {
       const of = async (s) => { try { await s.post(p, body); return null; } catch (e) { return [e.status, e.message]; } };
       assert.deepEqual(await of(demo), await of(live), `${p} ${JSON.stringify(body)}`);
     }
+  });
+
+  // No row carries this symbol, which is the case a market check placed
+  // inside the row predicate never reaches: it would answer 200, not 400.
+  it('刪價格時市場不對，兩邊都拒絕，就算沒有這個代號', async () => {
+    const q = '/api/prices?symbol=NOPE&market=nyse&date=2026-01-01';
+    const of = async (s) => { try { await s.del(q); return null; } catch (e) { return [e.status, e.message]; } };
+    const [a, b] = [await of(demo), await of(live)];
+    assert.equal(b?.[0], 400);
+    assert.deepEqual(a, b);
   });
 });
 

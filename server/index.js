@@ -9,6 +9,7 @@ const { csp, LOCAL } = require('./csp');
 const { routes, HttpError } = require('./api');
 const { db, DB_PATH } = require('./db');
 const M = require('./money');
+const PRICES = require('./prices');
 const { exportCsv: sharedExport } = require('../shared/export');
 
 const PORT = Number(process.env.PORT || 4321);
@@ -280,6 +281,16 @@ server.listen(PORT, HOST, () => {
   if (!paths.IS_PERSONAL) console.log(`  ⚠  profile「${paths.PROFILE}」— 這不是你的個人帳本`);
   console.log('  只綁在本機，資料不離開這台電腦。Ctrl+C 結束。');
   console.log('');
+
+  // Opt-in, so this is a no-op unless the user turned it on in settings; then it
+  // fetches each holding's previous close once a day, in the background, never
+  // blocking startup and never able to take the process down. The browser still
+  // makes no outbound call — this is Node, and only when asked.
+  PRICES.maybeFetchOnStartup()
+    .then((r) => {
+      if (r) console.log(`  收盤價：更新 ${r.updated.length} 檔${r.failed.length ? `，${r.failed.length} 檔未更新` : ''}`);
+    })
+    .catch((e) => console.error('  收盤價更新失敗：', e.message));
 });
 
 process.on('SIGINT', () => { try { db.close(); } catch {} process.exit(0); });

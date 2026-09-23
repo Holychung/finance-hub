@@ -37,6 +37,26 @@ views.settings = async () => {
       }</div>
     </section>
 
+    ${settings.db_path ? html`
+    <section class="card">
+      <h2 class="sec">自動更新收盤價</h2>
+      <div class="note warn">
+        這是這個 app <b>唯一會對外連線</b>的功能，<b>預設關閉</b>。打開後，每天第一次啟動服務時會到
+        Yahoo 抓你每一檔持股的<b>最新收盤價</b>（收盤後更新最準）——抓取在後端進行，你這個網頁本身仍然不外連。
+        過程會把<b>代號</b>送到 Yahoo，所以它會知道你持有哪些股（不含股數、金額）。抓不到的檔維持你手動填的價。
+      </div>
+      <label class="check">
+        <input type="checkbox" id="auto-prices" ${settings.auto_prices ? 'checked' : ''}>
+        <span>開啟自動抓收盤價（需連網）</span>
+      </label>
+      <div class="muted small">
+        ${settings.prices_fetched_at
+          ? `上次更新：${localTime(settings.prices_fetched_at)}`
+          : '尚未抓過。'}
+        ${settings.auto_prices ? html` · <button class="sm" id="prices-now">立即更新</button>` : ''}
+      </div>
+    </section>` : ''}
+
     ${settings.db_path ? '' : html`
     <section class="card">
       <h2 class="sec">你正在看的是示範資料</h2>
@@ -120,7 +140,8 @@ views.settings = async () => {
       <h2 class="sec">關於</h2>
       <div class="muted small">
         金額一律用原幣顯示，不折算 · schema v${settings.schema_version}<br>
-        只監聽 127.0.0.1，沒有任何對外連線，沒有帳號密碼，沒有雲端。關掉這個 terminal 就整個停了。
+        只監聽 127.0.0.1；預設不對外連線，只有你開啟上面的「自動更新收盤價」後才會（在後端抓）。
+        沒有帳號密碼，沒有雲端。關掉這個 terminal 就整個停了。
       </div>
     </section>
   `);
@@ -134,6 +155,25 @@ views.settings = async () => {
       render();
     };
   }
+
+  const auto = $('#auto-prices');
+  if (auto) auto.onchange = async () => {
+    try {
+      await put('/api/settings', { auto_prices: auto.checked });
+      toast(auto.checked ? '已開啟自動抓價' : '已關閉', 'ok');
+      render();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  const pricesNow = $('#prices-now');
+  if (pricesNow) pricesNow.onclick = async () => {
+    pricesNow.disabled = true;
+    toast('更新中…');
+    try {
+      const r = await post('/api/prices/refresh');
+      toast(`收盤價：更新 ${r.updated.length} 檔${r.failed.length ? `，${r.failed.length} 檔未更新` : ''}`, 'ok');
+      render();
+    } catch (e) { toast(e.message, 'err'); }
+  };
 
   $('#fx-add').onclick = async () => {
     const date = $('#fx-date').value;

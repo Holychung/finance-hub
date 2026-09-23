@@ -10,6 +10,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const { html, raw, fmt, Html } = require('../web/html.js');
+const K = require('../shared/kinds');
 
 const ROOT = path.join(__dirname, '..');
 const WEB = path.join(ROOT, 'web');
@@ -278,13 +279,30 @@ describe('前端靜態防線', () => {
   // The whole point of shared/kinds.js: a seventh copy of the account kinds
   // would look like an array literal with 'brokerage' in it, and nothing else
   // would notice — the account would simply render with a raw English key.
+  //
+  // The keys come from the list, so a copy that includes a kind added later
+  // is still a copy. Written out by hand, this pattern already missed wallet.
   it('帳戶類型清單只有一份，其他地方不准再寫一個字面陣列', () => {
-    const literal = /\[\s*'(?:cash|brokerage|card|loan|other)'(?:\s*,\s*'(?:cash|brokerage|card|loan|other)'\s*)+\]/;
+    const keys = K.ACCOUNT_KINDS.map((k) => k.key).join('|');
+    const literal = new RegExp(`\\[\\s*'(?:${keys})'(?:\\s*,\\s*'(?:${keys})'\\s*)+\\]`);
     const copies = FILES
       .filter((f) => f.name !== 'shared/kinds.js')
       .filter((f) => literal.test(f.src));
     assert.deepEqual(copies.map((f) => f.name), [],
       `${copies.map((f) => f.name).join('、')} 又寫了一份帳戶類型清單，用 KIND_ORDER`);
+  });
+
+  // The same failure for markets, in the shape it actually took. The holdings
+  // page drew two hardcoded sections and its form priced a holding with
+  // `market === 'US' ? 'USD' : 'TWD'`, so a third market counted in net
+  // worth, was priced in the wrong currency, and appeared nowhere on screen.
+  // A market compared against a literal is one of those coming back; what a
+  // market implies is in MARKETS, via marketInfo().
+  it('市場的預設從 MARKETS 來，不准拿 market 去比一個字串', () => {
+    const offenders = FILES.flatMap(({ name, src }) => src.split('\n')
+      .map((line, i) => (/\bmarket\s*[!=]==?\s*['"`]/.test(line) ? `${name}:${i + 1}` : null))
+      .filter(Boolean));
+    assert.deepEqual(offenders, [], `${offenders.join('、')} 寫死了市場，用 marketInfo()`);
   });
 
   // There used to be three copies of round2 — money.js, csv.js and
@@ -311,6 +329,35 @@ describe('前端靜態防線', () => {
       .filter((f) => /Math\.round\([^)]*\*\s*100\s*\)\s*\/\s*100/.test(f.src));
     assert.deepEqual(offenders.map((f) => f.name), [],
       `${offenders.map((f) => f.name).join('、')} 自己寫死了兩位小數，用 roundTo`);
+  });
+
+  // A pressed toggle is styled only inside `.seg`. Written as loose buttons in
+  // a `.row`, the overview's 可動用／受限制／全部 came out as three full-width
+  // buttons stacked down the page head, because `.row > *` stretches every
+  // child. With the pressed style moved into the component, a toggle outside
+  // one would also lose its pressed look, so the two stay together.
+  it('按下狀態的切換按鈕都在分段按鈕 .seg 裡', () => {
+    const offenders = FILES.flatMap(({ name, src }) => {
+      const lines = src.split('\n');
+      return lines.reduce((hits, line, i) => {
+        if (!/aria-pressed=/.test(line)) return hits;
+        const near = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
+        return /class="seg"/.test(near) ? hits : [...hits, `${name}:${i + 1}`];
+      }, []);
+    });
+    assert.deepEqual(offenders, [], `${offenders.join('、')} 的切換按鈕不在 .seg 裡`);
+  });
+
+  // The template renders a boolean as nothing, so an aria-pressed filled
+  // straight from a comparison is always empty. Every switch in the app
+  // shipped that way — no pressed look, nothing for a screen reader — and no
+  // test noticed, because the markup was well formed.
+  it('aria-pressed 寫得出 true／false，不是被模板吃掉的布林值', () => {
+    assert.equal(String(html`<b x="${true}">`), '<b x="">', '模板把布林值印成空字串，陷阱就在這');
+    const offenders = FILES.flatMap(({ name, src }) => src.split('\n')
+      .map((line, i) => (/aria-pressed="\$\{(?!ariaBool\()/.test(line) ? `${name}:${i + 1}` : null))
+      .filter(Boolean));
+    assert.deepEqual(offenders, [], `${offenders.join('、')} 的 aria-pressed 沒有經過 ariaBool()`);
   });
 
   // renderPreview reads imp.preview and imp.mapping together, and views.import

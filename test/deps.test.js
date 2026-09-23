@@ -69,6 +69,13 @@ const ALLOWED_URLS = [
   // from this base plus a commit read out of a <meta>, so the only literal
   // in the source is the base itself.
   [/^https:\/\/github\.com\/Holychung\/finance-hub$/, 'AGPL §13 source offer — a link, not a fetch'],
+  // The one real outbound call in the app: the opt-in daily close fetch, off by
+  // default. A third element scopes it to `server/prices.js`, so this exception
+  // cannot leak into any other file — the whole point of keeping the network in
+  // one named place. See CLAUDE.md "Hard rules" and docs/security.md.
+  [/^https:\/\/query1\.finance\.yahoo\.com\/v8\/finance\/chart\//,
+    'opt-in daily close fetch, server-side, off by default',
+    /(^|\/)server\/prices\.js$/],
 ];
 
 function sourceFiles(dir, found = []) {
@@ -94,10 +101,13 @@ describe('不對外連線', () => {
     for (const dir of SOURCE_DIRS) {
       for (const file of sourceFiles(path.join(ROOT, dir))) {
         const src = fs.readFileSync(file, 'utf8');
+        const rel = path.relative(ROOT, file);
         src.split('\n').forEach((line, i) => {
           for (const [url] of line.matchAll(/https?:\/\/[^\s"'`)>]*/g)) {
-            if (ALLOWED_URLS.some(([re]) => re.test(url))) continue;
-            offenders.push(`${path.relative(ROOT, file)}:${i + 1} ${url}`);
+            // An entry may carry a third element: a file the URL is allowed in
+            // and only there, so the network exception stays pinned to one file.
+            if (ALLOWED_URLS.some(([re, , fileRe]) => re.test(url) && (!fileRe || fileRe.test(rel)))) continue;
+            offenders.push(`${rel}:${i + 1} ${url}`);
           }
         });
       }

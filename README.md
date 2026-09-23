@@ -3,8 +3,8 @@
 *Every account, every holding, every transaction — all in one place, and that
 place is your own machine.*
 
-一個放在自己電腦上的個人資產後台。銀行帳戶、券商、信用卡、貸款、台美股持股、每一筆進出，
-全部在同一個地方。
+一個放在自己電腦上的個人資產後台。銀行帳戶、券商、信用卡、貸款、退休金、台美股持股、錢包裡
+的幣、每一筆進出，全部在同一個地方。
 
 資料存在 `~/.finance-hub/finance.db`，**不上傳任何雲端、不對外連線、不需要帳號密碼**。
 伺服器只綁 `127.0.0.1`。
@@ -79,7 +79,7 @@ clone 完跑一次 `git config core.hooksPath githooks`，擋住把 `.db`／`.cs
 想看看它長什麼樣子、又不想先匯入自己的對帳單：
 
 ```bash
-FINANCE_PROFILE=demo node scripts/seed-demo.js   # 18 個月、八個帳戶的編造資料
+FINANCE_PROFILE=demo node scripts/seed-demo.js   # 18 個月、十個帳戶的編造資料
 FINANCE_PROFILE=demo node server/index.js
 ```
 

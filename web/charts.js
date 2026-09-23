@@ -65,9 +65,12 @@ const axisLabel = (rawN, step) => {
 // No height option any more: the plot is sized by `.chart-plot` in CSS, like
 // every other box in the app, and the one caller was passing the same number
 // every time.
+// Nothing to draw still takes a chart's room — see `.chart-empty`.
+const chartEmpty = (msg) => html`<div class="chart"><div class="chart-plot chart-empty">${empty(msg)}</div></div>`;
+
 function lineChart(series, cur = 'TWD') {
   const pts = series.filter((p) => p.value !== null);
-  if (pts.length < 2) return empty('資料點還不夠畫走勢（至少要兩個月）');
+  if (pts.length < 2) return chartEmpty(pts.length ? '資料點還不夠畫走勢（至少要兩個月）' : '無資料');
 
   const vals = pts.map((p) => p.value);
   let min = Math.min(...vals), max = Math.max(...vals);
@@ -218,7 +221,7 @@ function wireChartHover() {
 const BAR_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)'];
 
 function barBreakdown(entries, total, cur = "TWD") {
-  if (!entries.length || !total) return empty('還沒有資料');
+  if (!entries.length || !total) return empty('無資料');
   // A bar is a share of something, and one entry is not a share of anything:
   // it is always the full width, so it says strictly less than the `100.0%`
   // already printed beside it while being the loudest thing in the card. Keep

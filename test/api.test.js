@@ -13,6 +13,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const { quantity } = require('../shared/currency');
+
 const SERVER = path.join(__dirname, '..', 'server', 'index.js');
 const FIXTURE_DIR = path.join(__dirname, 'fixtures');
 
@@ -244,6 +246,13 @@ const CITI_POSTED = CITI_CSV
   .replace('Pending,09-18-2026', 'Cleared,09-21-2026')
   .replace('CASCADE OUTDOOR CO",165.00', 'CASCADE OUTDOOR CO",183.00');
 
+// A retirement plan's history in Fidelity's shape: a blank line, a plan-name
+// line whose name carries an unquoted comma, a date-range line and two more
+// blank lines above the header; newest first; amounts and units quoted with
+// thousands separators. Contributions and dividends move money in. Exchanges
+// between funds, and the realized gain/loss lines beside them, move none.
+const FIDELITY_401K_CSV = fixture('fidelity-401k.csv');
+
 // Every statement shape, so the pipeline guard below runs each of them through
 // the combination that has broken it twice. Adding a bank means adding its
 // fixture here; nothing else.
@@ -259,6 +268,7 @@ const BANK_FIXTURES = [
   ['Citi card 2026', CITI_CARD_2026_CSV],
   ['Capital One checking', C1_CHECKING_CSV],
   ['Capital One card', C1_CARD_CSV],
+  ['Fidelity 401(k)', FIDELITY_401K_CSV],
 ];
 
 // --- lifecycle -------------------------------------------------------------
@@ -552,6 +562,28 @@ describe('匯入回復', () => {
     const rev = await DEL(`/api/imports/${ids.firstImport}`);
     assert.equal(rev.reverted, 5);
     assert.equal((await GET('/api/txns?limit=1')).total, before - 5);
+  });
+});
+
+describe('自動抓價設定', () => {
+  it('預設關閉，開關存得住', async () => {
+    const before = await GET('/api/settings');
+    assert.equal(before.auto_prices, false, '離線是預設');
+    assert.equal(before.prices_fetched_on, null);
+
+    await req('PUT', '/api/settings', { auto_prices: true });
+    assert.equal((await GET('/api/settings')).auto_prices, true);
+
+    await req('PUT', '/api/settings', { auto_prices: false });
+    assert.equal((await GET('/api/settings')).auto_prices, false);
+  });
+
+  it('關閉時 refresh 不連網，只回報 disabled', async () => {
+    // auto_prices is off, so this must not touch the network — it reports itself
+    // disabled. The fetch path itself is covered offline, with an injected
+    // getter and a throwaway db, in test/prices.test.js.
+    const r = await req('POST', '/api/prices/refresh', {});
+    assert.deepEqual(r, { enabled: false, updated: [], failed: [] });
   });
 });
 
@@ -2439,13 +2471,313 @@ describe('帳戶的 access', () => {
     assert.equal((await find(id)).access, 'liquid', '被拒絕的更新什麼都沒改');
   });
 
-  it('現在還沒有任何計算讀它：受限制的帳戶照樣算進淨值', async () => {
-    const before = (await GET('/api/overview')).net_worth.currencies.USD?.total ?? 0;
+  // The total still counts it, because it is still yours. What access changes
+  // is which half it lands in — and it must land in exactly one.
+  it('受限制的帳戶算進總額和受限制那半，不算進可動用那半', async () => {
+    const usd = async () => (await GET('/api/overview')).net_worth.currencies.USD || { total: 0, liquid: { total: 0 }, restricted: { total: 0 } };
+    const before = await usd();
     const { id } = await POST('/api/accounts', {
       name: '受限但有錢', currency: 'USD', access: 'restricted', opening_balance: 1000, opening_date: '2020-01-01',
     });
-    const after = (await GET('/api/overview')).net_worth.currencies.USD.total;
-    near(after - before, 1000, '拆成兩半是 PR 6 的事；在那之前，這個欄位不能悄悄改變任何數字');
+    const after = await usd();
+    near(after.total - before.total, 1000, '總額照樣算它');
+    near(after.restricted.total - before.restricted.total, 1000);
+    near(after.liquid.total - before.liquid.total, 0, '可動用的數字不該因為它變動');
     await req('DELETE', `/api/accounts/${id}`);
+  });
+
+  it('總覽的走勢也分成兩半，各自只畫自己的帳戶', async () => {
+    const { id } = await POST('/api/accounts', {
+      name: '只在受限制那條線上', currency: 'USD', access: 'restricted', opening_balance: 777, opening_date: '2020-01-01',
+    });
+    const d = await GET('/api/overview');
+    const last = (s) => (s && s.USD ? s.USD[s.USD.length - 1].value : 0);
+    near(last(d.series_by_access.liquid) + last(d.series_by_access.restricted), last(d.series), '兩條線加起來是整本的線');
+    assert.ok(last(d.series_by_access.restricted) >= 777);
+    await req('DELETE', `/api/accounts/${id}`);
+  });
+});
+
+// A coin is a holding like any other, valued in a currency like any other, so
+// what is new is small and each part of it fails silently if it is wrong: the
+// quantity's eight places, the market's case (a price history keyed under
+// another spelling never applies), and the currency a holding defaults to.
+describe('加密貨幣：錢包裡的一枚幣', () => {
+  const PUT = (p, b) => req('PUT', p, b);
+  const coin = async (symbol) => (await GET('/api/holdings')).find((h) => h.symbol === symbol);
+  let wallet;
+
+  before(async () => {
+    // No institution: self-custody has none, and the column was always nullable.
+    wallet = (await POST('/api/accounts', { name: '冷錢包', kind: 'wallet', currency: 'USD', opening_date: '2026-01-01' })).id;
+  });
+
+  after(async () => {
+    await DEL('/api/prices?symbol=BTC&market=CRYPTO&date=2026-06-20');
+    await DEL(`/api/accounts/${wallet}`);
+  });
+
+  it('沒說幣別和位數，就用市場的預設：美元、八位', async () => {
+    const usdBefore = (await GET('/api/overview')).net_worth.currencies.USD.securities;
+    await POST('/api/holdings', {
+      account_id: wallet, symbol: 'btc', name: 'Bitcoin', market: 'crypto',
+      shares: 0.12345678, avg_cost: 51800, last_price: 63250.4, price_date: '2026-06-01',
+    });
+    const btc = await coin('BTC');
+    assert.equal(btc.market, 'CRYPTO', '市場存成大寫，跟價格表同一種寫法');
+    assert.equal(btc.currency, 'USD', '以前是 market === US ? USD : TWD，第三個市場會變成台幣');
+    assert.equal(btc.decimals, 8);
+    assert.equal(btc.shares, 0.12345678, '八位小數原封不動');
+    assert.equal(quantity(btc.shares, btc.decimals), '0.12345678', '顯示也是八位，不是 0.1235');
+    near(btc.market_value, 0.12345678 * 63250.4);
+    const usdAfter = (await GET('/api/overview')).net_worth.currencies.USD.securities;
+    near(usdAfter - usdBefore, btc.market_value, '市值落在美元那一欄');
+  });
+
+  // The failure this normalisation exists for: a holding stored as `crypto`
+  // looking its price up under `crypto` in a series stored as `CRYPTO`,
+  // finding nothing, and reading last_price forever with no error anywhere.
+  it('小寫的市場也對得上價格歷史', async () => {
+    await POST('/api/prices', { symbol: 'btc', market: 'crypto', date: '2026-06-20', price: 64100.25 });
+    const btc = await coin('BTC');
+    near(btc.last_price, 64100.25, '現價改讀價格序列');
+    assert.equal(btc.price_date, '2026-06-20');
+    const list = await GET('/api/prices?symbol=BTC&market=crypto');
+    assert.equal(list.length, 1);
+    assert.equal(list[0].market, 'CRYPTO');
+  });
+
+  it('預設可以蓋掉：台灣交易所的幣用台幣計價', async () => {
+    const { id } = await POST('/api/holdings', {
+      account_id: wallet, symbol: 'eth', market: 'CRYPTO', currency: 'TWD', decimals: 6,
+      shares: 1.5, avg_cost: 90000, last_price: 98000,
+    });
+    const eth = await coin('ETH');
+    assert.equal(eth.currency, 'TWD');
+    assert.equal(eth.decimals, 6);
+    await DEL(`/api/holdings/${id}`);
+  });
+
+  it('更新時沒帶的欄位維持原本的，市場照樣正規化', async () => {
+    const { id } = await coin('BTC');
+    await PUT(`/api/holdings/${id}`, { shares: 0.5 });
+    let btc = await coin('BTC');
+    assert.equal(btc.decimals, 8, '沒帶 decimals 不該被打回預設');
+    assert.equal(btc.market, 'CRYPTO');
+    await PUT(`/api/holdings/${id}`, { market: 'crypto', shares: 0.12345678 });
+    btc = await coin('BTC');
+    assert.equal(btc.market, 'CRYPTO');
+    assert.equal(btc.shares, 0.12345678);
+  });
+
+  // Refused rather than stored: an unknown market has no section on the
+  // holdings page, and a typo'd one is a second price series nobody reads.
+  it('清單以外的市場、不合理的位數，一律拒絕', async () => {
+    const base = { account_id: wallet, symbol: 'SOL', shares: 1 };
+    await assert.rejects(() => POST('/api/holdings', { ...base, market: 'NYSE' }), /market 只能是/);
+    for (const decimals of [11, -1, 2.5, 'eight']) {
+      await assert.rejects(() => POST('/api/holdings', { ...base, market: 'CRYPTO', decimals }), /decimals 要是/, `${decimals}`);
+    }
+    assert.equal(await coin('SOL'), undefined, '被拒絕的一筆都沒進去');
+
+    const { id } = await coin('BTC');
+    await assert.rejects(() => PUT(`/api/holdings/${id}`, { market: 'crypt0' }), /market 只能是/);
+    assert.equal((await coin('BTC')).market, 'CRYPTO', '被拒絕的更新什麼都沒改');
+
+    await assert.rejects(() => POST('/api/prices', { symbol: 'BTC', market: 'btc', date: '2026-06-20', price: 1 }), /market 只能是/);
+    await assert.rejects(() => GET('/api/prices?symbol=BTC&market=btc'), /market 只能是/);
+  });
+});
+
+// Three things a retirement account says, and only one of them is arithmetic.
+// The kind decides where access starts; the tax status is a label; unvested
+// comes off net worth and never off the balance, which is the statement's
+// figure and has to go on agreeing with it.
+describe('退休金帳戶', () => {
+  const PUT = (p, b) => req('PUT', p, b);
+  const find = async (id) => (await GET('/api/accounts')).find((a) => a.id === id);
+  const usd = async () => (await GET('/api/overview')).net_worth.currencies.USD;
+  const made = [];
+  const open = async (body) => {
+    const { id } = await POST('/api/accounts', { currency: 'USD', kind: 'retirement', ...body });
+    made.push(id);
+    return id;
+  };
+
+  after(async () => {
+    for (const id of made) await DEL(`/api/accounts/${id}`);
+  });
+
+  it('沒說 access 就從類型來：退休金是受限制', async () => {
+    assert.equal((await find(await open({ name: '401(k)' }))).access, 'restricted');
+    assert.equal((await find(await open({ name: '可以動的退休金', access: 'liquid' }))).access, 'liquid', '明講的要照明講的');
+    const { id } = await POST('/api/accounts', { name: '活存', currency: 'USD', kind: 'cash' });
+    made.push(id);
+    assert.equal((await find(id)).access, 'liquid');
+  });
+
+  it('未歸屬從淨值扣，餘額和對帳都不扣', async () => {
+    const before = await usd();
+    const id = await open({ name: '有未歸屬的計畫', opening_balance: 10000, opening_date: '2020-01-01', unvested: 1200.004 });
+    const a = await find(id);
+    assert.equal(a.balance, 10000, '餘額是對帳單上的總額');
+    assert.equal(a.unvested, 1200, '存的時候過 round2');
+
+    const after = await usd();
+    near(after.ledger - before.ledger, 10000);
+    near(after.unvested - (before.unvested || 0), 1200);
+    near(after.total - before.total, 8800, '淨值只多了歸屬的那部分');
+
+    // The statement counts the unvested share in its total. A balance check
+    // against it has to agree, which it only does because the balance was
+    // left alone.
+    await POST('/api/balance-checks', { account_id: id, date: '2026-06-30', stated: 10000 });
+    const check = (await GET('/api/reconcile')).find((c) => c.account_id === id);
+    assert.ok(check.ok, `對帳應該對得上，差 ${check.diff}`);
+  });
+
+  it('稅務性質存得進去、清得掉，而且清單以外的拒絕', async () => {
+    const id = await open({ name: 'Roth IRA', tax_status: 'roth' });
+    assert.equal((await find(id)).tax_status, 'roth');
+    await PUT(`/api/accounts/${id}`, { note: '只改備註' });
+    assert.equal((await find(id)).tax_status, 'roth', '沒帶就維持原本的');
+    await PUT(`/api/accounts/${id}`, { tax_status: '' });
+    assert.equal((await find(id)).tax_status, null, '空字串是清掉');
+    await assert.rejects(() => PUT(`/api/accounts/${id}`, { tax_status: 'tax-free' }), /tax_status 只能是/);
+    await assert.rejects(() => POST('/api/accounts', { name: '打錯', currency: 'USD', tax_status: 'Roth' }), /tax_status 只能是/);
+  });
+
+  // N() would have turned both into a number without a word. A negative
+  // unvested figure adds money nobody has; an unreadable one quietly becoming
+  // 0 hands the employer's share back to the total.
+  it('未歸屬是負的或讀不懂，一律拒絕，不會默默變成 0', async () => {
+    const id = await open({ name: '會被拒絕的', unvested: 500 });
+    for (const unvested of [-1, 'abc']) {
+      await assert.rejects(() => PUT(`/api/accounts/${id}`, { unvested }), /unvested 要是 0 或正數/, `${unvested}`);
+    }
+    assert.equal((await find(id)).unvested, 500, '被拒絕的更新什麼都沒改');
+    await PUT(`/api/accounts/${id}`, { name: '改名' });
+    assert.equal((await find(id)).unvested, 500, '沒帶就維持原本的');
+    await assert.rejects(() => POST('/api/accounts', { name: 'x', currency: 'USD', unvested: -5 }), /unvested/);
+  });
+});
+
+// The file is five years of a plan built so its arithmetic can be checked end
+// to end. Monthly contributions split 80/20 between an S&P 500 index fund and
+// a growth tech fund come to 195,000.00 — 156,000.00 and 39,000.00 — and the
+// dividends to 5,000.00, so what imports is exactly 200,000.00. Once a year
+// the plan rebalances: one fund sold, the other bought, the same day, netting
+// to zero, with a realized gain/loss line for the fund sold. Those five lines
+// would add 972.77 nobody put in, and an exchange imported as a flow is an
+// expense and an income of the same amount. Last in the file because it adds
+// a USD account, and suites above count accounts and USD totals outright.
+describe('Fidelity 的 401(k) 交易紀錄', () => {
+  const plan = {};
+  const preview = (body) => POST('/api/import/preview', { content_base64: b64(FIDELITY_401K_CSV), ...body });
+
+  after(async () => {
+    if (plan.id) await DEL(`/api/accounts/${plan.id}`);
+  });
+
+  it('標題列在計畫名稱和日期區間那幾行之後，欄位對得到', async () => {
+    const p = await preview({ filename: 'fidelity-401k.csv' });
+    plan.mapping = p.mapping;
+    assert.deepEqual(p.headers, ['Date', 'Investment', 'Transaction Type', 'Amount', 'Shares/Unit']);
+    assert.equal(p.mapping.amountMode, 'single', '一欄、自帶正負號');
+    assert.equal(p.headers[p.mapping.dateCol], 'Date');
+    assert.equal(p.headers[p.mapping.amountCol], 'Amount');
+    assert.deepEqual(p.mapping.descCols.map((i) => p.headers[i]), ['Investment'], '摘要是那一行的基金');
+    assert.equal(p.headers[p.mapping.activityCol], 'Transaction Type');
+    assert.equal(p.mapping.typeCol, null, '交易類型說的是這行是什麼，不是錢往哪走');
+    assert.equal(p.summary.error, 0);
+    assert.equal(p.summary.total, 160, '五年：一百二十筆提撥、二十五筆配息、五次再平衡');
+  });
+
+  it('轉換和已實現損益擋下來，提撥和配息各自帶著類型匯入', async () => {
+    const p = await preview({ mapping: plan.mapping });
+    assert.equal(p.summary.internal, 15, '十行轉換、五行已實現損益');
+    assert.equal(p.summary.new, 145);
+    near(p.summary.net, 200000, '提撥加配息剛好二十萬；多出 972.77 就是損益被匯進來了');
+    const kinds = new Set(p.rows.filter((r) => r.status === 'new').map((r) => r.kind));
+    assert.deepEqual([...kinds].sort(), ['dividend', 'income']);
+  });
+
+  // Every month's contribution is split 80/20, so the two funds' totals are
+  // the check that each row landed on the fund it names.
+  it('定期定額 80／20：S&P 500 十五萬六、科技股三萬九', async () => {
+    const p = await preview({ mapping: plan.mapping });
+    const into = (fund) => p.rows
+      .filter((r) => r.status === 'new' && r.kind === 'income' && r.description === fund)
+      .reduce((s, r) => s + r.amount, 0);
+    near(into('S&P 500 INDEX TRUST'), 156000);
+    near(into('GROWTH TECH FUND'), 39000);
+  });
+
+  // The buys and sells are in the file and on screen in the preview: each
+  // rebalance sells one fund and buys the other on the same day, for the
+  // same amount. They move nothing into or out of the plan, which is exactly
+  // why they are held back rather than imported as an expense and an income.
+  it('看得到買賣：五次再平衡，每次一賣一買，同一天淨額是零', async () => {
+    const p = await preview({ mapping: plan.mapping });
+    const legs = p.rows.filter((r) => r.status === 'internal' && r.raw[2] === 'Exchanges');
+    assert.equal(legs.filter((r) => r.amount < 0).length, 5, '五筆賣出');
+    assert.equal(legs.filter((r) => r.amount > 0).length, 5, '五筆買進');
+    const byDay = new Map();
+    for (const r of legs) byDay.set(r.date, (byDay.get(r.date) || 0) + r.amount);
+    assert.equal(byDay.size, 5);
+    for (const [day, net] of byDay) near(net, 0, `${day} 那天的買賣沒有對平`);
+  });
+
+  // The one place the file's word has to reach the ledger: without it every
+  // row would take the import's single default kind.
+  it('建議開成退休金帳戶、美元，而且是檔案說的，不是用金額猜的', async () => {
+    const s = (await preview({ filename: 'fidelity-401k.csv' })).suggested_account;
+    assert.equal(s.kind, 'retirement');
+    assert.ok(s.kind_confident);
+    assert.equal(s.currency, 'USD');
+    assert.equal(s.opening_source, null, '沒有餘額欄，推不出期初');
+    assert.ok(s.notes.some((n) => /放進去的錢/.test(n)), '要說清楚匯進來的不含市值漲跌');
+  });
+
+  it('匯進退休金帳戶：餘額剛好 200,000，沒有任何一筆流出', async () => {
+    plan.id = (await POST('/api/accounts', {
+      name: '401(k)', kind: 'retirement', currency: 'USD', opening_balance: 0, opening_date: '2021-10-01',
+    })).id;
+    const r = await POST('/api/import/commit', {
+      account_id: plan.id, content_base64: b64(FIDELITY_401K_CSV), mapping: plan.mapping, filename: 'fidelity-401k.csv',
+    });
+    assert.equal(r.imported, 145);
+    near((await GET('/api/accounts')).find((a) => a.id === plan.id).balance, 200000);
+    const txns = (await GET(`/api/txns?account=${plan.id}&limit=500`)).rows;
+    assert.equal(txns.filter((t) => t.kind === 'income').length, 120, '提撥');
+    assert.equal(txns.filter((t) => t.kind === 'dividend').length, 25, '配息');
+    assert.ok(!txns.some((t) => t.amount < 0), '轉換賣出的那一腳沒有進來');
+  });
+
+  it('同一份再匯一次，什麼都不會多，擋下的照樣擋下', async () => {
+    const p = await preview({ account_id: plan.id, mapping: plan.mapping });
+    assert.equal(p.summary.new, 0);
+    assert.equal(p.summary.duplicate, 145);
+    assert.equal(p.summary.internal, 15, '不匯入的行也不佔重複的位子');
+  });
+
+  it('帳戶頁的線：五年，從開戶那個月起每個月底一點，最後一點就是餘額', async () => {
+    const pts = await GET(`/api/accounts/${plan.id}/series?to=2026-09-30`);
+    assert.deepEqual(pts[0], { date: '2021-10-31', value: 2900 }, '第一個月只有兩筆提撥');
+    assert.deepEqual(pts[pts.length - 1], { date: '2026-09-30', value: 200000 });
+    assert.equal(pts.length, 60);
+    await assert.rejects(() => GET('/api/accounts/999999/series'), /404/);
+  });
+
+  // The column is recognised by its cells, never its header. Chase heads its
+  // Sale/Payment/Return column `Type` and Capital One's direction column is
+  // `Transaction Type`, and neither may start holding rows back.
+  it('其他每一家的檔案都不會被當成退休計畫的紀錄', async () => {
+    for (const [name, text] of BANK_FIXTURES) {
+      if (text === FIDELITY_401K_CSV) continue;
+      const p = await POST('/api/import/preview', { content_base64: b64(text) });
+      assert.equal(p.mapping.activityCol, null, `${name} 被認出了交易類型欄`);
+      assert.equal(p.summary.internal, 0, `${name} 有行被當成不影響餘額`);
+    }
   });
 });
