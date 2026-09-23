@@ -178,7 +178,10 @@ async function runPreview() {
 // Everything is pre-filled and everything is editable; nothing is written
 // until 建立 is pressed.
 function accountFromCsvForm(s) {
-  const inst = s.institution || { name: '', kind: 'bank', country: 'US' };
+  // A retirement plan's history gets examples of its own: a bank called
+  // Chase and an account called "Chase ...0000" are the wrong hints there.
+  const plan = TAX_ADVANTAGED_KINDS.has(s.kind);
+  const inst = s.institution || { name: '', kind: plan ? 'broker' : 'bank', country: 'US' };
   modal('從這個檔案建立帳戶', html`
     <div class="note small">
       下面是從 <code>${imp.file?.name || 'CSV'}</code> 讀出來的。有錯就直接改，按「建立」才會寫入。
@@ -187,7 +190,7 @@ function accountFromCsvForm(s) {
     ${s.notes.map((n) => html`<div class="note warn small">${n}</div>`)}
 
     <div class="row">
-      <label class="field"><span>機構</span><input id="a-inst" value="${inst.name}" placeholder="Chase"></label>
+      <label class="field"><span>機構</span><input id="a-inst" value="${inst.name}" placeholder="${plan ? 'Fidelity' : 'Chase'}"></label>
       <label class="field"><span>機構類型</span><select id="a-instkind">
         ${[['bank', '銀行'], ['broker', '券商'], ['card', '發卡機構'], ['other', '其他']]
           .map(([v, l]) => html`<option value="${v}" ${v === inst.kind ? 'selected' : ''}>${l}</option>`)}
@@ -199,7 +202,7 @@ function accountFromCsvForm(s) {
     </div>
 
     <div class="row">
-      <label class="field"><span>帳戶名稱</span><input id="a-name" value="${s.name}" placeholder="Chase ...0000"></label>
+      <label class="field"><span>帳戶名稱</span><input id="a-name" value="${s.name}" placeholder="${plan ? '401(k)' : 'Chase ...0000'}"></label>
       <label class="field"><span>類型</span><select id="a-kind">
         ${KIND_ORDER.map((k) => html`<option value="${k}" ${k === s.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
       </select></label>
