@@ -348,6 +348,20 @@ h2.sec.cur-head .muted { font-weight: 400; font-size: var(--fs-xs); }
 /* A form control the width of a wide screen is not easier to fill in. */
 .constrained { max-width: 420px; }
 
+/* A checkbox and its label on one line — settings toggles. */
+.check { display: flex; align-items: center; gap: var(--sp-8); margin-top: var(--sp-12); cursor: pointer; }
+.check input { accent-color: var(--brand); }
+
+/* The "prices last updated · refresh" line at the foot of the holdings page —
+   a proper page footer: separated from the last card, a hairline above it, and
+   room to breathe rather than a cramped line hugging the table. */
+.prices-foot {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-8);
+  margin-top: var(--sp-24);
+  padding: var(--sp-24) 0 var(--sp-16);
+  border-top: 1px solid var(--line);
+}
+
 .grid { display: grid; gap: var(--sp-12); }
 .g2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .g3 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }

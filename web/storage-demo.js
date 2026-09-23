@@ -443,6 +443,17 @@
       return { deleted: raw.remove('accounts', (a) => a.id === id) };
     });
 
+    // As server/money.js's accountSeries: the net worth walk over a book of
+    // one, starting on the opening date.
+    on('GET', '/api/accounts/:id/series', (p, _b, q) => {
+      const to = q.to ? csv.parseDate(q.to, 'auto') || bad(`日期無法解析：${q.to}`) : today();
+      const a = raw.get('accounts', N(p.id));
+      if (!a) missing('帳戶不存在');
+      const txns = raw.all('txns').filter((t) => t.account_id === a.id && t.date <= to).sort(by('date'));
+      const from = a.opening_date || (txns[0] && txns[0].date) || to;
+      return M.computeNetWorthSeries({ accounts: [a], txns, from, to })[a.currency] || [];
+    });
+
     // --- transactions ----------------------------------------------------
 
     on('GET', '/api/txns', (_p, _b, q) => {
@@ -840,7 +851,7 @@
 
       const summary = rows.reduce(
         (acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; },
-        { new: 0, duplicate: 0, error: 0, pending: 0 }
+        { new: 0, duplicate: 0, error: 0, pending: 0, internal: 0 }
       );
       const fresh = rows.filter((r) => r.status === 'new');
       const net = M.round2(fresh.reduce((s, r) => s + r.amount, 0));
@@ -933,7 +944,7 @@
             account_id: accountId, date: r.date, amount: r.amount,
             description: r.description,
             category: r.category || R.categorise(r.description, ruleList),
-            kind: S(b.default_kind, DEFAULT_TXN_KIND),
+            kind: r.kind || S(b.default_kind, DEFAULT_TXN_KIND),
             source: 'csv', external_id: r.externalId, fingerprint: r.fingerprint,
           }, imp.id);
         }
@@ -991,12 +1002,22 @@
       // There is no file. The chrome reads this to say where the data lives,
       // and for the demo the honest answer is "nowhere that survives".
       db_path: null,
+      // The hosted demo is incapable of an outbound call (its CSP ships
+      // `connect-src 'none'`), so auto price fetch is always off here and the
+      // settings card that toggles it is hidden — it keys on db_path.
+      auto_prices: false,
+      prices_fetched_on: null,
+      prices_fetched_at: null,
     }));
 
     on('PUT', '/api/settings', (_p, b) => {
       if (b.base_currency) raw.put('meta', { key: 'base_currency', value: String(b.base_currency).toUpperCase() });
       return { ok: true };
     });
+
+    // Answered so the route exists, but the demo can never reach the network,
+    // so it is always a no-op reporting itself disabled.
+    on('POST', '/api/prices/refresh', () => ({ enabled: false, updated: [], failed: [] }));
 
     const exportJson = () => ({
       exported_at: now(),
