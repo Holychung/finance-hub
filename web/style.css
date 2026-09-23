@@ -242,6 +242,9 @@ textarea:focus-visible,
 }
 
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-8); }
+/* A path has no spaces to break at, so a long FINANCE_DB ran straight out of
+   the sidebar and across the page. */
+.sidebar-foot code { overflow-wrap: anywhere; }
 
 /* Neutral, not green: the reassurance is the lock glyph and the words, and
    green is spoken for. Amber below is a label, which is what amber is for. */
