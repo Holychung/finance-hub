@@ -43,6 +43,15 @@ const level = (n) => (n < 0 ? 'neg' : '');
 // browser's own arithmetic (chart deltas, the spending "other" bucket) with a
 // function nothing held against it.
 const today = () => new Date().toISOString().slice(0, 10);
+// A stored ISO timestamp shown in the viewer's own timezone, to the minute —
+// unlike the UTC-sliced `created_at` shown for backups, because a "last updated"
+// line is read as "how fresh is this", which only makes sense in local time.
+const localTime = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 // The four verbs every view already speaks, now one line each over the
 // storage adapter in storage-http.js. Kept as bare names because that is what
@@ -119,6 +128,7 @@ const ICONS = {
   trash: html`<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="m6 7 1 13h10l1-13"/></svg>`,
   file: html`<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h11l5 5v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M15 5v5h5"/></svg>`,
   chart: html`<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>`,
+  refresh: html`<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>`,
 };
 // The sidebar's nav and brand marks are not here: they are drawn once, in
 // index.html, and never from a template. An entry with no caller in this file
@@ -133,6 +143,13 @@ function icon(name) {
 }
 
 const empty = (msg) => html`<div class="empty">${icon('file')}<div>${msg}</div></div>`;
+
+// An ARIA state written out as the word it has to be. html`` renders a
+// boolean as nothing, which is what lets `${cond && html`…`}` work — and it
+// also means an aria-pressed filled straight from a comparison always comes
+// out empty. That is how every range switch in the app shipped with no
+// pressed state: no highlight on screen, and nothing for a screen reader.
+const ariaBool = (on) => (on ? 'true' : 'false');
 
 // The status pills an account carries wherever its name is written: no longer
 // in use, money behind a rule, and which kind of tax figure its balance is.

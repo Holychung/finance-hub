@@ -80,10 +80,7 @@
     { key: 'firstrade', inst: 'firstrade', name: 'Firstrade', kind: 'brokerage', currency: 'USD', openAt: 0, target: 4260 },
     // Self-custody: no institution and no cash of its own — its whole value is
     // the coin in `holdings`, which is what a wallet is. It has no statements
-    // either, so the coverage grid reports every month since it opened as a
-    // gap. Whether an account with nothing to import belongs in that grid is
-    // decision 3 in docs/plans/asset-classes.md, still open; the demo shows
-    // what the app does today rather than tuning the dates to hide it.
+    // either, so it stays off the coverage grid and is named under it instead.
     { key: 'coldwallet', inst: null, name: '冷錢包', kind: 'wallet', currency: 'USD', openAt: 12, target: 0 },
     // A plan with the three things only a retirement account says: it starts
     // restricted (from its kind), its balance is pre-tax, and part of the
@@ -99,7 +96,11 @@
     // browser builds and the one SQLite stores are the same rows.
     { account: 'sinopac', symbol: '2330', name: '台積電', market: 'TW', shares: 500, avg_cost: 982, last_price: 1085, currency: 'TWD', decimals: 0 },
     { account: 'sinopac', symbol: '0050', name: '元大台灣50', market: 'TW', shares: 3000, avg_cost: 171.4, last_price: 195.2, currency: 'TWD', decimals: 0 },
+    { account: 'sinopac', symbol: '2454', name: '聯發科', market: 'TW', shares: 200, avg_cost: 1105, last_price: 1420, currency: 'TWD', decimals: 0 },
+    { account: 'sinopac', symbol: '2412', name: '中華電', market: 'TW', shares: 1000, avg_cost: 121.5, last_price: 135, currency: 'TWD', decimals: 0 },
     { account: 'firstrade', symbol: 'VTI', name: 'Vanguard Total Stock Market', market: 'US', shares: 80, avg_cost: 251.3, last_price: 288.4, currency: 'USD', decimals: 4 },
+    { account: 'firstrade', symbol: 'NVDA', name: 'NVIDIA Corp.', market: 'US', shares: 60, avg_cost: 94.2, last_price: 178.5, currency: 'USD', decimals: 4 },
+    { account: 'firstrade', symbol: 'MSFT', name: 'Microsoft Corp.', market: 'US', shares: 25, avg_cost: 384.6, last_price: 505.2, currency: 'USD', decimals: 4 },
     { account: 'firstrade', symbol: 'AAPL', name: 'Apple Inc.', market: 'US', shares: 40, avg_cost: 205.8, last_price: 242.1, currency: 'USD', decimals: 4 },
     // Eight places, all of them carrying a digit, so the page shows a quantity
     // the old four-place rule would have printed as 0.1235.
@@ -353,12 +354,14 @@
 
     // A short price history per holding, so the price panel opens with a series
     // rather than a single dot. Deterministic and RNG-free on purpose — it must
-    // not perturb the jittered transactions above — and the final point lands
-    // exactly on `last_price` at `to`, so each position still values to the same
-    // figure the single `last_price` column used to give.
+    // not perturb the jittered transactions above. The latest point is dated
+    // about a week back rather than today: it reads as a book last priced a week
+    // ago, and — the reason it matters — turning on auto price fetch then has
+    // newer closes to bring in, instead of being shadowed by a same-day price.
+    const priceAsOf = new Date(Date.parse(to) - 7 * 86400000).toISOString().slice(0, 10);
     const prices = holdings.flatMap((h) => {
-      const dates = [...new Set([...months.slice(-4).map(lastDayOf), to])]
-        .filter((d) => d <= to)
+      const dates = [...new Set([...months.slice(-4).map(lastDayOf), priceAsOf])]
+        .filter((d) => d <= priceAsOf)
         .sort();
       const start = round2((h.avg_cost + h.last_price) / 2);
       return dates.map((date, i) => ({

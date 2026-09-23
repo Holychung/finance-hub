@@ -331,6 +331,35 @@ describe('前端靜態防線', () => {
       `${offenders.map((f) => f.name).join('、')} 自己寫死了兩位小數，用 roundTo`);
   });
 
+  // A pressed toggle is styled only inside `.seg`. Written as loose buttons in
+  // a `.row`, the overview's 可動用／受限制／全部 came out as three full-width
+  // buttons stacked down the page head, because `.row > *` stretches every
+  // child. With the pressed style moved into the component, a toggle outside
+  // one would also lose its pressed look, so the two stay together.
+  it('按下狀態的切換按鈕都在分段按鈕 .seg 裡', () => {
+    const offenders = FILES.flatMap(({ name, src }) => {
+      const lines = src.split('\n');
+      return lines.reduce((hits, line, i) => {
+        if (!/aria-pressed=/.test(line)) return hits;
+        const near = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
+        return /class="seg"/.test(near) ? hits : [...hits, `${name}:${i + 1}`];
+      }, []);
+    });
+    assert.deepEqual(offenders, [], `${offenders.join('、')} 的切換按鈕不在 .seg 裡`);
+  });
+
+  // The template renders a boolean as nothing, so an aria-pressed filled
+  // straight from a comparison is always empty. Every switch in the app
+  // shipped that way — no pressed look, nothing for a screen reader — and no
+  // test noticed, because the markup was well formed.
+  it('aria-pressed 寫得出 true／false，不是被模板吃掉的布林值', () => {
+    assert.equal(String(html`<b x="${true}">`), '<b x="">', '模板把布林值印成空字串，陷阱就在這');
+    const offenders = FILES.flatMap(({ name, src }) => src.split('\n')
+      .map((line, i) => (/aria-pressed="\$\{(?!ariaBool\()/.test(line) ? `${name}:${i + 1}` : null))
+      .filter(Boolean));
+    assert.deepEqual(offenders, [], `${offenders.join('、')} 的 aria-pressed 沒有經過 ariaBool()`);
+  });
+
   // renderPreview reads imp.preview and imp.mapping together, and views.import
   // ends by calling it whenever a preview is held. Clearing one without the
   // other throws *inside* the view, so render() swaps the page for the error

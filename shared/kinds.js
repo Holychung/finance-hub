@@ -44,18 +44,27 @@
   // `taxAdvantaged` says the balance sits under a tax rule — a 401(k), an IRA,
   // 勞退 — so the account can say whether its balance is pre-tax and how much
   // of it has not vested. On any other kind both questions are noise.
+  //
+  // `statements` says whether there is a statement to import at all. A
+  // self-custody wallet has none: its value is the quantity and price typed in
+  // on the holdings page, and only the latest figure matters. The coverage
+  // grid measures whether statements were imported, so such an account has no
+  // months to be complete about — kept in, every month it existed was a gap
+  // nobody could close. Only the wallet so far; a retirement plan that only
+  // ever reports a balance is the same case, and joins when it is needed.
   const ACCOUNT_KINDS = [
-    { key: 'cash', label: '現金／存款', order: 10, liability: false, holds: false, access: 'liquid', taxAdvantaged: false },
-    { key: 'card', label: '信用卡', order: 20, liability: true, holds: false, access: 'liquid', taxAdvantaged: false },
-    { key: 'brokerage', label: '證券', order: 30, liability: false, holds: true, access: 'liquid', taxAdvantaged: false },
-    { key: 'wallet', label: '錢包', order: 35, liability: false, holds: true, access: 'liquid', taxAdvantaged: false },
-    { key: 'retirement', label: '退休金', order: 38, liability: false, holds: true, access: 'restricted', taxAdvantaged: true },
-    { key: 'loan', label: '貸款', order: 40, liability: true, holds: false, access: 'liquid', taxAdvantaged: false },
-    { key: 'other', label: '其他', order: 90, liability: false, holds: false, access: 'liquid', taxAdvantaged: false },
+    { key: 'cash', label: '現金／存款', order: 10, liability: false, holds: false, access: 'liquid', taxAdvantaged: false, statements: true },
+    { key: 'card', label: '信用卡', order: 20, liability: true, holds: false, access: 'liquid', taxAdvantaged: false, statements: true },
+    { key: 'brokerage', label: '證券', order: 30, liability: false, holds: true, access: 'liquid', taxAdvantaged: false, statements: true },
+    { key: 'wallet', label: '錢包', order: 35, liability: false, holds: true, access: 'liquid', taxAdvantaged: false, statements: false },
+    { key: 'retirement', label: '退休金', order: 38, liability: false, holds: true, access: 'restricted', taxAdvantaged: true, statements: true },
+    { key: 'loan', label: '貸款', order: 40, liability: true, holds: false, access: 'liquid', taxAdvantaged: false, statements: true },
+    { key: 'other', label: '其他', order: 90, liability: false, holds: false, access: 'liquid', taxAdvantaged: false, statements: true },
   ];
 
   const HOLDING_KINDS = new Set(ACCOUNT_KINDS.filter((k) => k.holds).map((k) => k.key));
   const TAX_ADVANTAGED_KINDS = new Set(ACCOUNT_KINDS.filter((k) => k.taxAdvantaged).map((k) => k.key));
+  const NO_STATEMENT_KINDS = new Set(ACCOUNT_KINDS.filter((k) => !k.statements).map((k) => k.key));
 
   // Where a holding trades, and the three things that follow from it by
   // default: the currency it is usually priced in, how many places its
@@ -184,7 +193,7 @@
     ACCOUNT_KINDS, TXN_KINDS, KIND_ORDER, TXN_KIND_ORDER, KIND_LABEL, kindName,
     LIABILITY_KINDS, DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND,
     ACCESS, ACCESS_KEYS, DEFAULT_ACCESS, accessName, defaultAccessFor,
-    TAX_ADVANTAGED_KINDS, TAX_STATUS, TAX_STATUS_KEYS, taxStatusName,
+    TAX_ADVANTAGED_KINDS, TAX_STATUS, TAX_STATUS_KEYS, taxStatusName, NO_STATEMENT_KINDS,
     HOLDING_KINDS, MARKETS, MARKET_KEYS, DEFAULT_MARKET, marketInfo,
   };
   Object.assign(root, api);

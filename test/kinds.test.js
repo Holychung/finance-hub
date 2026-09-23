@@ -25,6 +25,7 @@ describe('帳戶與交易類型', () => {
       assert.equal(typeof k.holds, 'boolean', `${k.key} 沒說能不能放持股`);
       assert.ok(K.ACCESS_KEYS.includes(k.access), `${k.key} 的預設 access「${k.access}」不在清單上`);
       assert.equal(typeof k.taxAdvantaged, 'boolean', `${k.key} 沒說有沒有稅務性質`);
+      assert.equal(typeof k.statements, 'boolean', `${k.key} 沒說有沒有對帳單可以匯`);
       assert.equal(K.kindName(k.key), k.label);
     }
   });
@@ -38,6 +39,14 @@ describe('帳戶與交易類型', () => {
     }
     assert.equal(K.defaultAccessFor('nope'), K.DEFAULT_ACCESS);
     assert.equal(K.defaultAccessFor(undefined), K.DEFAULT_ACCESS);
+  });
+
+  // What leaves the coverage grid. Derived from the flag, like every other set
+  // here, so a kind added without statements leaves the grid too.
+  it('沒有對帳單的類型是從旗標推出來的：目前只有錢包', () => {
+    const flagged = K.ACCOUNT_KINDS.filter((k) => !k.statements).map((k) => k.key).sort();
+    assert.deepEqual([...K.NO_STATEMENT_KINDS].sort(), flagged);
+    assert.deepEqual([...K.NO_STATEMENT_KINDS], ['wallet']);
   });
 
   it('有稅務性質的類型是從旗標推出來的', () => {
