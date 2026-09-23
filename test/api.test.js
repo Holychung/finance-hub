@@ -2662,13 +2662,15 @@ describe('退休金帳戶', () => {
   });
 });
 
-// The file is built so its arithmetic can be checked end to end. The rows
-// that import add up to 13,450.00 exactly: eleven contributions of 1,150.00
-// and five dividends worth 800.00 between them. The two realized gain/loss
-// lines would add 163.05 nobody put in, and every exchange date nets to
-// zero, so an exchange imported as a flow is an expense and an income of the
-// same amount. Last in the file because it adds a USD account, and suites
-// above count accounts and USD totals outright.
+// The file is five years of a plan built so its arithmetic can be checked end
+// to end. Monthly contributions split 80/20 between an S&P 500 index fund and
+// a growth tech fund come to 195,000.00 — 156,000.00 and 39,000.00 — and the
+// dividends to 5,000.00, so what imports is exactly 200,000.00. Once a year
+// the plan rebalances: one fund sold, the other bought, the same day, netting
+// to zero, with a realized gain/loss line for the fund sold. Those five lines
+// would add 972.77 nobody put in, and an exchange imported as a flow is an
+// expense and an income of the same amount. Last in the file because it adds
+// a USD account, and suites above count accounts and USD totals outright.
 describe('Fidelity 的 401(k) 交易紀錄', () => {
   const plan = {};
   const preview = (body) => POST('/api/import/preview', { content_base64: b64(FIDELITY_401K_CSV), ...body });
@@ -2688,16 +2690,42 @@ describe('Fidelity 的 401(k) 交易紀錄', () => {
     assert.equal(p.headers[p.mapping.activityCol], 'Transaction Type');
     assert.equal(p.mapping.typeCol, null, '交易類型說的是這行是什麼，不是錢往哪走');
     assert.equal(p.summary.error, 0);
-    assert.equal(p.summary.total, 25);
+    assert.equal(p.summary.total, 160, '五年：一百二十筆提撥、二十五筆配息、五次再平衡');
   });
 
   it('轉換和已實現損益擋下來，提撥和配息各自帶著類型匯入', async () => {
     const p = await preview({ mapping: plan.mapping });
-    assert.equal(p.summary.internal, 9, '七行轉換、兩行已實現損益');
-    assert.equal(p.summary.new, 16);
-    near(p.summary.net, 13450, '十一筆提撥加五筆配息；多出 163.05 就是損益被匯進來了');
+    assert.equal(p.summary.internal, 15, '十行轉換、五行已實現損益');
+    assert.equal(p.summary.new, 145);
+    near(p.summary.net, 200000, '提撥加配息剛好二十萬；多出 972.77 就是損益被匯進來了');
     const kinds = new Set(p.rows.filter((r) => r.status === 'new').map((r) => r.kind));
     assert.deepEqual([...kinds].sort(), ['dividend', 'income']);
+  });
+
+  // Every month's contribution is split 80/20, so the two funds' totals are
+  // the check that each row landed on the fund it names.
+  it('定期定額 80／20：S&P 500 十五萬六、科技股三萬九', async () => {
+    const p = await preview({ mapping: plan.mapping });
+    const into = (fund) => p.rows
+      .filter((r) => r.status === 'new' && r.kind === 'income' && r.description === fund)
+      .reduce((s, r) => s + r.amount, 0);
+    near(into('S&P 500 INDEX TRUST'), 156000);
+    near(into('GROWTH TECH FUND'), 39000);
+  });
+
+  // The buys and sells are in the file and on screen in the preview: each
+  // rebalance sells one fund and buys the other on the same day, for the
+  // same amount. They move nothing into or out of the plan, which is exactly
+  // why they are held back rather than imported as an expense and an income.
+  it('看得到買賣：五次再平衡，每次一賣一買，同一天淨額是零', async () => {
+    const p = await preview({ mapping: plan.mapping });
+    const legs = p.rows.filter((r) => r.status === 'internal' && r.raw[2] === 'Exchanges');
+    assert.equal(legs.filter((r) => r.amount < 0).length, 5, '五筆賣出');
+    assert.equal(legs.filter((r) => r.amount > 0).length, 5, '五筆買進');
+    const byDay = new Map();
+    for (const r of legs) byDay.set(r.date, (byDay.get(r.date) || 0) + r.amount);
+    assert.equal(byDay.size, 5);
+    for (const [day, net] of byDay) near(net, 0, `${day} 那天的買賣沒有對平`);
   });
 
   // The one place the file's word has to reach the ledger: without it every
@@ -2711,33 +2739,33 @@ describe('Fidelity 的 401(k) 交易紀錄', () => {
     assert.ok(s.notes.some((n) => /放進去的錢/.test(n)), '要說清楚匯進來的不含市值漲跌');
   });
 
-  it('匯進退休金帳戶：餘額剛好 13,450，沒有任何一筆流出', async () => {
+  it('匯進退休金帳戶：餘額剛好 200,000，沒有任何一筆流出', async () => {
     plan.id = (await POST('/api/accounts', {
-      name: '401(k)', kind: 'retirement', currency: 'USD', opening_balance: 0, opening_date: '2025-10-01',
+      name: '401(k)', kind: 'retirement', currency: 'USD', opening_balance: 0, opening_date: '2021-10-01',
     })).id;
     const r = await POST('/api/import/commit', {
       account_id: plan.id, content_base64: b64(FIDELITY_401K_CSV), mapping: plan.mapping, filename: 'fidelity-401k.csv',
     });
-    assert.equal(r.imported, 16);
-    near((await GET('/api/accounts')).find((a) => a.id === plan.id).balance, 13450);
-    const txns = (await GET(`/api/txns?account=${plan.id}&limit=100`)).rows;
-    assert.equal(txns.filter((t) => t.kind === 'income').length, 11, '提撥');
-    assert.equal(txns.filter((t) => t.kind === 'dividend').length, 5, '配息');
-    assert.ok(!txns.some((t) => t.amount < 0), '轉換流出的那一腳沒有進來');
+    assert.equal(r.imported, 145);
+    near((await GET('/api/accounts')).find((a) => a.id === plan.id).balance, 200000);
+    const txns = (await GET(`/api/txns?account=${plan.id}&limit=500`)).rows;
+    assert.equal(txns.filter((t) => t.kind === 'income').length, 120, '提撥');
+    assert.equal(txns.filter((t) => t.kind === 'dividend').length, 25, '配息');
+    assert.ok(!txns.some((t) => t.amount < 0), '轉換賣出的那一腳沒有進來');
   });
 
   it('同一份再匯一次，什麼都不會多，擋下的照樣擋下', async () => {
     const p = await preview({ account_id: plan.id, mapping: plan.mapping });
     assert.equal(p.summary.new, 0);
-    assert.equal(p.summary.duplicate, 16);
-    assert.equal(p.summary.internal, 9, '不匯入的行也不佔重複的位子');
+    assert.equal(p.summary.duplicate, 145);
+    assert.equal(p.summary.internal, 15, '不匯入的行也不佔重複的位子');
   });
 
-  it('帳戶頁的線：從開戶那個月起每個月底一點，最後一點就是餘額', async () => {
+  it('帳戶頁的線：五年，從開戶那個月起每個月底一點，最後一點就是餘額', async () => {
     const pts = await GET(`/api/accounts/${plan.id}/series?to=2026-09-30`);
-    assert.deepEqual(pts[0], { date: '2025-10-31', value: 1150 }, '十月只有一筆提撥');
-    assert.deepEqual(pts[pts.length - 1], { date: '2026-09-30', value: 13450 });
-    assert.equal(pts.length, 12);
+    assert.deepEqual(pts[0], { date: '2021-10-31', value: 2900 }, '第一個月只有兩筆提撥');
+    assert.deepEqual(pts[pts.length - 1], { date: '2026-09-30', value: 200000 });
+    assert.equal(pts.length, 60);
     await assert.rejects(() => GET('/api/accounts/999999/series'), /404/);
   });
 

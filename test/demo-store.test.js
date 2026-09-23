@@ -250,7 +250,7 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     const [a, b] = [await demo.post('/api/import/preview', body), await live.post('/api/import/preview', body)];
     assert.deepEqual(a.mapping, b.mapping);
     assert.deepEqual(a.summary, b.summary);
-    assert.equal(a.summary.internal, 9);
+    assert.equal(a.summary.internal, 15);
     assert.deepEqual(a.rows, b.rows);
     assert.deepEqual(a.suggested_account, b.suggested_account);
   });

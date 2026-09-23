@@ -151,18 +151,23 @@ Sums to **-722.93**.
   and `Dividend` import, as income and as a dividend. `Exchanges` and
   `Realized Gain/Loss` move no money in or out of the plan and must not
   import at all
-- an exchange where one fund's money goes into two others on the same day,
-  and one where it comes back out a month later, each with its gain/loss line
+- five years of a plan, 160 rows: a monthly contribution split 80/20 between
+  an S&P 500 index fund and a growth tech fund, stepping up once a year;
+  quarterly dividends on the index fund and a yearly one on the tech fund;
+  and a rebalance back to 80/20 every April — one fund sold, the other
+  bought, the same day, with a realized gain/loss line for the fund sold. Four
+  of those sell tech and one, in the first year's fall, sells the index fund
 - amounts and units quoted with thousands separators, negative on the leg
-  that leaves a fund; units to three places, and a stable-value fund whose
-  units equal its dollars
+  that leaves a fund; units to three places
 - no balance column, so nothing to chain and no opening balance to derive
 
-Everything that imports sums to **13,450.00**: eleven contributions of 1,150.00
-and five dividends worth 800.00. The two gain/loss lines would add 163.05 that
-nobody put in, and every exchange date nets to zero, so an exchange imported
-as a flow shows up as an expense and an income of the same amount rather than
-in the total.
+Everything that imports sums to **200,000.00**: 195,000.00 of contributions,
+156,000.00 into the index fund and 39,000.00 into tech, and 5,000.00 of
+dividends. The five gain/loss lines would add 972.77 that nobody put in, and
+every rebalance day nets to zero, so an exchange imported as a flow shows up as
+an expense and an income of the same amount rather than in the total. Unit
+prices follow an invented path, so the file's units carry a market value the
+ledger does not read.
 
 ## Adding a bank
 
