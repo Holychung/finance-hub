@@ -55,11 +55,12 @@ views.spending = async () => {
         data-years="${y}" aria-pressed="${ariaBool(y === spendingYears)}">${y} 年</button>`)}</div>
     </div>
 
-    ${sp.order.length > 1 ? html`
+    ${sp.order.length > 1 ? html`<section>
       <div class="seg" role="group" aria-label="看哪個幣別">${sp.order.map((c) => html`<button
         data-cur="${c}" aria-pressed="${ariaBool(c === cur)}">${c}</button>`)}</div>
-      <div class="note">幣別是分頁不是加總。${sp.order.join('、')} 之間沒有匯率就加不起來，
-        所以這裡不會給你一個跨幣別的總數 —— 那個數字不存在。</div>`
+      <div class="note spaced">幣別是分頁不是加總。${sp.order.join('、')} 之間沒有匯率就加不起來，
+        所以這裡不會給你一個跨幣別的總數 —— 那個數字不存在。</div>
+    </section>`
       : ''}
 
     <div class="grid g4">

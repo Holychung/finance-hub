@@ -285,6 +285,12 @@ textarea:focus-visible,
 }
 .page-head h1 { font-size: var(--fs-xl); font-weight: 700; margin: 0; letter-spacing: -.3px; }
 .page-head .sub { color: var(--ink-3); font-size: var(--fs-sm); }
+/* A page's actions are a row of buttons at their own width. `.row > *` is a
+   form rule — fields share the width — and applied here it gave every action
+   a 150px basis: next to a long subtitle the group shrank and its buttons
+   wrapped into a column of full-width bars. When the head is too narrow the
+   whole group moves under the title instead. */
+.page-head > .row, .page-head > .row > * { flex: 0 0 auto; }
 
 section { margin-bottom: var(--sp-24); }
 h2.sec {
@@ -614,14 +620,10 @@ code {
 .chart { --chart-gutter: 46px; }
 .chart-plot { position: relative; height: 150px; margin-left: var(--chart-gutter); }
 .chart-plot > svg { width: 100%; height: 100%; display: block; }
-/* Nothing to draw keeps the chart's room: the same plot box, holding the
-   reason instead of a line, so a card with no data still lines up with the
-   one beside it and reads as empty rather than as missing. */
-.chart-plot.chart-empty {
-  display: flex; align-items: center; justify-content: center;
-  border: 1px dashed var(--line-strong); border-radius: var(--r-1);
-  color: var(--ink-3); font-size: var(--fs-sm);
-}
+/* Nothing to draw keeps the chart's room: the same plot box, holding the same
+   empty state every other list in the app shows, so a card with no data still
+   lines up with the one beside it and reads as empty rather than as missing. */
+.chart-plot.chart-empty { display: flex; align-items: center; justify-content: center; }
 /* The area's fill is not here: each chart generates its own gradient id, so
    the reference has to be written where the id is. */
 .chart .line { fill: none; stroke: var(--brand); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
