@@ -4,3 +4,6 @@
 # them on checkout would quietly delete the thing the fixture exists to pin
 # down, on whichever machine has core.autocrlf set.
 test/fixtures/*.csv -text
+
+# A PDF is bytes, not lines: never normalised, never diffed or merged as text.
+test/fixtures/*.pdf binary

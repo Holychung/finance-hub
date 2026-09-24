@@ -73,8 +73,8 @@ node --test                     # 跑測試（自己開 server、自己收拾）
 測試用 Node 內建的 `node:test`，會自己挑一個空的 port、開一個暫存資料庫，跑完全部清掉，
 不會碰到你的真實帳本。前端沒有 build，改完重新整理就好。
 
-clone 完跑一次 `git config core.hooksPath githooks`，擋住把 `.db`／`.csv`／`.env` commit
-進去。
+clone 完跑一次 `git config core.hooksPath githooks`，擋住把 `.db`／`.csv`／`.pdf`／`.env`
+commit 進去。
 
 想看看它長什麼樣子、又不想先匯入自己的對帳單：
 

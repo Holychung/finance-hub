@@ -94,7 +94,7 @@ web/forms.js      modal editors more than one view opens
 web/view-*.js     one file per route, each registering its own views.<name>
 web/app.js        router, link interception, sidebar — loaded last, boots render()
 test/api.test.js  node:test suite, starts and stops its own server
-test/fixtures/    one .csv per statement shape — invented rows, real shape
+test/fixtures/    one file per statement shape — invented rows, real shape
 test/paths.test.js   ledger location, profiles, the data-dir migration script
 test/migrate.test.js the schema migration runner
 test/seed.test.js    what the demo seeder must produce to be worth running
@@ -113,7 +113,10 @@ scripts/seed-demo.js          invented data for a demo profile; refuses the
                               personal ledger outright
 scripts/pack-demo.js          copies web/ + shared/ into dist/ for a static
                               host; adds a CSP and a commit stamp, nothing else
-githooks/pre-commit           refuses staged .db / .csv / .env
+scripts/fixtures/             builds the invented Fidelity statement PDF, its
+                              history and its figures; needs Chrome, run by
+                              hand, never by the suite
+githooks/pre-commit           refuses staged .db / .csv / .pdf / .env
 docs/design/                  design comps, as a record — history, not spec
 ```
 
@@ -143,7 +146,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-516 tests across 85 suites cover Big5 decoding, ROC dates, two-digit years,
+525 tests across 86 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -153,7 +156,8 @@ before the first observation) and the v6 backfill that seeds it,
 pre-import backup, balance reconciliation, import revert, CSV BOM, the three
 request guards and the CSP, the malformed-statement handling below, the
 pipeline invariant over every bank fixture, pending rows and a retirement
-plan's exchanges never importing, the
+plan's exchanges never importing, a plan's history and its statement agreeing
+to the cent, the
 zero-dependency and no-outbound rules (with the one opt-in close fetch tested
 offline through an injected getter, and the deps scan pinning Yahoo to
 `server/prices.js`), the ledger location rules, the
@@ -506,8 +510,9 @@ different directories.
   and leaves the original untouched for the user to delete themselves.
 
 Protection against committing data is layered, because any single layer fails:
-`.gitignore` ignores `*.csv` wholesale (a statement arrives named `stmt.csv`
-and matches nothing specific) but `git add -f` walks past it and an
+`.gitignore` ignores `*.csv` and `*.pdf` wholesale (a statement arrives named
+`stmt.csv` or `Statement.pdf` and matches nothing specific) but `git add -f`
+walks past it and an
 already-tracked file is never reconsulted; `githooks/pre-commit` reads what is
 actually staged and refuses it. Enable it per clone with
 `git config core.hooksPath githooks`.
@@ -534,9 +539,9 @@ So a new bank, card or account is always these four steps, in this order:
    which column carries which sign. **Invent every value.** Merchants,
    amounts, account and reference numbers, dates — all made up, `555-01xx`
    for phone numbers and `0000` for masked card digits. That directory is the
-   one place `.gitignore` and `githooks/pre-commit` let a `.csv` through, and
-   they let it through on its path alone: a statement you downloaded never
-   goes in there. `test/fixtures/README.md` says what each file exercises;
+   one place `.gitignore` and `githooks/pre-commit` let a `.csv` or a `.pdf`
+   through, and they let it through on its path alone: a statement you
+   downloaded never goes in there. `test/fixtures/README.md` says what each file exercises;
    add your section to it.
 2. **Load it with `fixture()` and put it in `BANK_FIXTURES`** in
    `test/api.test.js`. `fixture()` records every name it reads and the

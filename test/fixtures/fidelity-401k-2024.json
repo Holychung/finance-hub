@@ -1,0 +1,146 @@
+{
+  "generator": "scripts/fixtures/fidelity-401k-2024.js",
+  "pdf": "fidelity-401k-2024.pdf",
+  "pdf_sha256": "c96774aaf72a4ac2413d7d2d8f013e3fe900f5b026822ab3626470daba844b80",
+  "history": "fidelity-401k-2024.csv",
+  "plan": "Northwind Traders, LLC Retirement Savings Plan",
+  "period": {
+    "start": "2024-01-01",
+    "end": "2026-09-18"
+  },
+  "as_of": "2026-09-19",
+  "account_summary": {
+    "beginning_balance": 44320.18,
+    "your_contributions": 62400,
+    "employer_contributions": 31200,
+    "change_in_market_value": 60887.53,
+    "ending_balance": 198807.71,
+    "vested_balance": 185553.9,
+    "dividends_and_interest": 2408.4
+  },
+  "personal_rate_of_return": "70.9%",
+  "market_value": [
+    {
+      "investment": "S&P 500 Index Trust",
+      "history_name": "S&P 500 INDEX TRUST",
+      "asset_class": "Stock",
+      "shares_begin": 0,
+      "shares_end": 627.547,
+      "price_begin": 150,
+      "price_end": 249.6,
+      "value_begin": 0,
+      "value_end": 156635.73
+    },
+    {
+      "investment": "Growth Tech Fund",
+      "history_name": "GROWTH TECH FUND",
+      "asset_class": "Stock",
+      "shares_begin": 0,
+      "shares_end": 553.438,
+      "price_begin": 40,
+      "price_end": 76.2,
+      "value_begin": 0,
+      "value_end": 42171.98
+    },
+    {
+      "investment": "Govt Money Market",
+      "history_name": "GOVT MONEY MARKET",
+      "asset_class": "Short Term",
+      "shares_begin": 2350.18,
+      "shares_end": 0,
+      "price_begin": 1,
+      "price_end": 1,
+      "value_begin": 2350.18,
+      "value_end": 0
+    },
+    {
+      "investment": "Target Date 2055 Trust",
+      "history_name": "TARGET DATE 2055 TRUST",
+      "asset_class": "Blended Investment*",
+      "shares_begin": 1961.215,
+      "shares_end": 0,
+      "price_begin": 21.4,
+      "price_end": 29.85,
+      "value_begin": 41970,
+      "value_end": 0
+    }
+  ],
+  "account_activity": [
+    {
+      "investment": "S&P 500 Index Trust",
+      "beginning_balance": 0,
+      "your_contributions": 49920,
+      "employer_contributions": 24960,
+      "exchanges": 36327.17,
+      "change_in_market_value": 45428.56,
+      "ending_balance": 156635.73,
+      "dividends_and_interest": 2299.85
+    },
+    {
+      "investment": "Target Date 2055 Trust",
+      "beginning_balance": 41970,
+      "your_contributions": 0,
+      "employer_contributions": 0,
+      "exchanges": -43048.67,
+      "change_in_market_value": 1078.67,
+      "ending_balance": 0,
+      "dividends_and_interest": 0
+    },
+    {
+      "investment": "Growth Tech Fund",
+      "beginning_balance": 0,
+      "your_contributions": 12480,
+      "employer_contributions": 6240,
+      "exchanges": 9081.79,
+      "change_in_market_value": 14370.19,
+      "ending_balance": 42171.98,
+      "dividends_and_interest": 98.44
+    },
+    {
+      "investment": "Govt Money Market",
+      "beginning_balance": 2350.18,
+      "your_contributions": 0,
+      "employer_contributions": 0,
+      "exchanges": -2360.29,
+      "change_in_market_value": 10.11,
+      "ending_balance": 0,
+      "dividends_and_interest": 10.11
+    }
+  ],
+  "contribution_summary": [
+    {
+      "source": "Employee Deferral",
+      "period_to_date": 62400,
+      "inception_to_date": 88800,
+      "vested_percent": 100,
+      "total_account_balance": 132538.67,
+      "total_vested_balance": 132538.67
+    },
+    {
+      "source": "Employer Match",
+      "period_to_date": 31200,
+      "inception_to_date": 44400,
+      "vested_percent": 80,
+      "total_account_balance": 66269.04,
+      "total_vested_balance": 53015.23
+    }
+  ],
+  "elections": [
+    {
+      "investment": "S&P 500 INDEX TRUST",
+      "percent": 80
+    },
+    {
+      "investment": "GROWTH TECH FUND",
+      "percent": 20
+    }
+  ],
+  "blended_allocation": [
+    {
+      "investment": "Target Date 2055 Trust",
+      "stocks": 90,
+      "bonds": 9,
+      "short": 1
+    }
+  ]
+}

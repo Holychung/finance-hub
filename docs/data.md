@@ -99,8 +99,9 @@ seeder 離最糟的 bug 只差一個手誤。`--force` 只會清掉目標那一�
 
 兩層，因為任何一層都可能失手：
 
-1. **`.gitignore`** —— 擋 `*.db`、`data/`、`.env`，以及**所有 `*.csv`**。對帳單存進來時叫
-   `stmt.csv` 或 `eStmt_2025-04-01.csv`，比對不到任何特定檔名，所以整類擋掉。
+1. **`.gitignore`** —— 擋 `*.db`、`data/`、`.env`，以及**所有 `*.csv` 和 `*.pdf`**。對帳單
+   存進來時叫 `stmt.csv`、`eStmt_2025-04-01.csv` 或 `Statement.pdf`，比對不到任何特定檔名，
+   所以整類擋掉。
 2. **`githooks/pre-commit`** —— `.gitignore` 擋不住 `git add -f`，也管不到已經被追蹤的檔案。
    這個 hook 看的是「實際被 stage 的東西」，抓到就擋下 commit。每個 clone 要開一次：
 
@@ -108,9 +109,9 @@ seeder 離最糟的 bug 只差一個手誤。`--force` 只會清掉目標那一�
 git config core.hooksPath githooks
 ```
 
-唯一的例外是 **`test/fixtures/*.csv`**：測試用的樣本檔，內容全部是編的，只有格式是從真實對
-帳單一個位元組一個位元組抄下來的。兩層都是**按路徑**放行、不看內容，所以下載回來的對帳單不
-要往那個資料夾放。機械性的那半是 `api.test.js` 會檢查那裡的每個 `.csv` 都有測試在讀——丟進
-去又忘記的檔案會讓測試紅掉。細節在 `test/fixtures/README.md`。
+唯一的例外是 **`test/fixtures/` 裡的 `.csv` 和 `.pdf`**：測試用的樣本檔，內容全部是編的，只
+有格式是從真實對帳單抄下來的。兩層都是**按路徑**放行、不看內容，所以下載回來的對帳單不要往
+那個資料夾放。機械性的那半是 `api.test.js` 會檢查那裡的每個檔案都有測試在讀——丟進去又忘記
+的檔案會讓測試紅掉。細節在 `test/fixtures/README.md`。
 
 真的要放行：`git commit --no-verify`。

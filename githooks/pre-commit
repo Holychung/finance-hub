@@ -18,15 +18,15 @@
 staged=$(git diff --cached --name-only --diff-filter=AM)
 [ -z "$staged" ] && exit 0
 
-# test/fixtures/*.csv is the one place a CSV may be committed: invented rows in
-# a real bank's shape, so the parser has the actual bytes to work against. The
-# exception is by path and nothing inspects the content, so the rule that keeps
-# it honest is social and lives in test/fixtures/README.md — a statement you
-# downloaded goes nowhere near that directory. api.test.js is the mechanical
-# half: a .csv in there that no test reads fails the suite.
-checkable=$(printf '%s\n' "$staged" | grep -v '^test/fixtures/[^/]*\.csv$')
+# test/fixtures/ is the one place a CSV or a PDF may be committed: invented
+# rows in a real bank's shape, so the parser has the actual bytes to work
+# against. The exception is by path and nothing inspects the content, so the
+# rule that keeps it honest is social and lives in test/fixtures/README.md — a
+# statement you downloaded goes nowhere near that directory. api.test.js is the
+# mechanical half: a file in there that no test reads fails the suite.
+checkable=$(printf '%s\n' "$staged" | grep -Ev '^test/fixtures/[^/]*\.(csv|pdf)$')
 
-blocked=$(printf '%s\n' "$checkable" | grep -E '(^|/)data/|\.db$|\.db-wal$|\.db-shm$|\.csv$|(^|/)\.env($|\.)|\.pfx$|\.p12$')
+blocked=$(printf '%s\n' "$checkable" | grep -E '(^|/)data/|\.db$|\.db-wal$|\.db-shm$|\.csv$|\.pdf$|(^|/)\.env($|\.)|\.pfx$|\.p12$')
 
 if [ -n "$blocked" ]; then
   echo ""
