@@ -88,6 +88,10 @@ const SCRIPT = async (s) => {
   await s.post('/api/txns', { account_id: 2, date: '2026-02-04', amount: -3200, description: 'UBER EATS' });
   await s.post('/api/txns', { account_id: 1, date: '2026-03-10', amount: -31400, description: '轉出至券商' });
   await s.post('/api/txns', { account_id: 3, date: '2026-03-11', amount: 1000, description: 'INCOMING WIRE' });
+  // The plan's statement: a change in market value the size of the wire's
+  // USD leg, a day nearer the TWD leg than the wire is. A matcher that let it
+  // be a leg would pick it; spending that counted it would book it as income.
+  await s.post('/api/txns', { account_id: 5, date: '2026-03-10', amount: 1000, description: 'CHANGE IN MARKET VALUE', kind: 'valuation' });
   await s.post('/api/txns', { account_id: 2, date: '2026-04-02', amount: -899, description: 'UBER EATS' });
 
   await s.post('/api/holdings', { account_id: 3, symbol: 'vti', name: 'Vanguard Total', market: 'US', shares: 12, avg_cost: 210, last_price: 248.5, currency: 'USD' });
@@ -185,6 +189,7 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/txns?from=2026-02-01&to=2026-03-31&limit=200',
     '/api/txns?q=uber&limit=200',
     '/api/txns?kind=income&limit=200',
+    '/api/txns?kind=valuation&limit=200',
     '/api/txns?limit=2&offset=1',
     '/api/transfers/candidates',
     '/api/coverage?months=6&to=2026-09-30',

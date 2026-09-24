@@ -40,7 +40,7 @@ if (path.resolve(paths.DB_PATH) === path.resolve(personal)) {
 }
 
 const { db } = require('../server/db');
-const { buildDemoBook } = require('../shared/demo-seed');
+const { buildDemoBook, DEMO_MONTHS } = require('../shared/demo-seed');
 
 const args = new Set(process.argv.slice(2));
 const argOf = (name) => {
@@ -49,7 +49,7 @@ const argOf = (name) => {
 };
 const FORCE = args.has('--force');
 const TO = argOf('to') || new Date().toISOString().slice(0, 10);
-const MONTHS = Number(argOf('months') || 18);
+const MONTHS = Number(argOf('months') || DEMO_MONTHS);
 
 const existing = db.prepare('SELECT COUNT(*) AS n FROM accounts').get().n;
 if (existing && !FORCE) {

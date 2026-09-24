@@ -25,9 +25,9 @@ views.account = async () => {
   const mine = checks.filter((c) => c.account_id === id);
   const off = mine.filter((c) => !c.ok);
   const myImports = imports.filter((i) => i.account_id === id);
-  const span = data.rows.length
-    ? `${data.rows[data.rows.length - 1].date} → ${data.rows[0].date}`
-    : '還沒有交易';
+  // The account's, not the page's: past a page of rows, the page's oldest row
+  // is not the account's first.
+  const span = data.total ? `${data.first} → ${data.last}` : '還沒有交易';
 
   mount(main, html`
     <div class="page-head">
@@ -65,8 +65,9 @@ views.account = async () => {
 
     ${TAX_ADVANTAGED_KINDS.has(a.kind) ? html`<section><div class="note">
       計畫網站下載得到交易紀錄的話（例如 Fidelity），直接匯進來：提撥和配息會變成交易，基金之間的轉換和已實現損益不算進出。
-      所以這個帳戶的餘額和下面的線，是<b>放進去的錢</b>，不含基金的漲跌；跟對帳單上的市值差多少，記一筆對帳就看得到。
-      只拿得到餘額的話（例如勞退專戶），提繳和收益各記一筆交易。還沒歸屬的部分填在帳戶設定裡，淨值會扣掉它。
+      這樣匯進來的是<b>放進去的錢</b>，不含基金的漲跌；跟對帳單上的市值差多少，記一筆對帳就看得到，
+      把那個差額記成一筆「市值變動」，餘額和下面的線就是對帳單的數字，而且它不算收入也不算支出。
+      只拿得到餘額的話（例如勞退專戶），提繳記收入、收益記「市值變動」。還沒歸屬的部分填在帳戶設定裡，淨值會扣掉它。
     </div></section>` : ''}
 
     ${off.length ? html`<section><div class="note warn">
@@ -74,7 +75,7 @@ views.account = async () => {
         <div>${c.date} 網銀 ${money(c.stated, a.currency)}，帳面 ${money(c.computed, a.currency)}，
         差 <b>${signed(c.diff, a.currency)}</b></div>`)}
       ${TAX_ADVANTAGED_KINDS.has(a.kind)
-        ? '帳面只算放進去的錢，差額多半是基金的漲跌；也可能是期初餘額填錯。'
+        ? '差額多半是還沒記的市值變動，記一筆「市值變動」補上；也可能是期初餘額填錯。'
         : '通常是 CSV 漏匯，或期初餘額填錯。'}
     </div></section>` : ''}
 

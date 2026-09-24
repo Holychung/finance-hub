@@ -105,6 +105,20 @@ describe('帳戶與交易類型', () => {
     assert.equal(K.kindName('transfer'), '轉帳', '不能選不代表不用顯示');
   });
 
+  // A statement saying the funds are worth more or less: nobody paid it, so it
+  // stays out of spending, recurring charges and transfer pairing. Derived from
+  // the flag like every other set here, so a kind added without saying whether
+  // money moved cannot slip into the totals.
+  it('市值變動可以手動記，但不是錢的進出；那個集合是從 flow 旗標推出來的', () => {
+    for (const k of K.TXN_KINDS) assert.equal(typeof k.flow, 'boolean', `${k.key} 沒說是不是錢的進出`);
+    const flagged = K.TXN_KINDS.filter((k) => !k.flow).map((k) => k.key).sort();
+    assert.deepEqual([...K.NON_FLOW_KINDS].sort(), flagged);
+    assert.deepEqual([...K.NON_FLOW_KINDS], ['valuation']);
+    assert.ok(K.TXN_KIND_ORDER.includes('valuation'), '對帳單上的市值變動要能手動記');
+    assert.equal(K.kindName('valuation'), '市值變動');
+    assert.ok(!K.NON_FLOW_KINDS.has('transfer'), '轉帳真的有錢離開一個帳戶，只是沒離開你');
+  });
+
   it('交易類型選單以「其他」開頭，因為那是不知道時的誠實答案', () => {
     assert.equal(K.TXN_KIND_ORDER[0], K.DEFAULT_TXN_KIND);
     assert.equal(K.DEFAULT_TXN_KIND, 'other');

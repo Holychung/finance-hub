@@ -33,8 +33,7 @@ views.transactions = async () => {
         </select>
         <select id="f-kind">
           <option value="">全部類型</option>
-          ${['income', 'expense', 'transfer', 'trade', 'dividend', 'fee', 'fx', 'other']
-            .map((k) => html`<option value="${k}" ${k === txState.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
+          ${TXN_KINDS.map(({ key: k }) => html`<option value="${k}" ${k === txState.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
         </select>
         <input id="f-from" type="date" value="${txState.from}">
         <input id="f-to" type="date" value="${txState.to}">

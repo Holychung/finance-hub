@@ -2152,6 +2152,17 @@ describe('消費分析：一個幣別一組數字，轉帳不算', () => {
       { date: '2026-02-01', amount: -10000, description: 'ZZQ MOVE OUT', kind: 'transfer' },
     ];
     await POST('/api/txns', { rows: rows.map((r) => ({ ...r, account_id: jpy })) });
+
+    // 同一個幣別的退休計畫，每個月底記一筆市值變動：四個月金額差不多，看起來很像
+    // 固定扣款，第五個月漲了兩萬。沒有任何錢進出，所以下面每一個數字都不該動到
+    const plan = (await POST('/api/accounts', {
+      name: '消費測試計畫', kind: 'retirement', currency: 'JPY',
+      opening_balance: 300000, opening_date: '2026-01-01',
+    })).id;
+    const valuations = [['2026-01-31', -5000], ['2026-02-27', -5200], ['2026-03-31', -4900], ['2026-04-30', -5100], ['2026-05-29', 20000]];
+    await POST('/api/txns', {
+      rows: valuations.map(([date, amount]) => ({ account_id: plan, date, amount, description: 'ZZQ PLAN VALUE', kind: 'valuation' })),
+    });
   });
 
   it('自成一個幣別，不跟別的幣別加在一起', async () => {
@@ -2162,10 +2173,10 @@ describe('消費分析：一個幣別一組數字，轉帳不算', () => {
     assert.equal(sp.total, undefined, '跨幣別總額不存在，也不該憑空生一個出來');
   });
 
-  it('轉帳不算收支', async () => {
+  it('轉帳和市值變動都不算收支', async () => {
     const d = (await GET(`/api/spending?${SPEND_WINDOW}`)).currencies.JPY;
-    near(d.expense, 14920, '支出（不含那筆 10,000 的轉帳）');
-    near(d.income, 50000, '收入');
+    near(d.expense, 14920, '支出（不含那筆 10,000 的轉帳，也不含計畫跌掉的 20,200）');
+    near(d.income, 50000, '收入（不含計畫漲的 20,000）');
     near(d.net, 35080, '淨額');
   });
 
@@ -2176,6 +2187,18 @@ describe('消費分析：一個幣別一組數字，轉帳不算', () => {
     const cats = Object.fromEntries(d.categories.map((c) => [c.category, c.total]));
     near(cats[''], 14320, '未分類也是一個分類，照樣出現在明細裡');
     near(cats['測試分類'], 600, '有分類的那兩筆');
+  });
+
+  // The account page prints "N 筆交易 · first → last" over a page of rows. It
+  // read both ends off the page, so past one page the first date was wrong.
+  it('交易清單的第一天和最後一天看的是全部，不是這一頁', async () => {
+    const page = await GET(`/api/txns?account=${jpy}&limit=2`);
+    assert.equal(page.rows.length, 2);
+    assert.equal(page.first, '2026-01-03', '最早那筆不在這一頁上');
+    assert.equal(page.last, '2026-04-05');
+    const none = await GET(`/api/txns?account=${jpy}&from=2030-01-01`);
+    assert.equal(none.first, null);
+    assert.equal(none.last, null);
   });
 
   it('窗內每個月都有一個點，空月份不會被跳過', async () => {
@@ -2209,6 +2232,10 @@ describe('固定扣款偵測', () => {
 
   it('只有兩次不算 —— 兩點之間永遠畫得出一條線', async () => {
     assert.ok(!(await mine()).some((r) => r.label === 'ZZQ TWICE'));
+  });
+
+  it('每個月底的市值變動金額再像，也不是固定扣款', async () => {
+    assert.ok(!(await mine()).some((r) => r.label === 'ZZQ PLAN VALUE'));
   });
 
   it('間隔對但金額亂跳的，是常去的店不是訂閱', async () => {

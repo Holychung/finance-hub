@@ -85,10 +85,36 @@
     // A plan with the three things only a retirement account says: it starts
     // restricted (from its kind), its balance is pre-tax, and part of the
     // employer's match has not vested, which net worth subtracts and the
-    // balance keeps. The contributions below keep its months in the coverage
-    // grid, the same way a payslip would.
-    { key: 'k401', inst: 'fidelity', name: '401(k)', kind: 'retirement', currency: 'USD', openAt: 0, target: 41850, tax_status: 'pretax', unvested: 2940 },
+    // balance keeps. It is kept the way its statements keep it — see
+    // `planMonths` — so it states the balance it opened with and ends wherever
+    // the funds took it, rather than working back from a target.
+    { key: 'k401', inst: 'fidelity', name: '401(k)', kind: 'retirement', currency: 'USD', openAt: 0, opening: 47000, tax_status: 'pretax', unvested: 11850 },
   ];
+
+  // The 401(k)'s two funds: 80% an S&P 500 index fund, 20% a growth tech fund.
+  // Month-end prices, oldest first — the month before the window, then one per
+  // month of a full window, the last being where the current month stands.
+  // Invented, and shaped like markets rather than like a ramp: a strong first
+  // year, a sharp drawdown in the second spring, a recovery.
+  const PLAN_FUNDS = [
+    { weight: 0.8, prices: [146.2, 143.5, 147.8, 150, 152.4, 160.3, 165.2, 158.6, 166.3, 172.1, 174.2, 178.3,
+      182.1, 180.6, 191.1, 186.5, 191.9, 189.1, 178.4, 177.1, 188.2, 197.8, 202.2, 206.5, 213.4, 218, 218.4,
+      219.1, 222.9, 219.6, 225.8, 231.2, 236.9, 240.3, 245.1, 243.7, 249.6] },
+    { weight: 0.2, prices: [38.4, 37.1, 39.3, 40, 41.8, 44.9, 45.6, 43.1, 46.7, 50.2, 48.1, 49, 50.6, 50.1, 53.3,
+      53.9, 53.1, 50.2, 45.4, 45.9, 50.8, 54.7, 56.9, 57.4, 61.2, 64.3, 62.1, 62.8, 63.9, 61, 64.2, 67.5, 70.1,
+      72.6, 74.9, 73.4, 76.2] },
+  ];
+  const PLAN_DEFERRAL = 1700; // a month, the plan's first year
+  const PLAN_RAISE = 100;     // added every twelve months after
+  // 40%, not the common 50%: a match of 850–900 on the 5th is, at this book's
+  // rates, the 28,000 rent leaving 玉山 on the 6th, and transfer pairing offers
+  // the two as one cross-currency transfer every month it lands in tolerance.
+  const PLAN_MATCH = 0.4;
+
+  // How many months a book covers unless told otherwise: three years, which is
+  // as far back as the 401(k)'s prices go and long enough for its line to be a
+  // market's rather than a ramp's.
+  const DEMO_MONTHS = PLAN_FUNDS[0].prices.length - 1;
 
   const HOLDINGS = [
     // `decimals` is each market's default (TW whole shares, US to four, a coin
@@ -151,10 +177,49 @@
   // the top of the 固定扣款 list, which is a confusing first thing to see.
   const PAIRS_LEFT_OPEN = 2;
 
-  function buildDemoBook({ to, months: monthCount = 18, now, uuid } = {}) {
+  // The 401(k), month by month, the way its statements tell it. On payday the
+  // deferral and the match arrive as income and buy the two funds at the
+  // month's midpoint price. Once a month is over its statement arrives, and the
+  // change in market value it reports goes in as a `valuation` row that brings
+  // the balance to the statement's figure — so the account's line is the
+  // plan's value, with the drawdown in it, and the spending page never sees it.
+  // The current month's statement has not arrived: its contributions sit on
+  // top of last month's value, which is what the account would show today.
+  //
+  // RNG-free, like the price history below, so the jittered rows elsewhere in
+  // the book come out exactly as they would without it.
+  function planMonths(months, opening) {
+    const n = months.length;
+    const prices = PLAN_FUNDS.map((f) => f.prices.slice(f.prices.length - n - 1));
+    const units = PLAN_FUNDS.map((f, i) => (opening * f.weight) / prices[i][0]);
+    let balance = opening;
+    return new Map(months.map((m, k) => {
+      const deferral = PLAN_DEFERRAL + PLAN_RAISE * Math.floor(k / 12);
+      const match = round2(deferral * PLAN_MATCH);
+      const rows = [
+        { date: dayIn(m, 5), amount: deferral, description: 'EMPLOYEE DEFERRAL', kind: 'income', category: '退休提撥' },
+        { date: dayIn(m, 5), amount: match, description: 'EMPLOYER MATCH', kind: 'income', category: '退休提撥' },
+      ];
+      PLAN_FUNDS.forEach((f, i) => {
+        units[i] += ((deferral + match) * f.weight) / ((prices[i][k] + prices[i][k + 1]) / 2);
+      });
+      balance = round2(balance + deferral + match);
+      if (k < n - 1) {
+        const worth = round2(PLAN_FUNDS.reduce((s, f, i) => s + units[i] * prices[i][k + 1], 0));
+        rows.push({ date: lastDayOf(m), amount: round2(worth - balance), description: 'CHANGE IN MARKET VALUE', kind: 'valuation', category: '' });
+        balance = worth;
+      }
+      return [m, rows];
+    }));
+  }
+
+  function buildDemoBook({ to, months: monthCount = DEMO_MONTHS, now, uuid } = {}) {
     if (!to) throw new Error('buildDemoBook 需要 to（最後一個月的日期）');
     if (typeof now !== 'function' || typeof uuid !== 'function') {
       throw new Error('buildDemoBook 需要注入 now() 和 uuid()，否則每次建出來的書都不一樣');
+    }
+    if (monthCount > DEMO_MONTHS) {
+      throw new Error(`buildDemoBook 最多 ${DEMO_MONTHS} 個月：401(k) 的基金價格只編了這麼長`);
     }
     const { wobble, rnd, pick } = makeRandom(20260921);
     const stamp = now();
@@ -174,6 +239,7 @@
     const draft = [];
     const add = (account, date, amount, description, extra = {}) =>
       draft.push({ account, date, amount: round2(amount), description, category: '', kind: 'other', ...extra });
+    const plan = planMonths(months, ACCOUNTS.find((a) => a.key === 'k401').opening);
     const transfer = (pair, out, into) => {
       add(out.account, out.date, out.amount, out.description, { pair });
       add(into.account, into.date, into.amount, into.description, { pair });
@@ -240,15 +306,13 @@
 
       // Payroll deferral and the employer's match, straight into the plan.
       // They never pass through checking, so they are income here rather than
-      // one leg of a transfer. Fixed amounts, and no call on the jitter, so
-      // every other row in the book comes out exactly as it did without them.
+      // one leg of a transfer.
       //
       // On payday, the 5th, like the salary. The book is built to today, and a
       // row later in the month is a row from the future: on the 28th the plan
       // spent most of every month short of its balance and a month behind on
       // the coverage page.
-      add('k401', dayIn(m, 5), 650, 'EMPLOYEE DEFERRAL', { kind: 'income', category: '退休提撥' });
-      add('k401', dayIn(m, 5), 325, 'EMPLOYER MATCH', { kind: 'income', category: '退休提撥' });
+      for (const r of plan.get(m)) add('k401', r.date, r.amount, r.description, { kind: r.kind, category: r.category });
 
       // A brokerage buy every third month: cash moves across (a transfer),
       // then the purchase itself leaves the settlement account (not a
@@ -274,6 +338,9 @@
     const instId = new Map(INSTITUTIONS.map((i, n) => [i.key, n + 1]));
     const acctId = new Map(ACCOUNTS.map((a, n) => [a.key, n + 1]));
     const movedOn = (key) => draft.filter((t) => t.account === key).reduce((s, t) => s + t.amount, 0);
+    // The target minus everything that happened, unless the account states
+    // what it opened with (the 401(k), whose end is wherever its funds went).
+    const openingOf = (a) => (a.opening !== undefined ? a.opening : round2(a.target - movedOn(a.key)));
 
     const institutions = INSTITUTIONS.map((i, n) => ({
       id: n + 1, name: i.name, kind: i.kind, country: i.country,
@@ -289,7 +356,7 @@
       name: a.name,
       kind: a.kind,
       currency: a.currency,
-      opening_balance: round2(a.target - movedOn(a.key)),
+      opening_balance: openingOf(a),
       opening_date: `${months[a.openAt]}-01`,
       is_active: 1,
       sort_order: n,
@@ -414,7 +481,7 @@
     const balanceOn = (key, date) => {
       const a = ACCOUNTS.find((x) => x.key === key);
       const upTo = draft.filter((t) => t.account === key && t.date <= date).reduce((s, t) => s + t.amount, 0);
-      return round2(a.target - movedOn(key) + upTo);
+      return round2(openingOf(a) + upTo);
     };
     const checkDate = lastDayOf(months[months.length - 2]);
     const balance_checks = [
@@ -512,7 +579,7 @@
 
   const api = {
     buildDemoBook, buildDemoStatement,
-    INSTITUTIONS, ACCOUNTS, HOLDINGS, RULES, PAIRS_LEFT_OPEN,
+    INSTITUTIONS, ACCOUNTS, HOLDINGS, RULES, PAIRS_LEFT_OPEN, DEMO_MONTHS,
   };
   Object.assign(root, api);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

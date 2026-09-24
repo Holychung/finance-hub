@@ -146,11 +146,12 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-525 tests across 86 suites cover Big5 decoding, ROC dates, two-digit years,
+532 tests across 86 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
-off net worth and never off a balance, the
+off net worth and never off a balance, a change in market value moving a
+balance and no total, the
 price-history lookup (latest at or before a date, and nothing dragged back
 before the first observation) and the v6 backfill that seeds it,
 pre-import backup, balance reconciliation, import revert, CSV BOM, the three
@@ -342,6 +343,14 @@ thousand random Unicode strings.
   ledger only, leaves it out. `tax_status` is a label and never arithmetic;
   `test/money.test.js` fails if `shared/money.js` reads it. The API refuses a
   negative or unreadable `unvested` rather than letting `N()` make it 0.
+- **A change in market value is a row, and it moves no money.** The balance
+  gets to the statement's figure through `kind: 'valuation'` rows — the
+  difference a balance check shows, or a balance-only plan's reported gain —
+  so the ledger stays a sum of rows and the series stays ledger only. `flow:
+  false` on the kind in `shared/kinds.js` is what keeps it out of spending,
+  the recurring detector and transfer pairing; `NON_FLOW_KINDS` is derived
+  from the flag and `test/kinds.test.js` pins that. Nothing computes a
+  valuation: the statement states it, the way it states the balance.
 - Net worth series is **ledger only**. Holdings have no price history in phase 1,
   so folding today's market value into past points draws a line that never
   existed. Keep it that way until broker sync supplies real history.

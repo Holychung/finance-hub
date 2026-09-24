@@ -100,7 +100,7 @@ function demoSeed() {
   let n = 0;
   return buildDemoBook({
     to: new Date().toISOString().slice(0, 10),
-    months: 18,
+    months: DEMO_MONTHS,
     now: () => new Date().toISOString(),
     uuid: () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : `demo-group-${++n}`),
   });
