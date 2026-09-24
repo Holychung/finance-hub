@@ -76,6 +76,12 @@ const ALLOWED_URLS = [
   [/^https:\/\/query1\.finance\.yahoo\.com\/v8\/finance\/chart\//,
     'opt-in daily close fetch, server-side, off by default',
     /(^|\/)server\/prices\.js$/],
+  // Not a request at all: the page address Chrome prints in the footer of a saved
+  // NetBenefits statement, laid into a fixture PDF as text by the fixture builder.
+  // Pinned to that one file and to the exact address, like the exception above.
+  [/^https:\/\/workplaceservices\.fidelity\.com\/mybenefits\/savings2\/sod\/soddetail$/,
+    'text printed into a fixture statement footer, never fetched',
+    /(^|\/)scripts\/fixtures\/fidelity-statement-html\.js$/],
 ];
 
 function sourceFiles(dir, found = []) {
