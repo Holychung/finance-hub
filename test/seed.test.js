@@ -238,7 +238,7 @@ describe('示範資料的產生器', () => {
       return out;
     };
 
-    for (const table of ['institutions', 'accounts', 'imports', 'txns', 'holdings', 'prices', 'fx_rates', 'balance_checks', 'rules']) {
+    for (const table of ['institutions', 'accounts', 'imports', 'txns', 'holdings', 'prices', 'fx_rates', 'balance_checks', 'rules', 'budgets']) {
       const written = db.prepare(`SELECT * FROM ${table}`).all().map(scrub);
       const built = book[table].map(scrub);
       assert.equal(written.length, built.length, `${table} 的筆數`);
@@ -260,6 +260,23 @@ describe('示範資料的產生器', () => {
     // And they must match rows the statements left blank, not overwrite the
     // categories the card exports supplied.
     for (const c of planned) assert.equal(c.from, '', `${c.id} 本來就有分類了`);
+  });
+
+  // The card has to open on both states. A book whose budgets are all
+  // comfortably under demonstrates a progress bar, not a budget; one whose
+  // budgets name categories nobody spends in shows bars stuck at zero.
+  it('預算有種：上一個完整的月份有超支、也有還在預算內的，而且每條都真的有花', () => {
+    const { txns, accounts } = rows(db);
+    const budgets = db.prepare('SELECT * FROM budgets ORDER BY id').all();
+    assert.ok(budgets.length >= 4, '預算卡空的就示範不了預算');
+    const month = '2026-08';
+    const res = SP.computeBudgets({ budgets, txns, accounts, month, today: TO });
+    const items = Object.values(res.currencies).flatMap((c) => c.items);
+    assert.equal(items.length, budgets.length);
+    assert.ok(items.some((i) => i.remaining < 0), `${month} 沒有任何一條超支`);
+    assert.ok(items.some((i) => i.remaining >= 0), `${month} 每一條都超支了`);
+    for (const i of items) assert.ok(i.count > 0, `「${i.category}」${i.currency} 那個月一筆都沒有，是分類打錯了`);
+    assert.ok(new Set(budgets.map((b) => b.currency)).size >= 2, '兩個幣別都要有，幣別分頁才示範得到');
   });
 });
 

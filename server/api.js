@@ -511,6 +511,91 @@ on('GET', '/api/recurring', (_p, _b, q) => {
   return SP.computeRecurring({ txns: spendingRows(from, to), accounts: accountCurrencies(), to });
 });
 
+// --- budgets ---------------------------------------------------------------
+
+// A month is written the way the ledger slices one off a date. No month means
+// the running one; a month that is not a month is refused rather than read as
+// the running one, which would answer a typo with a plausible card.
+function monthOf(v) {
+  if (v === undefined || v === null || v === '') return M.todayISO().slice(0, 7);
+  const m = S(v).trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) bad(`月份要寫成 YYYY-MM：${m}`);
+  return m;
+}
+
+// 未分類 is the ledger not knowing yet, not a place money was meant to go, so
+// it cannot carry a budget — by its empty key or by the word the page shows.
+function budgetCategoryOf(v) {
+  const c = S(v).trim();
+  if (!c || c === SP.UNCATEGORISED_LABEL) bad(`預算要有分類，而且不能是「${SP.UNCATEGORISED_LABEL}」`);
+  return c;
+}
+
+// Any three-letter code, as an account's currency may be. Nothing converts, so
+// the currency is which accounts' spending the budget counts.
+function budgetCurrencyOf(v) {
+  const c = S(v).trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(c)) bad('幣別要是三個英文字母，例如 TWD');
+  return c;
+}
+
+// Refused rather than coerced: N() turns garbage into 0, and a budget of 0 is a
+// bar that is over budget the moment anything is bought.
+function budgetAmountOf(v) {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
+  if (!Number.isFinite(n) || n <= 0) bad('預算金額要是大於 0 的數字');
+  return M.round2(n);
+}
+
+// The table's UNIQUE would refuse it too, in SQLite's words; this says it in
+// the user's, and the demo answers with the same sentence.
+function refuseDuplicateBudget(category, currency, id) {
+  const clash = db
+    .prepare('SELECT id FROM budgets WHERE category = ? AND currency = ? AND id <> ?')
+    .get(category, currency, id);
+  if (clash) bad(`「${category}」已經有 ${currency} 的預算了`);
+}
+
+// The rows are the month's own window, cut at today by computeBudgets itself —
+// the same cut the breakdown makes. `-31` is the last day any month can have,
+// and dates compare as strings, so no calendar is needed to bound the query.
+on('GET', '/api/budgets', (_p, _b, q) => {
+  const month = monthOf(q.month);
+  return SP.computeBudgets({
+    budgets: db.prepare('SELECT * FROM budgets ORDER BY id').all(),
+    txns: spendingRows(`${month}-01`, `${month}-31`),
+    accounts: accountCurrencies(),
+    month,
+    today: M.todayISO(),
+  });
+});
+
+on('POST', '/api/budgets', (_p, b) => {
+  const category = budgetCategoryOf(b.category);
+  const currency = budgetCurrencyOf(b.currency);
+  const amount = budgetAmountOf(b.amount);
+  refuseDuplicateBudget(category, currency, 0);
+  const r = db
+    .prepare('INSERT INTO budgets (category, currency, amount, created_at) VALUES (?, ?, ?, ?)')
+    .run(category, currency, amount, now());
+  return { id: Number(r.lastInsertRowid) };
+});
+
+on('PUT', '/api/budgets/:id', (p, b) => {
+  const cur = db.prepare('SELECT * FROM budgets WHERE id = ?').get(N(p.id)) || missing('預算不存在');
+  const category = b.category === undefined ? cur.category : budgetCategoryOf(b.category);
+  const currency = b.currency === undefined ? cur.currency : budgetCurrencyOf(b.currency);
+  const amount = b.amount === undefined ? cur.amount : budgetAmountOf(b.amount);
+  refuseDuplicateBudget(category, currency, cur.id);
+  db.prepare('UPDATE budgets SET category = ?, currency = ?, amount = ? WHERE id = ?')
+    .run(category, currency, amount, cur.id);
+  return { ok: true };
+});
+
+on('DELETE', '/api/budgets/:id', (p) => ({
+  deleted: db.prepare('DELETE FROM budgets WHERE id = ?').run(N(p.id)).changes,
+}));
+
 // --- categorisation rules --------------------------------------------------
 
 const listRules = () => R.sortRules(db.prepare('SELECT * FROM rules').all());
@@ -893,6 +978,7 @@ on('GET', '/api/export/json', () => ({
   fx_rates: db.prepare('SELECT * FROM fx_rates').all(),
   balance_checks: db.prepare('SELECT * FROM balance_checks').all(),
   mappings: db.prepare('SELECT * FROM mappings').all(),
+  budgets: db.prepare('SELECT * FROM budgets').all(),
 }));
 
 module.exports = { routes, HttpError };

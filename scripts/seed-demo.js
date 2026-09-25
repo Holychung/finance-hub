@@ -84,13 +84,13 @@ const columnsOf = (rows) => [...new Set(rows.flatMap((r) => Object.keys(r)))];
 db.exec('BEGIN');
 try {
   if (FORCE) {
-    for (const t of ['txns', 'holdings', 'prices', 'balance_checks', 'imports', 'accounts', 'institutions', 'fx_rates', 'rules']) {
+    for (const t of ['txns', 'holdings', 'prices', 'balance_checks', 'imports', 'accounts', 'institutions', 'fx_rates', 'rules', 'budgets']) {
       db.prepare(`DELETE FROM ${t}`).run();
     }
   }
 
   // Insertion order matters: a foreign key points at a row that has to exist.
-  for (const table of ['institutions', 'accounts', 'imports', 'txns', 'holdings', 'prices', 'fx_rates', 'balance_checks', 'rules']) {
+  for (const table of ['institutions', 'accounts', 'imports', 'txns', 'holdings', 'prices', 'fx_rates', 'balance_checks', 'rules', 'budgets']) {
     if (!book[table].length) continue;
     const cols = columnsOf(book[table]);
     const stmt = db.prepare(
@@ -111,6 +111,7 @@ const counts = {
   持股: db.prepare('SELECT COUNT(*) AS n FROM holdings').get().n,
   匯入紀錄: db.prepare('SELECT COUNT(*) AS n FROM imports').get().n,
   分類規則: db.prepare('SELECT COUNT(*) AS n FROM rules').get().n,
+  預算: db.prepare('SELECT COUNT(*) AS n FROM budgets').get().n,
 };
 console.log(`
   示範資料已寫入 ${paths.DB_PATH}
