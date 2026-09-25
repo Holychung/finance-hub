@@ -113,6 +113,8 @@ scripts/seed-demo.js          invented data for a demo profile; refuses the
                               personal ledger outright
 scripts/pack-demo.js          copies web/ + shared/ into dist/ for a static
                               host; adds a CSP and a commit stamp, nothing else
+wrangler.jsonc                the hosted demo's deploy config — read on
+                              Cloudflare's build machine, by nothing here
 scripts/fixtures/             builds the invented Fidelity statement PDF, its
                               history and its figures; needs Chrome, run by
                               hand, never by the suite
@@ -146,7 +148,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-532 tests across 86 suites cover Big5 decoding, ROC dates, two-digit years,
+537 tests across 87 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -166,7 +168,8 @@ schema migration runner, the pure half of `money.js`, the demo adapter
 answering the same as a real server, the demo book being one definition the
 seeder and the browser both open, `shared/` loading
 identically under `require` and as a plain `<script>`, the storage seam, the
-hosted copy containing every file `index.html` asks for and nothing else, and
+hosted copy containing every file `index.html` asks for and nothing else, the
+deploy config serving the packer's directory on one hostname, and
 the whole frontend loading in `index.html`'s order with every view
 registered. All must pass. Add cases for anything new.
 
@@ -763,6 +766,21 @@ the browser; the server's only job is to answer when someone refreshes on one.
   sentence is most of what this project is. `test/pack.test.js` compares
   every packed file against its original and pins the directory listing, so
   a third addition has to be a decision somebody made.
+
+  **The deploy is that same copy, run by Cloudflare.** `wrangler.jsonc` makes
+  the demo an assets-only Worker built by Workers Builds on a merge to
+  `main`: Cloudflare clones, runs `pack-demo.js`, serves `dist/`. wrangler
+  runs on its machine, so the zero-dependency rule holds here unchanged. The
+  hostname is bound in the dashboard, not in the file, so a deploy never
+  touches DNS. The proxy in front rewrites HTML by default — a free zone
+  injects the Web Analytics beacon into every page — so `_headers` carries
+  `no-transform` (Cloudflare documents its proxy will not touch such a
+  response) and the hostname gets a Configuration Rule turning the rewriters
+  off; `docs/security.md` has the rule and the post-deploy byte comparison,
+  which is the real check: a same-origin `/cdn-cgi/` script passes
+  `script-src 'self'`, so the CSP cannot be the thing that notices.
+  `test/pack.test.js` pins `wrangler.jsonc` to the packer's output directory,
+  to the SPA fallback and to a single hostname.
 
   **The commit stamp is an AGPL §13 obligation, not a nicety.** A hosted copy
   is a modified version served over a network, so its users must be
