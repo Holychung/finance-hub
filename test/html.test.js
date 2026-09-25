@@ -179,7 +179,7 @@ describe('前端靜態防線', () => {
   // far enough to get through the top-level wiring. Nothing is rendered and
   // nothing is asserted about behaviour — the claim is only that the app
   // gets as far as having registered its views.
-  it('照同樣的順序真的載得起來，而且九個 view 都註冊了', () => {
+  it('照同樣的順序真的載得起來，而且十個 view 都註冊了', () => {
     const doc = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8');
     const order = [...doc.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1].replace(/^\//, ''));
 
@@ -238,7 +238,7 @@ describe('前端靜態防線', () => {
     // to have registered itself by then.
     const registered = vm.runInContext('Object.keys(views).sort()', ctx);
     assert.deepEqual([...registered].sort(),
-      ['account', 'accounts', 'coverage', 'holdings', 'import', 'overview', 'settings', 'spending', 'transactions'],
+      ['account', 'accounts', 'ai', 'coverage', 'holdings', 'import', 'overview', 'settings', 'spending', 'transactions'],
       '載入後 views 裡缺了東西，路由會默默退回總覽');
   });
 

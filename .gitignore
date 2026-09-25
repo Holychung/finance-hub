@@ -43,6 +43,11 @@ finance_backup*.json
 *.pfx
 *.p12
 
+# AI 健檢's API keys, and the file they are written through. They live beside
+# the book, which is outside any checkout — until FINANCE_DB points a scratch
+# book into one, and then the key file lands right beside it.
+ai-keys.json*
+
 .DS_Store
 node_modules/
 

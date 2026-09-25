@@ -32,7 +32,9 @@ place is your own machine.*
   過什麼，不告訴你該怎麼花錢。
 - **不會自己去抓股價。** 第一階段完全不對外連線，持股現價要自己填。要改成會抓的，那是第二
   階段，而且必須是可以關掉的選項。
-- **沒有 AI 功能。** 產品決定，不是還沒做。
+- **AI 只有一個，而且預設關閉。** AI 健檢會在你按下送出時，把資產全覽送到你自己選的 Claude、
+  OpenAI 或 Gemini（用你自己的 key），請它審計帳本或給建議。不打開就一個字都不送；送出前頁面上
+  看得到要送的全文。細節在 [`docs/ai.md`](docs/ai.md)。
 - **不給你一個跨幣別的單一總淨值**——設了匯率也一樣不會加總。USD 和 TWD 湊成一個數字只是
   估計值，而且會在你改匯率時默默變動。理由在 [`docs/money.md`](docs/money.md)。
 - **不是產品。** 一個人維護的個人專案，沒有保固、沒有支援、沒有相容性承諾——AGPL 第 15、
@@ -110,6 +112,7 @@ python3 -m http.server -d dist 8000    # 想先自己看一眼
 | [`docs/spending.md`](docs/spending.md) | 消費分析、分類規則、固定扣款怎麼認出來的 |
 | [`docs/data.md`](docs/data.md) | 帳本放在哪、profile、備份、不讓資料跑進版控 |
 | [`docs/security.md`](docs/security.md) | 為什麼只綁 `127.0.0.1` 還不夠，四道防線各擋什麼 |
+| [`docs/ai.md`](docs/ai.md) | AI 健檢送出什麼、送到哪裡、什麼時候送、key 放在哪 |
 
 `CLAUDE.md` 是給改這份程式碼的人（或 agent）看的，比上面幾份細。
 

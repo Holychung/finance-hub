@@ -2,7 +2,9 @@
 
 A local-only personal asset ledger: bank accounts, brokerages, cards, loans, TW/US
 holdings, and every transaction, in one place. Data lives in
-`~/.finance-hub/finance.db` — outside any checkout — and never leaves the machine.
+`~/.finance-hub/finance.db` — outside any checkout — and never leaves the machine
+unless its owner turns on one of the two opt-in exceptions below and, for AI
+健檢, presses 送出.
 
 ## Hard rules
 
@@ -43,18 +45,34 @@ holdings, and every transaction, in one place. Data lives in
   directory whose name merely starts with `web`. There are two roots now —
   `web/` and, under `/shared/`, `shared/` — and the rule is per root, not a
   single check widened to cover both.
-- **No outbound network calls, with exactly one opt-in exception.** The default
-  is still offline: `test/deps.test.js` scans `web/`, `shared/`, `server/` and
-  `scripts/` for external URLs and `style.css` for external `url()` / `@import` —
-  a font import is the quiet version of this, and it tells a stranger's server,
-  on every page load, that this machine just opened its ledger. The one
-  exception is the daily close fetch in `server/prices.js` (Yahoo), **off by
-  default**, run **server-side** so the browser page still never connects out
-  (its CSP is unchanged), and allowed by the deps scan **only in that one file**
-  — the exception is pinned to a file, not loosened everywhere. Broker APIs are
-  still to come and hold to the same shape: opt-in, off switch, server-side.
-  Anything new that reaches the network is one of these or it is a bug.
-- **No AI features.** Deliberate product decision, not an oversight.
+- **No outbound network calls, with exactly two opt-in exceptions.** The
+  default is still offline: `test/deps.test.js` scans `web/`, `shared/`,
+  `server/` and `scripts/` for external URLs and `style.css` for external
+  `url()` / `@import` — a font import is the quiet version of this, and it
+  tells a stranger's server, on every page load, that this machine just opened
+  its ledger. The exceptions are the daily close fetch in `server/prices.js`
+  (Yahoo) and AI 健檢 in `server/ai.js` (Anthropic, OpenAI, Gemini). Both are
+  **off by default**, run **server-side** so the browser page still never
+  connects out (its CSP is unchanged), and are allowed by the deps scan **only
+  in their own file**, each endpoint anchored at both ends — an exception is
+  pinned to a file, not loosened everywhere. Broker APIs are still to come and
+  hold to the same shape: opt-in, off switch, server-side. Anything new that
+  reaches the network is one of these or it is a bug.
+- **AI is one opt-in feature, AI 健檢, and nothing more.** This replaced "No AI
+  features" on 2026-09-25, and the limits are the point. It sends exactly two
+  things — a fixed instruction (`MODES` in `server/ai.js`) and the 匯出全覽
+  document, byte for byte (`test/api.test.js` holds the preview equal to the
+  export) — only when somebody presses 送出, never at startup or on a timer,
+  and the page shows both before the button. 送出 carries the preview's digest
+  back; the server rebuilds the document from the book and refuses a mismatch
+  with a 409, so what is sent is what was shown or nothing. It reads nothing but that
+  document and writes nothing to the ledger. The key lives beside the book in
+  `ai-keys.json` (`paths.AI_KEYS_PATH`, mode 600) or in the provider's usual
+  environment variable, **never in the database**, because every snapshot is a
+  copy of the database; no response carries it back. The answer is text from
+  somewhere this app does not control, so `view-ai.js` rebuilds its few
+  Markdown shapes as elements and never turns a link into one. The hosted demo
+  refuses every AI route. Nothing else in the app may call a model.
 
 ## Layout
 
@@ -79,8 +97,11 @@ shared/overview.js  the whole book as one model, and the Markdown file that
 shared/demo-seed.js  the demo book, and the sample statement — invented, built
                   fresh from a date, opened by both the seeder and the browser
 server/money.js   the loaders — one query-runner per `compute*` in shared/
-server/prices.js  the app's one outbound call — opt-in daily close fetch, off
-                  by default, server-side; deps-test allows Yahoo only here
+server/prices.js  outbound call one — opt-in daily close fetch, off by
+                  default, server-side; deps-test allows Yahoo only here
+server/ai.js      outbound call two — AI 健檢: providers, the instruction, the
+                  key file, the one request; deps-test allows the three
+                  providers' endpoints only here
 server/api.js     JSON handlers, registered via on(method, pattern, fn)
 server/index.js   HTTP server, request guards, routing, static files; loads what
                   the CSV and overview exports write, and names the download
@@ -102,6 +123,8 @@ test/migrate.test.js the schema migration runner
 test/seed.test.js    what the demo seeder must produce to be worth running
 test/money.test.js   the pure half of money.js, over plain arrays
 test/prices.test.js  the close fetch, offline — injected getter, throwaway db
+test/ai.test.js      AI 健檢, offline — each provider's shapes, the key file,
+                     review() over an injected sender, the answer's rendering
 test/currency.test.js  the scale follows the currency, and round2 is unchanged
 test/kinds.test.js   the kind list is complete, and the rules encoded in it
 test/sha1.test.js    SHA-1 against node:crypto, and shared/ loaded both ways
@@ -120,15 +143,16 @@ scripts/pack-demo.js          copies web/ + shared/ into dist/ for a static
 scripts/fixtures/             builds the invented Fidelity statement PDF, its
                               history and its figures; needs Chrome, run by
                               hand, never by the suite
-githooks/pre-commit           refuses staged .db / .csv / .pdf / .env
+githooks/pre-commit           refuses staged .db / .csv / .pdf / .env / ai-keys.json
 docs/design/                  design comps, as a record — history, not spec
 ```
 
 Handlers may be `async` — the router awaits them. Keep them sync unless the
-work genuinely is not; **none of them is today**. The pre-import snapshot used
-to be the one exception and stopped being one when `snapshot()` moved from the
-async `backup()` to a synchronous `VACUUM INTO`, which it had to do so the
-migration runner could take one at require time.
+work genuinely is not; **two are not**, and both are network waits: the price
+refresh and AI 健檢's review. The pre-import snapshot used to be async too and
+stopped being so when `snapshot()` moved from the async `backup()` to a
+synchronous `VACUUM INTO`, which it had to do so the migration runner could
+take one at require time.
 
 ## Test before declaring done
 
@@ -150,7 +174,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-566 tests across 91 suites cover Big5 decoding, ROC dates, two-digit years,
+615 tests across 100 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -163,9 +187,12 @@ request guards and the CSP, the malformed-statement handling below, the
 pipeline invariant over every bank fixture, pending rows and a retirement
 plan's exchanges never importing, a plan's history and its statement agreeing
 to the cent, the
-zero-dependency and no-outbound rules (with the one opt-in close fetch tested
-offline through an injected getter, and the deps scan pinning Yahoo to
-`server/prices.js`), the ledger location rules, the
+zero-dependency and no-outbound rules (with the two opt-in exceptions tested
+offline — the close fetch through an injected getter, AI 健檢 through an
+injected sender, with a stale digest refused before anything is sent — and the deps scan
+pinning Yahoo to `server/prices.js` and the three AI providers to
+`server/ai.js`), AI 健檢's key living beside the book and never in it, the
+ledger location rules, the
 schema migration runner, the pure half of `money.js`, the demo adapter
 answering the same as a real server, the demo book being one definition the
 seeder and the browser both open, `shared/` loading
@@ -530,7 +557,10 @@ Protection against committing data is layered, because any single layer fails:
 walks past it and an
 already-tracked file is never reconsulted; `githooks/pre-commit` reads what is
 actually staged and refuses it. Enable it per clone with
-`git config core.hooksPath githooks`.
+`git config core.hooksPath githooks`. AI 健檢's `ai-keys.json` is in both
+layers too: it lands beside the book, so a scratch book pointed into a checkout
+with `FINANCE_DB` puts a live key in the working tree, and `test/ai.test.js`
+runs both layers against a throwaway repo to prove neither lets it through.
 
 ## Adding a bank
 
@@ -735,11 +765,13 @@ the browser; the server's only job is to answer when someone refreshes on one.
   `test/demo-store.test.js` runs the same sequence of writes through both —
   the server over HTTP against a throwaway database, the demo over its Map —
   and compares every read. A handler that answers something the views cannot
-  use fails there rather than in a browser. Only two things are allowed to
-  differ and both are asserted rather than normalised away: `/api/settings`
-  (that is how the chrome says which one you are looking at) and the ids
-  handed out after a delete, because SQLite reuses a rowid and the demo store
-  counts monotonically on purpose.
+  use fails there rather than in a browser. Only three things are allowed to
+  differ and all three are asserted rather than normalised away: `/api/settings`
+  (that is how the chrome says which one you are looking at), the ids handed
+  out after a delete, because SQLite reuses a rowid and the demo store counts
+  monotonically on purpose, and AI 健檢's routes, which the demo cannot serve
+  — no server to make the call, and a CSP that forbids the page one — so
+  `/api/ai` says so and every other AI route is refused in that same sentence.
 - **The overview export is one Markdown file, written in `shared/`.**
   `shared/overview.js` composes what the other `compute*` already returned —
   nothing is re-derived, so the file cannot disagree with the screen — and
@@ -1006,6 +1038,8 @@ the subject, in the same change as the code**:
   export, keeping data out of version control. A change to
   `shared/overview.js` lands here.
 - `docs/security.md` — the three request guards and the CSP, and what each stops.
+- `docs/ai.md` — AI 健檢: what is sent, where, when, and where the key lives.
+  A change to `server/ai.js` lands here.
 
 `docs/design/` is a record of design comps — history, not spec — and
 `docs/plans/` holds work not yet done. Neither is a place to document behaviour.
