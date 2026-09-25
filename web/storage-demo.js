@@ -1132,16 +1132,20 @@
       return { name: `${name}_${today()}.csv`, type: 'text/csv;charset=utf-8', body };
     }
 
-    // Revoked on the next call rather than left to the page's lifetime: a
-    // settings view re-rendered fifty times would otherwise hold fifty copies
-    // of the ledger alive.
-    let lastUrl = null;
+    // One live URL per export, revoked when that export's link is built again.
+    // Revoking whichever URL came last — what this did at first — stopped a
+    // settings view re-rendered fifty times from holding fifty copies of the
+    // ledger alive, but a page builds all its links in one render, so every
+    // link except the newest pointed at a revoked blob: settings' 完整 JSON
+    // 備份 and its first CSVs downloaded nothing. Per path keeps both halves.
+    const liveUrls = new Map();
     function exportHref(path) {
       if (typeof URL.createObjectURL !== 'function') return path;
-      if (lastUrl) URL.revokeObjectURL(lastUrl);
+      if (liveUrls.has(path)) URL.revokeObjectURL(liveUrls.get(path));
       const { body, type } = exportFile(path);
-      lastUrl = URL.createObjectURL(new Blob([body], { type }));
-      return lastUrl;
+      const url = URL.createObjectURL(new Blob([body], { type }));
+      liveUrls.set(path, url);
+      return url;
     }
 
     return {

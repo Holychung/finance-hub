@@ -505,6 +505,33 @@ describe('demo adapter — 用一個純 Map 驅動', () => {
     assert.match(buildDemoStatement('2026-03-05').text, /115\/02\/28,/);
   });
 
+  // A page builds all its export links in one render — settings builds five —
+  // and each call used to revoke the URL the call before it had handed out,
+  // so in the demo only the last link on the page downloaded anything.
+  it('同一頁有好幾個匯出連結，每一個都還下載得到', async () => {
+    const { s } = build({});
+    await s.post('/api/accounts', { name: '活存', currency: 'TWD', opening_balance: 1000 });
+    const { createObjectURL, revokeObjectURL } = URL;
+    const revoked = new Set();
+    let n = 0;
+    URL.createObjectURL = () => `blob:demo/${++n}`;
+    URL.revokeObjectURL = (u) => revoked.add(u);
+    try {
+      const json = s.exportHref('/api/export/json');
+      const csv = s.exportHref('/api/export/csv?type=txns');
+      assert.ok(!revoked.has(json), '建第二個連結就把第一個的網址收回去了');
+      // The next render builds the same links again, and only then is the old
+      // URL for the same export let go — or every render would keep another
+      // copy of the ledger alive.
+      s.exportHref('/api/export/json');
+      assert.ok(revoked.has(json), '同一個匯出重建時，舊的網址要放掉');
+      assert.ok(!revoked.has(csv));
+    } finally {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    }
+  });
+
   it('匯出的是真的檔案內容，不是一個開不起來的 blob 網址', async () => {
     const { s } = build({});
     await s.post('/api/accounts', { name: '活存', currency: 'TWD', opening_balance: 1000 });
