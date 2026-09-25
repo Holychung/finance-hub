@@ -1,6 +1,7 @@
 'use strict';
 
-// /spending — 錢花到哪去了：每月進出、分類佔比、固定扣款，還有決定分類的規則。
+// /spending — 錢花到哪去了：每月進出、分類佔比、每月預算、固定扣款，還有決定
+// 分類的規則。
 //
 // 一個幣別一組數字，跟總覽同一條規則：USD 和 TWD 沒有匯率加不起來，湊一個
 // 「這個月花了 84,000」出來是把估計值講成事實。所以幣別是分頁不是加總。
@@ -10,6 +11,9 @@
 
 let spendingYears = 1;
 let spendingCur = null;
+// 預算看哪個月：0 是本月、-1 是上月。跟 spendingYears 一樣是頁面狀態，不進網址。
+let budgetOffset = 0;
+const BUDGET_MONTHS = [{ offset: 0, label: '本月' }, { offset: -1, label: '上月' }];
 
 const CADENCE_LABEL = { weekly: '每週', monthly: '每月', quarterly: '每季', yearly: '每年' };
 // 圖只畫得下四種顏色（--chart-1..4），第五條開始會從最亮的重新來過，看起來像
@@ -17,10 +21,11 @@ const CADENCE_LABEL = { weekly: '每週', monthly: '每月', quarterly: '每季'
 const BREAKDOWN_TOP = 4;
 
 views.spending = async () => {
-  const [sp, rec, rules] = await Promise.all([
+  const [sp, rec, rules, budgets] = await Promise.all([
     api(`/api/spending?years=${spendingYears}`),
     api('/api/recurring'),
     api('/api/rules'),
+    api(`/api/budgets?month=${monthAdd(today().slice(0, 7), budgetOffset)}`),
   ]);
 
   if (!sp.order.length) {
@@ -34,7 +39,7 @@ views.spending = async () => {
 
   const cur = sp.order.includes(spendingCur) ? spendingCur : sp.order[0];
   const d = sp.currencies[cur];
-  const label = (c) => c || '未分類';
+  const label = (c) => c || UNCATEGORISED_LABEL;
 
   // 圖只放前四名，其餘合併。表格在下面，一行都不少。
   const top = d.categories.slice(0, BREAKDOWN_TOP);
@@ -83,6 +88,8 @@ views.spending = async () => {
         下面的規則補上。
         <button class="sm" id="go-rules">去設規則</button>
       </div>` : ''}
+
+    ${budgetSection(budgets, cur, d.categories)}
 
     <section class="card">
       <h2 class="sec">每月支出</h2>
@@ -144,9 +151,127 @@ views.spending = async () => {
 
   $$('[data-years]').forEach((b) => (b.onclick = () => { spendingYears = Number(b.dataset.years); render(); }));
   $$('[data-cur]').forEach((b) => (b.onclick = () => { spendingCur = b.dataset.cur; render(); }));
+  $$('[data-bmonth]').forEach((b) => (b.onclick = () => { budgetOffset = Number(b.dataset.bmonth); render(); }));
   if ($('#go-rules')) $('#go-rules').onclick = () => $('#rules').scrollIntoView({ behavior: 'smooth' });
+  wireBudgets(budgets.currencies[cur], cur, budgetOffer(budgets, cur, d.categories));
   wireRules(rules);
 };
+
+// 預算：你自己填的每月數字，跟那個月實際花掉的並排。「花掉」就是分類明細同一個
+// computeSpending 算出來的數字，只是窗口換成那一個月，所以兩邊不可能對不上。
+// 這裡不預測、不給建議：本月還在進行的話，多一條「這個月過了幾天」的刻度，兩個
+// 事實擺在一起，要怎麼解讀是看的人的事。沒編預算的分類（含未分類）另外給一個
+// 數字，不然只看編了預算的那幾類，每個月都會比實際好看。
+const EMPTY_BUDGET = { items: [], budgeted: 0, spent: 0, unbudgeted: { total: 0, count: 0 } };
+
+// 新增表單的建議清單：這個幣別出現過、還沒編預算的分類。未分類不在裡面 —— 伺服器也
+// 不收，它是還沒分好，不是一個分類。
+function budgetOffer(b, cur, categories) {
+  const taken = new Set((b.currencies[cur] || EMPTY_BUDGET).items.map((i) => i.category));
+  return categories.map((c) => c.category).filter((k) => k && !taken.has(k));
+}
+
+function budgetSection(b, cur, categories) {
+  const c = b.currencies[cur] || EMPTY_BUDGET;
+  const offer = budgetOffer(b, cur, categories);
+  // 刻度只在進行中的月份出現。過完的月份沒有「過了幾天」可言。
+  const tick = b.days_elapsed === null ? null : ((b.days_elapsed / b.days_in_month) * 100).toFixed(1);
+
+  const row = (i) => {
+    const over = i.remaining < 0;
+    return html`<div class="budget-row">
+      <div class="budget-name">${i.category}<span class="sub-line">${nf(i.count)} 筆</span></div>
+      <div class="budget-track" aria-hidden="true">
+        <span class="budget-fill ${over ? 'over' : ''}" style="width:${Math.min(100, i.used_pct).toFixed(1)}%"></span>
+        ${tick === null ? '' : html`<span class="budget-tick" style="left:${tick}%"></span>`}
+      </div>
+      <div class="budget-fig">已花 ${money(i.spent, cur)}／預算 ${money(i.amount, cur)} · ${nf(i.used_pct)}%
+        <span class="sub-line ${over ? 'over' : ''}">${over
+          ? `超支 ${money(-i.remaining, cur)}`
+          : `剩 ${money(i.remaining, cur)}`}</span></div>
+      <div class="row-actions">
+        <button class="icon-btn" data-bedit="${i.id}" title="編輯"
+                aria-label="編輯「${i.category}」的預算">${icon('edit')}</button>
+        <button class="icon-btn danger" data-bdel="${i.id}" title="刪除"
+                aria-label="刪除「${i.category}」的預算">${icon('trash')}</button>
+      </div>
+    </div>`;
+  };
+
+  return html`
+    <section class="card" id="budgets">
+      <div class="budget-head">
+        <h2 class="sec">預算 · ${cur} · ${b.month}${b.running ? '（進行中）' : ''}</h2>
+        <div class="seg" role="group" aria-label="看哪個月的預算">${BUDGET_MONTHS.map((m) => html`<button
+          data-bmonth="${m.offset}" aria-pressed="${ariaBool(m.offset === budgetOffset)}">${m.label}</button>`)}</div>
+      </div>
+
+      ${c.items.length ? html`
+        <div class="budget-sum">
+          編了預算的 ${c.items.length} 類：已花 ${money(c.spent, cur)}／預算 ${money(c.budgeted, cur)}${tick === null
+            ? '' : ` · 這個月過了 ${b.days_elapsed}／${b.days_in_month} 天`}
+          <span class="sub-line">沒編預算的分類（含${UNCATEGORISED_LABEL}）花了
+            ${money(c.unbudgeted.total, cur)}，${nf(c.unbudgeted.count)} 筆</span>
+        </div>
+        <div class="budget-list">${c.items.map(row)}</div>`
+        : empty(`還沒有 ${cur} 的預算。在下面填一個分類每個月想花多少，這裡就會把實際花掉的跟它並排。`)}
+
+      <div class="row spaced">
+        <label class="field"><span>分類</span><input id="bg-category" list="bg-cats"
+          placeholder="${offer[0] || ''}"></label>
+        <label class="field"><span>每月預算（${cur}）</span><input id="bg-amount" type="number" min="0" step="any"></label>
+        <div class="shrink"><button class="primary" id="bg-add">新增預算</button></div>
+      </div>
+      <datalist id="bg-cats">${offer.map((k) => html`<option value="${k}"></option>`)}</datalist>
+    </section>`;
+}
+
+function wireBudgets(c = EMPTY_BUDGET, cur, offer) {
+  const add = $('#bg-add');
+  if (!add) return;
+  // 金額照原樣送：空的或不是數字，由伺服器用同一句話拒絕，不在這裡猜。
+  add.onclick = async () => {
+    try {
+      await post('/api/budgets', { category: $('#bg-category').value, currency: cur, amount: $('#bg-amount').value });
+      toast('已新增預算', 'ok');
+      render();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  $$('[data-bedit]').forEach((b) => (b.onclick = () =>
+    budgetForm(c.items.find((i) => i.id === Number(b.dataset.bedit)), offer)));
+  // 不另外確認：預算是自己打的一個數字，刪錯了再打一次就回來了。
+  $$('[data-bdel]').forEach((b) => (b.onclick = async () => {
+    try {
+      await del(`/api/budgets/${b.dataset.bdel}`);
+      toast('已刪除', 'ok');
+      render();
+    } catch (e) { toast(e.message, 'err'); }
+  }));
+}
+
+function budgetForm(item, offer) {
+  modal(`編輯「${item.category}」的預算`, html`
+    <div class="row">
+      <label class="field"><span>分類</span><input id="be-category" list="be-cats" value="${item.category}"></label>
+      <label class="field"><span>每月預算（${item.currency}）</span><input id="be-amount" type="number" min="0"
+        step="any" value="${item.amount}"></label>
+    </div>
+    <datalist id="be-cats">${offer.map((k) => html`<option value="${k}"></option>`)}</datalist>
+    <div class="note small">預算是每個月同一個數字，沒有歷史。改了之後，前面的月份也會拿新的數字來比。</div>
+    <div class="modal-foot">
+      <button data-close-modal>取消</button><button class="primary" id="be-save">儲存</button>
+    </div>
+  `, (body) => {
+    $('#be-save', body).onclick = async () => {
+      try {
+        await put(`/api/budgets/${item.id}`, { category: $('#be-category', body).value, amount: $('#be-amount', body).value });
+        closeModal();
+        toast('已儲存', 'ok');
+        render();
+      } catch (e) { toast(e.message, 'err'); }
+    };
+  });
+}
 
 function rulesSection(rules) {
   return html`

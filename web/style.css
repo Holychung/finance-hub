@@ -102,6 +102,9 @@
   --marker: 3px;
   --h-control:    34px;
   --h-control-sm: 28px;
+  /* The name beside a bar, in the breakdown and on the budget card alike, so
+     a column of bars starts in the same place in both. */
+  --bar-label: 120px;
   --dur: .12s;
 
   /* Two elevations, because there are two things that float. */
@@ -718,7 +721,7 @@ code {
 .chart-data[open] > summary { margin-bottom: var(--sp-8); }
 
 .bar-row { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); font-size: var(--fs-xs); }
-.bar-row .name { flex: 0 0 120px; color: var(--ink-2); }
+.bar-row .name { flex: 0 0 var(--bar-label); color: var(--ink-2); }
 .bar-track { flex: 1; height: var(--sp-8); background: var(--surface-2); border-radius: var(--r-1); overflow: hidden; }
 /* `display` is load-bearing, not cosmetic: .bar-fill is a <span> and
    .bar-track is a flex *item*, not a flex container, so nothing blockifies
@@ -730,6 +733,59 @@ code {
 /* A lone entry has no track to sit in, so the name takes the space the bar
    would have occupied instead of leaving the numbers stranded at the left. */
 .bar-row.solo .name { flex: 1 1 auto; }
+
+/* ---------- budgets ---------- */
+
+/* The card's heading carries its own month switch on the same line, so the
+   heading's bottom margin moves to the row that holds both. */
+.budget-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-12); margin-bottom: var(--sp-12);
+}
+.budget-head > h2.sec { margin: 0; }
+.budget-sum { font-size: var(--fs-xs); color: var(--ink-2); margin-bottom: var(--sp-12); }
+
+/* One budget per row: what it is for, how much of it the month has used, the
+   same in words, and the row's own actions. The rows share one set of columns
+   (a subgrid) because the figures differ in width from row to row: as a flex
+   row each bar ended somewhere else, and the month-so-far tick — the same day
+   in every row — landed in a different place on each. */
+.budget-list {
+  display: grid; grid-template-columns: var(--bar-label) minmax(80px, 1fr) auto auto;
+  column-gap: var(--sp-12);
+}
+.budget-row {
+  display: grid; grid-template-columns: subgrid; grid-column: 1 / -1;
+  align-items: center; row-gap: var(--sp-8);
+  padding: var(--sp-8) 0; border-bottom: 1px solid var(--line);
+}
+.budget-row:last-child { border-bottom: none; }
+.budget-name { min-width: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+/* Not `.bar-track`: that one clips its children, and the month-so-far tick
+   deliberately stands proud of the track, so it still reads where it crosses
+   the fill. */
+.budget-track {
+  position: relative;
+  height: var(--sp-8); background: var(--surface-2); border-radius: var(--r-1);
+}
+/* A share of a number the user set, not an amount, so the neutral ramp and
+   never green. Over budget the bar is full and turns to money's red, beside
+   the word 超支 that says the same thing without colour. */
+.budget-fill { display: block; height: 100%; border-radius: var(--r-1); background: var(--chart-2); }
+.budget-fill.over { background: var(--down); }
+/* How much of the running month has passed: a second fact beside the bar, not
+   a forecast drawn from the two. `left` is the datum, set where it is known. */
+.budget-tick {
+  position: absolute; top: calc(var(--sp-4) * -1); bottom: calc(var(--sp-4) * -1);
+  width: var(--sp-2); background: var(--ink-2); border-radius: var(--r-1);
+  transform: translateX(-50%);
+}
+.budget-fig {
+  text-align: right;
+  font-family: var(--mono); font-size: var(--fs-xs); font-variant-numeric: tabular-nums;
+}
+/* Money past the line, so money's colour — next to the word that says it. */
+.budget-fig .over { color: var(--down); }
 
 /* ---------- import ---------- */
 
@@ -886,5 +942,10 @@ tbody tr:hover .cov-name { background: var(--surface-3); }
   /* Same reason the labels are nowrap: a second line here doubles the strip's
      height, and a subtitle is the first thing that can afford to go. */
   .brand small { display: none; }
+  /* Name, figures and actions no longer leave the bar any room beside them,
+     so it takes a line of its own underneath, still the same width in every
+     row. */
+  .budget-list { grid-template-columns: 1fr auto auto; }
+  .budget-track { grid-column: 1 / -1; grid-row: 2; }
   #main { padding: var(--sp-16) var(--sp-16) var(--sp-48); }
 }
