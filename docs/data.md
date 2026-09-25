@@ -33,7 +33,7 @@ FINANCE_PROFILE=demo node scripts/seed-demo.js
 FINANCE_PROFILE=demo node server/index.js
 ```
 
-塞進 18 個月、十個帳戶、兩種幣別的編造資料：現金、信用卡、貸款、券商交割戶、一個冷錢包、
+塞進三年、十個帳戶、兩種幣別的編造資料：現金、信用卡、貸款、券商交割戶、一個冷錢包、
 一個有未歸屬提撥的 401(k)，加上台股、美股持股和一枚八位小數的幣。**每個數字都是編的**，跟
 `test/fixtures/` 同一條規則。
 
