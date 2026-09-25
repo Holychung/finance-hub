@@ -123,6 +123,24 @@ describe('帳本位置', () => {
     fs.rmSync(HOME, { recursive: true, force: true });
   });
 
+  // The key is the person's, so every book in the directory shares one file,
+  // and it sits beside the books rather than in any of them: a snapshot is a
+  // copy of the database and would carry it.
+  it('AI 的 key 檔在帳本旁邊，每本帳共用一個，而且跟著 FINANCE_DB 走', () => {
+    const HOME = fakeHome();
+    const mine = resolveUnder({ HOME, FINANCE_DB: undefined, FINANCE_PROFILE: undefined });
+    const demo = resolveUnder({ HOME, FINANCE_DB: undefined, FINANCE_PROFILE: 'demo' });
+    assert.equal(mine.AI_KEYS_PATH, path.join(HOME, '.finance-hub', 'ai-keys.json'));
+    assert.equal(demo.AI_KEYS_PATH, mine.AI_KEYS_PATH);
+
+    const explicit = path.join(os.tmpdir(), 'somewhere', 'else.db');
+    const moved = resolveUnder({ HOME, FINANCE_DB: explicit, FINANCE_PROFILE: undefined });
+    assert.equal(moved.AI_KEYS_PATH, path.join(path.dirname(explicit), 'ai-keys.json'));
+    assert.ok(!fs.existsSync(path.join(HOME, '.finance-hub')), '解析路徑不該建立任何東西');
+
+    fs.rmSync(HOME, { recursive: true, force: true });
+  });
+
   it('profile 名稱不能是路徑', () => {
     const HOME = fakeHome();
     for (const bad of ['../../etc/passwd', 'a/b', '.', 'x'.repeat(33)]) {

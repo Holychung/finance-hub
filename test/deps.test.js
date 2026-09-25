@@ -69,13 +69,25 @@ const ALLOWED_URLS = [
   // from this base plus a commit read out of a <meta>, so the only literal
   // in the source is the base itself.
   [/^https:\/\/github\.com\/Holychung\/finance-hub$/, 'AGPL §13 source offer — a link, not a fetch'],
-  // The one real outbound call in the app: the opt-in daily close fetch, off by
-  // default. A third element scopes it to `server/prices.js`, so this exception
-  // cannot leak into any other file — the whole point of keeping the network in
-  // one named place. See CLAUDE.md "Hard rules" and docs/security.md.
+  // The first of the two real outbound calls in the app: the opt-in daily close
+  // fetch, off by default. A third element scopes it to `server/prices.js`, so
+  // this exception cannot leak into any other file — the whole point of keeping
+  // the network in named places. See CLAUDE.md "Hard rules" and docs/security.md.
   [/^https:\/\/query1\.finance\.yahoo\.com\/v8\/finance\/chart\//,
     'opt-in daily close fetch, server-side, off by default',
     /(^|\/)server\/prices\.js$/],
+  // The second, AI 健檢, pinned the same way: three providers' endpoints, each
+  // anchored at both ends, in `server/ai.js` and nowhere else. Off by default,
+  // server-side, and reached only when the user presses 送出. See docs/ai.md.
+  [/^https:\/\/api\.anthropic\.com\/v1\/messages$/,
+    'opt-in AI review (Anthropic), server-side, off by default',
+    /(^|\/)server\/ai\.js$/],
+  [/^https:\/\/api\.openai\.com\/v1\/responses$/,
+    'opt-in AI review (OpenAI), server-side, off by default',
+    /(^|\/)server\/ai\.js$/],
+  [/^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\/$/,
+    'opt-in AI review (Gemini), server-side, off by default',
+    /(^|\/)server\/ai\.js$/],
   // Not a request at all: the page address Chrome prints in the footer of a saved
   // NetBenefits statement, laid into a fixture PDF as text by the fixture builder.
   // Pinned to that one file and to the exact address, like the exception above.

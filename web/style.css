@@ -102,6 +102,9 @@
   --marker: 3px;
   --h-control:    34px;
   --h-control-sm: 28px;
+  /* A box long enough to need its own scroll: the long tables, and the text
+     AI 健檢 shows before it sends it. */
+  --h-scroll: 420px;
   --dur: .12s;
 
   /* Two elevations, because there are two things that float. */
@@ -414,7 +417,7 @@ tbody tr:hover { background: var(--surface-3); }
 /* A list long enough to need its own scroll — the 500-row import preview, the
    FX history. One height for both, where it was 460px in one place and 320 in
    the other for no reason either could state. */
-.table-wrap.scroll { max-height: 420px; overflow-y: auto; }
+.table-wrap.scroll { max-height: var(--h-scroll); overflow-y: auto; }
 /* The checkbox column in a table that selects rows. */
 .col-check { width: 28px; }
 .empty {
@@ -706,16 +709,33 @@ code {
 }
 
 /* The keyboard's way in. Closed it is one line; open it is every figure the
-   hover can show. */
-.chart-data { margin-top: var(--sp-12); }
-.chart-data > summary {
+   hover can show. AI 健檢's preview of what it sends is the same kind of
+   disclosure — one line until somebody wants the whole text — so it is the
+   same rule. */
+.chart-data, .ai-preview { margin-top: var(--sp-12); }
+.chart-data > summary, .ai-preview > summary {
   cursor: pointer; width: fit-content;
   font-size: var(--fs-xs); color: var(--ink-3);
   padding: var(--sp-4) var(--sp-6); margin-left: calc(var(--sp-6) * -1);
   border-radius: var(--r-1);
 }
-.chart-data > summary:hover { color: var(--ink); background: var(--surface-3); }
-.chart-data[open] > summary { margin-bottom: var(--sp-8); }
+.chart-data > summary:hover, .ai-preview > summary:hover { color: var(--ink); background: var(--surface-3); }
+.chart-data[open] > summary, .ai-preview[open] > summary { margin-bottom: var(--sp-8); }
+
+/* What AI 健檢 sends, shown before it is sent: the instruction and the
+   document, as the plain text they are. */
+.ai-text {
+  margin: 0 0 var(--sp-12); max-height: var(--h-scroll); overflow: auto;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-2);
+  background: var(--surface-2); border-radius: var(--r-1); padding: var(--sp-12);
+}
+/* The model's answer, as the few elements view-ai.js rebuilds from it. */
+.ai-answer { font-size: var(--fs-sm); }
+.ai-answer h4 { font-size: var(--fs-md); margin: var(--sp-16) 0 var(--sp-8); }
+.ai-answer h4:first-child { margin-top: 0; }
+.ai-answer p, .ai-answer ul, .ai-answer ol { margin: 0 0 var(--sp-8); }
+.ai-answer ul, .ai-answer ol { padding-left: var(--sp-24); }
 
 .bar-row { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); font-size: var(--fs-xs); }
 .bar-row .name { flex: 0 0 120px; color: var(--ink-2); }

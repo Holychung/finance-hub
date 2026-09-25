@@ -7,9 +7,10 @@ const path = require('node:path');
 const paths = require('./paths');
 const { csp, LOCAL } = require('./csp');
 const { routes, HttpError } = require('./api');
-const { db, DB_PATH } = require('./db');
+const { db, getMeta, DB_PATH } = require('./db');
 const M = require('./money');
 const PRICES = require('./prices');
+const AI = require('./ai');
 const { exportCsv: sharedExport } = require('../shared/export');
 const { overviewMarkdown } = require('../shared/overview');
 const { parseDate } = require('../shared/csv');
@@ -159,7 +160,7 @@ function serveStatic(res, pathname) {
 // Kept in step with `views` in web/app.js by test/html.test.js.
 const APP_ROUTES = new Set([
   'overview', 'accounts', 'account', 'transactions', 'import', 'holdings',
-  'spending', 'coverage', 'settings',
+  'spending', 'coverage', 'ai', 'settings',
 ]);
 
 function notFound(res, file, pathname) {
@@ -283,8 +284,9 @@ const server = http.createServer(async (req, res) => {
         }
       }
       const query = Object.fromEntries(url.searchParams);
-      // Every handler is synchronous today; the await is here because the
-      // router promises they may be, not because one currently is.
+      // Two handlers are async — the price refresh and AI 健檢's review, both
+      // waiting on the network — and every other one is sync. The await
+      // serves both kinds.
       sendJson(res, 200, (await hit.handler(hit.params, body, query)) ?? { ok: true });
       return;
     }
@@ -304,6 +306,11 @@ server.listen(PORT, HOST, () => {
   console.log(`  DB  ${DB_PATH}`);
   if (!paths.IS_PERSONAL) console.log(`  ⚠  profile「${paths.PROFILE}」— 這不是你的個人帳本`);
   console.log('  只綁在本機，資料不離開這台電腦。Ctrl+C 結束。');
+  // AI 健檢 never runs by itself, so there is nothing to start. The line is here
+  // so the terminal says what the page says: with it on, this book can leave
+  // the machine, when somebody asks it to.
+  const ai = AI.settings(getMeta);
+  if (ai.enabled) console.log(`  AI 健檢已開啟（${ai.provider_label}）：只有按下送出時，資產全覽才會送出去。`);
   console.log('');
 
   // Opt-in, so this is a no-op unless the user turned it on in settings; then it

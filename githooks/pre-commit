@@ -26,7 +26,7 @@ staged=$(git diff --cached --name-only --diff-filter=AM)
 # mechanical half: a file in there that no test reads fails the suite.
 checkable=$(printf '%s\n' "$staged" | grep -Ev '^test/fixtures/[^/]*\.(csv|pdf)$')
 
-blocked=$(printf '%s\n' "$checkable" | grep -E '(^|/)data/|\.db$|\.db-wal$|\.db-shm$|\.csv$|\.pdf$|(^|/)\.env($|\.)|\.pfx$|\.p12$')
+blocked=$(printf '%s\n' "$checkable" | grep -E '(^|/)data/|\.db$|\.db-wal$|\.db-shm$|\.csv$|\.pdf$|(^|/)\.env($|\.)|\.pfx$|\.p12$|(^|/)ai-keys\.json')
 
 if [ -n "$blocked" ]; then
   echo ""

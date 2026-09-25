@@ -8,6 +8,7 @@ const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
 const PRICES = require('./prices');
+const AI = require('./ai');
 const {
   DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, defaultAccessFor, TAX_STATUS_KEYS,
   MARKET_KEYS, DEFAULT_MARKET, marketInfo,
@@ -857,8 +858,8 @@ on('GET', '/api/settings', () => ({
   is_personal: paths.IS_PERSONAL,
   db_path: paths.DB_PATH,
   // Off unless the user turned it on: the whole app is offline by default and
-  // this is the one switch that lets it reach out. `prices_fetched_on` lets the
-  // holdings view say when it last ran.
+  // this is one of the two switches that let it reach out (AI 健檢 has the
+  // other). `prices_fetched_on` lets the holdings view say when it last ran.
   auto_prices: getMeta('auto_prices', '0') === '1',
   prices_fetched_on: getMeta('prices_fetched_on', null),
   prices_fetched_at: getMeta('prices_fetched_at', null),
@@ -869,6 +870,44 @@ on('PUT', '/api/settings', (_p, b) => {
   if (b.auto_prices !== undefined) setMeta('auto_prices', b.auto_prices ? '1' : '0');
   return { ok: true };
 });
+
+// --- AI 健檢 ----------------------------------------------------------------
+
+// The one feature that sends the book off the machine, and only when somebody
+// presses 送出: see server/ai.js. It raises AiError with the status it means —
+// a refused setting is a 400, a provider that failed a 502 — and this turns
+// that into the router's HttpError, keeping a sync handler sync.
+const viaAi = (fn) => (...args) => {
+  const asHttp = (e) => (e instanceof AI.AiError ? new HttpError(e.status, e.message) : e);
+  try {
+    const out = fn(...args);
+    return out instanceof Promise ? out.catch((e) => { throw asHttp(e); }) : out;
+  } catch (e) { throw asHttp(e); }
+};
+
+on('GET', '/api/ai', () => AI.status({ getMeta }));
+
+on('PUT', '/api/ai', viaAi((_p, b) => AI.saveSettings(b, { getMeta, setMeta })));
+
+on('PUT', '/api/ai/key', viaAi((_p, b) => AI.saveKey(b.provider, b.key)));
+
+on('DELETE', '/api/ai/key', viaAi((_p, _b, q) => AI.deleteKey(q.provider)));
+
+// Exactly what 送出 would send, for the page to show above the button. `to`
+// pins the day, so a test can hold it against the exported file.
+on('GET', '/api/ai/preview', viaAi((_p, _b, q) => {
+  const asOf = q.to ? csv.parseDate(q.to, 'auto') || bad(`日期無法解析：${q.to}`) : M.todayISO();
+  return AI.preview({ mode: S(q.mode), asOf, getMeta });
+}));
+
+// Async because the provider's answer is a network wait of up to minutes —
+// the other handler here that genuinely is not sync, beside the price refresh.
+// The page sends back the preview's day and digest; the document itself is
+// rebuilt from the book, never taken from the request.
+on('POST', '/api/ai/review', viaAi((_p, b) => {
+  const asOf = b.as_of ? csv.parseDate(S(b.as_of), 'auto') || bad(`日期無法解析：${b.as_of}`) : M.todayISO();
+  return AI.review({ mode: S(b.mode), asOf, digest: S(b.digest), getMeta });
+}));
 
 on('GET', '/api/export/json', () => ({
   exported_at: now(),

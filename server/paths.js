@@ -59,7 +59,11 @@ const DATA_DIR = path.dirname(DB_PATH);
 // directory holding one book, the name has nothing left to disambiguate.
 const BACKUP_DIR = path.join(DATA_DIR, 'backups', PROFILE);
 
+// The AI providers' keys, for AI 健檢 (server/ai.js). Beside the book rather
+// than in it, because a key is not ledger data: every snapshot is a copy of
+// the database, and a key stored there would ride along into every backup
+// and every file somebody is handed to debug an import. One file for every
+// profile in the directory, because the key is the person's, not the book's.
+const AI_KEYS_PATH = path.join(DATA_DIR, 'ai-keys.json');
 
-
-
-module.exports = { HOME_DIR, PROFILE, IS_PERSONAL, DB_PATH, DATA_DIR, BACKUP_DIR };
+module.exports = { HOME_DIR, PROFILE, IS_PERSONAL, DB_PATH, DATA_DIR, BACKUP_DIR, AI_KEYS_PATH };

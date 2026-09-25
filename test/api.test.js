@@ -301,7 +301,14 @@ before(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-hub-test-'));
   dbPath = path.join(tmpDir, 'finance.db');
   child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, FINANCE_DB: dbPath, PORT: String(port) },
+    // The AI providers' variables are blanked, not inherited. server/ai.js
+    // falls back to them for a key, so a developer's own ANTHROPIC_API_KEY
+    // would otherwise reach the server under test — and the suite could only
+    // prove "no key, no request" on a machine that happened to have none.
+    env: {
+      ...process.env, FINANCE_DB: dbPath, PORT: String(port),
+      ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', GEMINI_API_KEY: '',
+    },
     stdio: 'ignore',
   });
   child.on('error', (e) => { throw e; });
@@ -600,6 +607,121 @@ describe('自動抓價設定', () => {
     // getter and a throwaway db, in test/prices.test.js.
     const r = await req('POST', '/api/prices/refresh', {});
     assert.deepEqual(r, { enabled: false, updated: [], failed: [] });
+  });
+});
+
+// AI 健檢 over HTTP, with nothing leaving the machine: every case here either
+// stops before the provider (off, no key, a refused setting) or never asks for
+// it. The request path itself runs offline in test/ai.test.js, against an
+// injected sender. No case here may store a key, turn the feature on and then
+// press 送出 — that would be a real request to a real provider.
+describe('AI 健檢', () => {
+  const PUT = (p, b) => req('PUT', p, b);
+  const call = async (method, p, body) => {
+    const res = await raw(p, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+
+  it('預設是關的：Claude、Opus 5、沒有 key', async () => {
+    const s = await GET('/api/ai');
+    assert.equal(s.available, true);
+    assert.equal(s.enabled, false, '離線是預設');
+    assert.equal(s.provider, 'anthropic');
+    assert.equal(s.model, 'claude-opus-5');
+    assert.equal(s.key.set, false, '測試的伺服器看不到任何人的 key');
+    assert.deepEqual(s.providers.map((p) => p.key), ['anthropic', 'openai', 'gemini']);
+  });
+
+  // What the page sends back with 送出: the preview's day and digest.
+  const asShown = async (mode = 'audit') => {
+    const p = await GET(`/api/ai/preview?mode=${mode}`);
+    return { mode, as_of: p.as_of, digest: p.digest };
+  };
+
+  // With the feature off, so that even a broken check could not send anything.
+  it('digest 不是預覽給的那個就是 409；沒附 digest 是 400', async () => {
+    const shown = await asShown();
+    assert.match(shown.digest, /^[0-9a-f]{40}$/);
+    const stale = await call('POST', '/api/ai/review', { ...shown, digest: 'f'.repeat(40) });
+    assert.equal(stale.status, 409);
+    assert.match(stale.body.error, /變了/);
+    assert.equal((await call('POST', '/api/ai/review', { mode: 'audit' })).status, 400);
+  });
+
+  it('沒開就按送出，是 400，不是去連網', async () => {
+    const r = await call('POST', '/api/ai/review', await asShown());
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, /沒有開啟/);
+  });
+
+  it('開了但沒有 key，一樣 400，並且說要去哪裡設', async () => {
+    await PUT('/api/ai', { enabled: true });
+    const r = await call('POST', '/api/ai/review', await asShown());
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, /ANTHROPIC_API_KEY/);
+    await PUT('/api/ai', { enabled: false });
+    assert.equal((await GET('/api/ai')).enabled, false);
+  });
+
+  it('設定存得住；換供應商就換成那家的預設模型；壞的設定被拒絕', async () => {
+    await PUT('/api/ai', { provider: 'openai' });
+    assert.equal((await GET('/api/ai')).model, 'gpt-6-sol');
+    await PUT('/api/ai', { model: 'gpt-6-luna' });
+    assert.equal((await GET('/api/ai')).model, 'gpt-6-luna');
+    assert.equal((await call('PUT', '/api/ai', { provider: 'mistral' })).status, 400);
+    assert.equal((await call('PUT', '/api/ai', { model: '../v1/files' })).status, 400);
+    await PUT('/api/ai', { provider: 'anthropic' });
+    assert.equal((await GET('/api/ai')).model, 'claude-opus-5');
+  });
+
+  // Beside the book, never in it: a backup is a copy of the database, and the
+  // JSON export dumps its tables.
+  it('key 存在帳本旁邊、只有擁有者讀得到；API 只給最後四碼；資料庫裡沒有它', async () => {
+    const key = 'sk-ant-test-0000000000000abcd';
+    const saved = await PUT('/api/ai/key', { provider: 'anthropic', key });
+    assert.equal(saved.key.hint, '…abcd');
+    const file = path.join(tmpDir, 'ai-keys.json');
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { anthropic: key });
+    if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+
+    const s = await GET('/api/ai');
+    assert.equal(s.key.set, true);
+    assert.equal(s.key.source, 'file');
+    for (const p of ['/api/ai', '/api/settings', '/api/export/json']) {
+      assert.ok(!JSON.stringify(await GET(p)).includes(key), `${p} 帶出了 key`);
+    }
+    // Under WAL the newest pages are still in the -wal, so both files count.
+    for (const f of [dbPath, `${dbPath}-wal`]) {
+      if (fs.existsSync(f)) assert.ok(!fs.readFileSync(f).includes(key), `${path.basename(f)} 裡有 key`);
+    }
+
+    assert.deepEqual(await req('DELETE', '/api/ai/key?provider=anthropic'), { deleted: 1 });
+    assert.equal((await GET('/api/ai')).key.set, false);
+    assert.ok(!fs.existsSync(file), '最後一把 key 刪掉，檔案也不見了');
+  });
+
+  it('不像 key 的東西，和不認得的供應商，都拒絕', async () => {
+    assert.equal((await call('PUT', '/api/ai/key', { provider: 'anthropic', key: 'has space in it' })).status, 400);
+    assert.equal((await call('PUT', '/api/ai/key', { provider: 'nope', key: 'sk-0123456789' })).status, 400);
+    assert.ok(!fs.existsSync(path.join(tmpDir, 'ai-keys.json')));
+  });
+
+  // What the page shows above 送出 is the 匯出全覽 file, and review() sends
+  // what the preview shows (test/ai.test.js), so this is the link between the
+  // download and the request.
+  it('預覽的文件就是匯出全覽那個檔，一個字都不差', async () => {
+    const day = '2026-09-30';
+    const p = await GET(`/api/ai/preview?mode=audit&to=${day}`);
+    const file = await (await raw(`/api/export/overview?to=${day}`)).text();
+    assert.equal(p.document, file);
+    assert.equal(p.as_of, day);
+    assert.equal(p.chars, p.system.length + p.document.length);
+    assert.equal(p.host, 'api.anthropic.com');
+    assert.equal((await call('GET', '/api/ai/preview?mode=predict')).status, 400);
   });
 });
 

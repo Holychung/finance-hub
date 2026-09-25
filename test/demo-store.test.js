@@ -358,6 +358,28 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     assert.deepEqual(b, { enabled: false, updated: [], failed: [] });
   });
 
+  // The third deliberate difference. The hosted demo has no server to make the
+  // call and a CSP that forbids the page one, so it says it cannot, and every
+  // route that would configure or send is refused in that same sentence rather
+  // than answered with something that looks like it worked.
+  it('AI 健檢：真伺服器有，示範版明說沒有，而且什麼都不收', async () => {
+    const [a, b] = [await demo.get('/api/ai'), await live.get('/api/ai')];
+    assert.equal(a.available, false);
+    assert.match(a.reason, /示範版不能用 AI 健檢/);
+    assert.equal(b.available, true);
+    assert.equal(b.enabled, false);
+
+    for (const [method, p, body] of [
+      ['put', '/api/ai', { enabled: true }],
+      ['put', '/api/ai/key', { provider: 'anthropic', key: 'sk-0123456789' }],
+      ['del', '/api/ai/key?provider=anthropic'],
+      ['get', '/api/ai/preview?mode=audit'],
+      ['post', '/api/ai/review', { mode: 'audit' }],
+    ]) {
+      await assert.rejects(() => demo[method](p, body), (e) => e.status === 400 && e.message === a.reason, `${method} ${p}`);
+    }
+  });
+
   it('沒有這條 route 時兩邊都是 404', async () => {
     await assert.rejects(() => demo.get('/api/nope'), (e) => e.status === 404);
     await assert.rejects(() => live.get('/api/nope'), (e) => e.status === 404);

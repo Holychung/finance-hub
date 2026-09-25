@@ -1033,6 +1033,18 @@
     // so it is always a no-op reporting itself disabled.
     on('POST', '/api/prices/refresh', () => ({ enabled: false, updated: [], failed: [] }));
 
+    // AI 健檢 needs a server to make the call and a page allowed to reach one,
+    // and the hosted demo has neither, by design. So the status says so, and
+    // every route that would configure it or send is refused in one sentence
+    // rather than answered with something that looks like it worked.
+    const NO_AI = '示範版不能用 AI 健檢：這裡沒有伺服器，頁面也被 CSP 禁止對外連線。'
+      + '在自己的電腦上跑 node server/index.js 才有。';
+    on('GET', '/api/ai', () => ({ available: false, reason: NO_AI }));
+    for (const [method, pattern] of [
+      ['PUT', '/api/ai'], ['PUT', '/api/ai/key'], ['DELETE', '/api/ai/key'],
+      ['GET', '/api/ai/preview'], ['POST', '/api/ai/review'],
+    ]) on(method, pattern, () => bad(NO_AI));
+
     const exportJson = () => ({
       exported_at: now(),
       base_currency: (raw.get('meta', 'base_currency') || {}).value || 'TWD',
