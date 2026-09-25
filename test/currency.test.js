@@ -65,6 +65,47 @@ describe('幣別與精度', () => {
   });
 });
 
+// These lived in web/core.js, which touches the document at load and so could
+// never be tested. They moved when the overview export needed the same digits.
+describe('金額的顯示', () => {
+  it('幣別決定符號和小數位，負號寫在符號前面', () => {
+    assert.equal(C.money(1234, 'TWD'), 'NT$1,234');
+    assert.equal(C.money(-1234, 'TWD'), '-NT$1,234');
+    assert.equal(C.money(58420.15, 'USD'), '$58,420.15');
+    assert.equal(C.money(-3.5, 'USD'), '-$3.50');
+  });
+
+  it('沒寫幣別就是 TWD，那是 views 一直以來省略時的意思', () => {
+    assert.equal(C.money(100), 'NT$100');
+  });
+
+  it('沒教過的幣別寫自己的代號、兩位小數，不假裝是台幣', () => {
+    assert.equal(C.money(1234, 'JPY'), 'JPY 1,234.00');
+  });
+
+  it('沒有數字就是破折號，不是「NT$—」', () => {
+    for (const n of [null, undefined, NaN]) {
+      assert.equal(C.money(n, 'USD'), '—');
+      assert.equal(C.figure(n, 'USD'), '—');
+    }
+  });
+
+  it('signed 在正數前面加號，零和負數照舊', () => {
+    assert.equal(C.signed(5, 'USD'), '+$5.00');
+    assert.equal(C.signed(0, 'USD'), '$0.00');
+    assert.equal(C.signed(-5, 'USD'), '-$5.00');
+  });
+
+  // The overview export writes this: a file whose row, section or trailing
+  // code names the currency needs no symbol, and a `$` there is worse than
+  // none (see shared/overview.js).
+  it('figure 是同樣的數字，只是不帶符號', () => {
+    assert.equal(C.figure(-1234, 'TWD'), '-1,234');
+    assert.equal(C.figure(58420.15, 'USD'), '58,420.15');
+    assert.equal(C.money(-1234, 'TWD'), `-${C.symbolOf('TWD')}${C.figure(1234, 'TWD')}`);
+  });
+});
+
 describe('數量的顯示', () => {
   it('整數不加小數點', () => {
     assert.equal(C.quantity(3000), '3,000');

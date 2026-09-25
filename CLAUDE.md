@@ -65,7 +65,7 @@ server/migrations.js  every schema version, in order — the only schema there i
 server/migrate.js     applies them; takes a handle, opens nothing, knows no paths
 server/db.js      connection, migrate-on-open, snapshot/backup helpers
 shared/currency.js  symbol and decimal places per currency, roundTo, round2,
-                  and how a quantity and a unit price are written
+                  and how an amount, a quantity and a unit price are written
 shared/kinds.js   what kinds of account, transaction and market exist — the
                   only list
 shared/sha1.js    synchronous SHA-1, because the browser's is async
@@ -74,20 +74,22 @@ shared/money.js   the pure half: every `compute*`, plus round2 and the dates
 shared/rules.js   category rules: normalise, match, plan
 shared/spending.js  monthly in/out, category breakdown, recurring charges
 shared/export.js  rows -> a CSV file, BOM and CRLF for Excel
+shared/overview.js  the whole book as one model, and the Markdown file that
+                  匯出全覽 downloads
 shared/demo-seed.js  the demo book, and the sample statement — invented, built
                   fresh from a date, opened by both the seeder and the browser
 server/money.js   the loaders — one query-runner per `compute*` in shared/
 server/prices.js  the app's one outbound call — opt-in daily close fetch, off
                   by default, server-side; deps-test allows Yahoo only here
 server/api.js     JSON handlers, registered via on(method, pattern, fn)
-server/index.js   HTTP server, request guards, routing, static files; loads the
-                  rows the CSV export formats and names the download
+server/index.js   HTTP server, request guards, routing, static files; loads what
+                  the CSV and overview exports write, and names the download
 web/index.html    the shell, and the <script> list that *is* the dependency graph
 web/html.js       the escaping html`` tag and mount() — the only way to the DOM
 web/storage-http.js  the only fetch() in the frontend, and the export URLs
 web/storage-demo.js  the same routes answered from a Map, for the hosted demo
 web/storage.js    picks one at load, by origin, and never falls back
-web/core.js       DOM/money helpers, toast, modal, captureUi, `views = {}`
+web/core.js       DOM helpers, toast, modal, exportLink, captureUi, `views = {}`
 web/charts.js     lineChart + barBreakdown, hand-built SVG, no colour of its own
 web/tables.js     tables more than one view renders
 web/forms.js      modal editors more than one view opens
@@ -106,6 +108,8 @@ test/sha1.test.js    SHA-1 against node:crypto, and shared/ loaded both ways
 test/storage.test.js the storage seam, and which adapter each origin gets
 test/demo-store.test.js  the demo adapter against a real server, route by route
 test/export.test.js  the CSV bytes: BOM, CRLF, escaping, each sheet's columns
+test/overview.test.js  the overview export over plain arrays: the model, the
+                     file, its escaping, and the browser path writing the same
 test/html.test.js    the frontend escaping rules below
 test/pack.test.js    what the hosted copy contains, and what it must not
 test/deps.test.js    zero dependencies and no external URLs, as mechanisms
@@ -146,7 +150,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-532 tests across 86 suites cover Big5 decoding, ROC dates, two-digit years,
+566 tests across 91 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -166,7 +170,9 @@ schema migration runner, the pure half of `money.js`, the demo adapter
 answering the same as a real server, the demo book being one definition the
 seeder and the browser both open, `shared/` loading
 identically under `require` and as a plain `<script>`, the storage seam, the
-hosted copy containing every file `index.html` asks for and nothing else, and
+hosted copy containing every file `index.html` asks for and nothing else, the
+overview export (one file per book and day, the same bytes from the server and
+the demo, no total across currencies and no `$` in it), and
 the whole frontend loading in `index.html`'s order with every view
 registered. All must pass. Add cases for anything new.
 
@@ -734,6 +740,18 @@ the browser; the server's only job is to answer when someone refreshes on one.
   (that is how the chrome says which one you are looking at) and the ids
   handed out after a delete, because SQLite reuses a rowid and the demo store
   counts monotonically on purpose.
+- **The overview export is one Markdown file, written in `shared/`.**
+  `shared/overview.js` composes what the other `compute*` already returned —
+  nothing is re-derived, so the file cannot disagree with the screen — and
+  writes it down. `server/index.js` serves it at `/api/export/overview`, the
+  demo's `exportFile` writes the same bytes, and `test/demo-store.test.js`
+  compares them. Three rules hold it: per currency and never summed; **no
+  `$` anywhere**, because a viewer that reads `$…$` as LaTeX turns a line with
+  two `NT$` amounts into a formula, so amounts go through `figure()` and the
+  currency is named by the row, the section or the code after the number; and
+  every string from the book goes through its one escape, so a name cannot
+  split a table row, open a tag, or become a link or a remote image. No clock
+  either: one book on one day is one file, so two months diff cleanly.
 - **The demo book has one definition, and both consumers open it unchanged.**
   `shared/demo-seed.js` returns table rows with ids already assigned —
   `scripts/seed-demo.js` inserts them verbatim into a SQLite profile,
@@ -984,8 +1002,9 @@ the subject, in the same change as the code**:
 - `docs/spending.md` — the spending breakdown, the categorisation rules and the
   recurring-charge detector. A change to `shared/rules.js` or
   `shared/spending.js` lands here.
-- `docs/data.md` — where the ledger lives, profiles, backups, keeping data out
-  of version control.
+- `docs/data.md` — where the ledger lives, profiles, backups, the overview
+  export, keeping data out of version control. A change to
+  `shared/overview.js` lands here.
 - `docs/security.md` — the three request guards and the CSP, and what each stops.
 
 `docs/design/` is a record of design comps — history, not spec — and

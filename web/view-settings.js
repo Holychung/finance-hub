@@ -84,6 +84,7 @@ views.settings = async () => {
         ${exportLink('交易 CSV', '/api/export/csv?type=txns')}
         ${exportLink('持股 CSV', '/api/export/csv?type=holdings')}
         ${exportLink('帳戶 CSV', '/api/export/csv?type=accounts')}
+        ${exportLink('資產全覽 Markdown', '/api/export/overview')}
       </div>
     </section>
 

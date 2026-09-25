@@ -646,6 +646,33 @@ describe('匯出', () => {
       assert.ok(!r.endsWith(','), `尾巴掛著一個空欄位：${r}`);
     }
   });
+
+  // What the overview says is test/overview.test.js's business, over plain
+  // arrays. This end has to load the book, write it, and name the download
+  // after the day it describes.
+  it('資產全覽是一份 Markdown，檔名是它描述的那一天', async () => {
+    const res = await raw('/api/export/overview?to=2026-09-30');
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'text/markdown; charset=utf-8');
+    assert.equal(res.headers.get('content-disposition'), 'attachment; filename="overview_2026-09-30.md"');
+    const text = await res.text();
+    assert.ok(text.startsWith('# 資產全覽\n\n截至 2026-09-30，'), text.slice(0, 60));
+    for (const h of ['## 淨值', '## TWD', '## USD', '## 需要注意', '## 這份資料不知道的事']) {
+      assert.ok(text.includes(`\n${h}\n`), `少了 ${h}`);
+    }
+    assert.ok(!text.includes('\r'), '換行是 LF');
+    // Amounts carry no symbol; a `$` typed into the book is escaped.
+    assert.ok(!/(^|[^\\])\$/m.test(text), '檔案裡不該有沒跳脫的 $');
+  });
+
+  it('資產全覽不指定日期就是今天，日期讀不懂就是 400', async () => {
+    const res = await raw('/api/export/overview');
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-disposition') || '', /^attachment; filename="overview_\d{4}-\d{2}-\d{2}\.md"$/);
+    const bad = await raw('/api/export/overview?to=not-a-date');
+    assert.equal(bad.status, 400);
+    assert.match((await bad.json()).error, /日期無法解析：not-a-date/);
+  });
 });
 
 describe('本機介面硬化', () => {

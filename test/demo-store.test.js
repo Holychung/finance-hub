@@ -140,6 +140,7 @@ const scrubIds = scrubWith(['id', 'import_id']);
 describe('demo adapter 跟真伺服器回同一份東西', () => {
   let child;
   let tmpDir;
+  let base;
   let live;
   let demo;
 
@@ -153,9 +154,10 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       stdio: 'ignore',
     });
     child.on('error', (e) => { throw e; });
-    await waitForReady(`http://127.0.0.1:${port}`);
+    base = `http://127.0.0.1:${port}`;
+    await waitForReady(base);
 
-    live = httpClient(`http://127.0.0.1:${port}`);
+    live = httpClient(base);
     demo = createDemoStorage({
       raw: makeMapStore({ meta: [{ key: 'base_currency', value: 'TWD' }] }),
       now: () => '2026-09-21T00:00:00.000Z',
@@ -205,6 +207,28 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       assert.deepEqual(scrub(await demo.get(p)), scrub(await live.get(p)));
     });
   }
+
+  // A file rather than JSON, so it is compared as bytes: the server writes it
+  // from SQL, the demo from its Map, both through shared/overview.js. Pinned
+  // to a day so neither clock decides what it says.
+  it('資產全覽：兩邊寫出一模一樣的檔案', async () => {
+    const p = '/api/export/overview?to=2026-09-30';
+    const res = await fetch(base + p);
+    assert.equal(res.status, 200);
+    const f = demo.exportFile(p);
+    assert.equal(f.name, 'overview_2026-09-30.md');
+    assert.equal(f.type, 'text/markdown;charset=utf-8');
+    assert.equal(f.body, await res.text());
+    assert.ok(f.body.includes('## USD') && f.body.includes('## TWD'), '比的要是一份有東西的檔案');
+  });
+
+  it('資產全覽的日期讀不懂，兩邊都是 400，而且是同一句話', async () => {
+    const res = await fetch(`${base}/api/export/overview?to=nope`);
+    const err = await res.json();
+    assert.equal(res.status, 400);
+    assert.throws(() => demo.exportFile('/api/export/overview?to=nope'),
+      (e) => e.status === 400 && e.message === err.error);
+  });
 
   // The overview reads the clock for `as_of` and for the end of the series,
   // so it is compared field by field against a pinned day rather than whole.
@@ -479,6 +503,33 @@ describe('demo adapter — 用一個純 Map 驅動', () => {
 
     // The month is not a constant, so the days have to survive February.
     assert.match(buildDemoStatement('2026-03-05').text, /115\/02\/28,/);
+  });
+
+  // A page builds all its export links in one render — settings builds five —
+  // and each call used to revoke the URL the call before it had handed out,
+  // so in the demo only the last link on the page downloaded anything.
+  it('同一頁有好幾個匯出連結，每一個都還下載得到', async () => {
+    const { s } = build({});
+    await s.post('/api/accounts', { name: '活存', currency: 'TWD', opening_balance: 1000 });
+    const { createObjectURL, revokeObjectURL } = URL;
+    const revoked = new Set();
+    let n = 0;
+    URL.createObjectURL = () => `blob:demo/${++n}`;
+    URL.revokeObjectURL = (u) => revoked.add(u);
+    try {
+      const json = s.exportHref('/api/export/json');
+      const csv = s.exportHref('/api/export/csv?type=txns');
+      assert.ok(!revoked.has(json), '建第二個連結就把第一個的網址收回去了');
+      // The next render builds the same links again, and only then is the old
+      // URL for the same export let go — or every render would keep another
+      // copy of the ledger alive.
+      s.exportHref('/api/export/json');
+      assert.ok(revoked.has(json), '同一個匯出重建時，舊的網址要放掉');
+      assert.ok(!revoked.has(csv));
+    } finally {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    }
   });
 
   it('匯出的是真的檔案內容，不是一個開不起來的 blob 網址', async () => {

@@ -11,7 +11,7 @@
 let spendingYears = 1;
 let spendingCur = null;
 
-const CADENCE_LABEL = { weekly: '每週', monthly: '每月', quarterly: '每季', yearly: '每年' };
+const CADENCE_LABEL = Object.fromEntries(CADENCES.map((c) => [c.name, c.label]));
 // 圖只畫得下四種顏色（--chart-1..4），第五條開始會從最亮的重新來過，看起來像
 // 又變大了。所以圖只放前四名＋其他，完整的清單在下面的表格裡，一行都不少。
 const BREAKDOWN_TOP = 4;
