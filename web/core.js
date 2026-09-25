@@ -69,10 +69,10 @@ const del = (p) => storage.del(p);
 // page head, beside its segmented switch and 重新整理.
 const exportLink = (label, path, filename, size) => {
   const name = filename || storage.exportName(path);
-  const cls = size === 'sm' ? 'btn sm' : 'btn';
+  const classes = size === 'sm' ? 'btn sm' : 'btn';
   return name
-    ? html`<a class="${cls}" href="${storage.exportHref(path)}" download="${name}">${label}</a>`
-    : html`<a class="${cls}" href="${storage.exportHref(path)}">${label}</a>`;
+    ? html`<a class="${classes}" href="${storage.exportHref(path)}" download="${name}">${label}</a>`
+    : html`<a class="${classes}" href="${storage.exportHref(path)}">${label}</a>`;
 };
 
 let toastTimer;
