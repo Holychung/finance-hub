@@ -455,7 +455,7 @@ button.danger:hover {
   background: var(--down-tint); border-color: var(--down); color: var(--down);
 }
 
-button.sm { min-height: var(--h-control-sm); padding: 0 var(--sp-8); font-size: var(--fs-xs); }
+button.sm, .btn.sm { min-height: var(--h-control-sm); padding: 0 var(--sp-8); font-size: var(--fs-xs); }
 
 /* A segmented control: a few mutually exclusive views as one control — one
    border round the group, a hairline between options, the chosen one filled

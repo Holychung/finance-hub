@@ -140,6 +140,7 @@ const scrubIds = scrubWith(['id', 'import_id']);
 describe('demo adapter 跟真伺服器回同一份東西', () => {
   let child;
   let tmpDir;
+  let base;
   let live;
   let demo;
 
@@ -153,9 +154,10 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       stdio: 'ignore',
     });
     child.on('error', (e) => { throw e; });
-    await waitForReady(`http://127.0.0.1:${port}`);
+    base = `http://127.0.0.1:${port}`;
+    await waitForReady(base);
 
-    live = httpClient(`http://127.0.0.1:${port}`);
+    live = httpClient(base);
     demo = createDemoStorage({
       raw: makeMapStore({ meta: [{ key: 'base_currency', value: 'TWD' }] }),
       now: () => '2026-09-21T00:00:00.000Z',
@@ -205,6 +207,28 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       assert.deepEqual(scrub(await demo.get(p)), scrub(await live.get(p)));
     });
   }
+
+  // A file rather than JSON, so it is compared as bytes: the server writes it
+  // from SQL, the demo from its Map, both through shared/overview.js. Pinned
+  // to a day so neither clock decides what it says.
+  it('資產全覽：兩邊寫出一模一樣的檔案', async () => {
+    const p = '/api/export/overview?to=2026-09-30';
+    const res = await fetch(base + p);
+    assert.equal(res.status, 200);
+    const f = demo.exportFile(p);
+    assert.equal(f.name, 'overview_2026-09-30.md');
+    assert.equal(f.type, 'text/markdown;charset=utf-8');
+    assert.equal(f.body, await res.text());
+    assert.ok(f.body.includes('## USD') && f.body.includes('## TWD'), '比的要是一份有東西的檔案');
+  });
+
+  it('資產全覽的日期讀不懂，兩邊都是 400，而且是同一句話', async () => {
+    const res = await fetch(`${base}/api/export/overview?to=nope`);
+    const err = await res.json();
+    assert.equal(res.status, 400);
+    assert.throws(() => demo.exportFile('/api/export/overview?to=nope'),
+      (e) => e.status === 400 && e.message === err.error);
+  });
 
   // The overview reads the clock for `as_of` and for the end of the series,
   // so it is compared field by field against a pinned day rather than whole.

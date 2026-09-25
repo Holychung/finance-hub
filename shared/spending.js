@@ -118,6 +118,17 @@
     return out;
   }
 
+  // Where a window of `years` ending on `date` starts: the same day of the
+  // month, counted in UTC, so a year back from 2026-09-25 is 2025-09-25. From
+  // 29 February it lands on 1 March, which is Date's answer and the one the
+  // windows have always given. The server, the demo and the overview export
+  // all reach back with this rather than with three copies of the arithmetic.
+  function yearsBefore(date, years = 1) {
+    const d = new Date(`${date}T00:00:00Z`);
+    d.setUTCFullYear(d.getUTCFullYear() - years);
+    return d.toISOString().slice(0, 10);
+  }
+
   // ---------------------------------------------------------------------------
   // Recurring charges
   // ---------------------------------------------------------------------------
@@ -126,11 +137,13 @@
   // the 3rd, then the 5th because the 3rd was a Sunday, then the 2nd. Narrow
   // bands would miss those and report nothing, which is the failure mode that
   // makes a feature like this get ignored.
+  //
+  // `label` is what the spending page and the overview export both call it.
   const CADENCES = [
-    { name: 'weekly',    per_year: 52, min: 5,   max: 9 },
-    { name: 'monthly',   per_year: 12, min: 24,  max: 38 },
-    { name: 'quarterly', per_year: 4,  min: 80,  max: 100 },
-    { name: 'yearly',    per_year: 1,  min: 330, max: 400 },
+    { name: 'weekly',    label: '每週', per_year: 52, min: 5,   max: 9 },
+    { name: 'monthly',   label: '每月', per_year: 12, min: 24,  max: 38 },
+    { name: 'quarterly', label: '每季', per_year: 4,  min: 80,  max: 100 },
+    { name: 'yearly',    label: '每年', per_year: 1,  min: 330, max: 400 },
   ];
 
   const MIN_OCCURRENCES = 3;
@@ -237,7 +250,7 @@
   // the global for the browser's classic scripts, onto module.exports for
   // Node. Everything above stays inside the closure.
   const api = {
-    computeSpending, computeRecurring, monthsBetween, CADENCES,
+    computeSpending, computeRecurring, monthsBetween, yearsBefore, CADENCES,
     MIN_OCCURRENCES, UNCATEGORISED,
   };
   Object.assign(root, api);

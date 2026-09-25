@@ -67,6 +67,38 @@
   // definition, and a statement will never carry a coin amount anyway.
   const round2 = (n) => roundTo(n, 2);
 
+  // The one place an amount's digits are written: the sign first, then
+  // whatever stands in front of the number, then the currency's own decimal
+  // places with thousands grouped.
+  const written = (n, cur, prefix) => {
+    if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
+    const v = Number(n);
+    const dp = decimalsOf(cur);
+    return `${v < 0 ? '-' : ''}${prefix}${Math.abs(v).toLocaleString('en-US', {
+      minimumFractionDigits: dp,
+      maximumFractionDigits: dp,
+    })}`;
+  };
+
+  // An amount with no symbol: `-1,234` for TWD, `58,420.15` for USD. What a
+  // file writes when its row or its column already names the currency — the
+  // overview export does, and says in shared/overview.js why it carries no `$`.
+  const figure = (n, cur) => written(n, cur, '');
+
+  // An amount on screen, with the currency's symbol. Symbol and scale both
+  // come from the table above, not from a ternary on 'USD': that ternary
+  // wrote `NT$` for every currency that was not USD, so a JPY balance read as
+  // `NT$1,234` — the right number in the wrong country, and the kind of wrong
+  // that looks fine until you hold three currencies. It lived in web/core.js
+  // until the overview export needed the same digits; here it is one
+  // definition with `figure()`, and testable, which core.js is not.
+  //
+  // TWD by default because that is what the views have always passed when
+  // they passed nothing. Anything rendering an account's own amounts says
+  // which currency they are in.
+  const money = (n, cur = 'TWD') => written(n, cur, symbolOf(cur));
+  const signed = (n, cur = 'TWD') => (n > 0 ? '+' : '') + money(n, cur);
+
   // The most places a quantity or a price may carry. A double holds 15–17
   // significant digits, so past ten the extra places on a number of any size
   // are noise from the float rather than precision anyone recorded — and
@@ -121,7 +153,7 @@
 
   const api = {
     CURRENCIES, CURRENCY_CODES, DEFAULT_DP, MAX_DECIMALS,
-    decimalsOf, symbolOf, roundTo, round2, quantity, unitPrice,
+    decimalsOf, symbolOf, roundTo, round2, figure, money, signed, quantity, unitPrice,
   };
   Object.assign(root, api);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
