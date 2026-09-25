@@ -2680,6 +2680,30 @@ describe('退休金帳戶', () => {
     assert.ok(check.ok, `對帳應該對得上，差 ${check.diff}`);
   });
 
+  // The account page turns the latest check's difference into one button: a
+  // 市值變動 row for exactly that amount, dated on the check. That closes the
+  // gap only because a check counts every row up to and including its own
+  // date, and it touches no earlier check because it is dated after them.
+  it('最新一筆對帳的差額記成當天的市值變動，那筆就對上，較早的不動', async () => {
+    const id = await open({ name: '一鍵補市值變動', opening_balance: 10000, opening_date: '2026-01-01' });
+    await POST('/api/balance-checks', { account_id: id, date: '2026-03-31', stated: 10000 });
+    await POST('/api/balance-checks', { account_id: id, date: '2026-06-30', stated: 11234.56 });
+    const mine = async () => (await GET('/api/reconcile')).filter((c) => c.account_id === id);
+
+    const [latest, earlier] = await mine();
+    assert.equal(latest.date, '2026-06-30', '最新的排在最前面，頁面拿第一筆');
+    assert.equal(latest.ok, false);
+    assert.equal(latest.diff, 1234.56);
+    assert.ok(earlier.ok);
+
+    await POST('/api/txns', {
+      account_id: id, date: latest.date, amount: latest.diff, kind: 'valuation', description: '市值變動（對帳差額）',
+    });
+    const after = await mine();
+    assert.ok(after.every((c) => c.ok), `兩筆都要對得上：${after.map((c) => `${c.date} 差 ${c.diff}`).join('、')}`);
+    assert.equal((await find(id)).balance, 11234.56, '餘額就是對帳單上的數字');
+  });
+
   it('稅務性質存得進去、清得掉，而且清單以外的拒絕', async () => {
     const id = await open({ name: 'Roth IRA', tax_status: 'roth' });
     assert.equal((await find(id)).tax_status, 'roth');
