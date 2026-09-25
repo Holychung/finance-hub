@@ -8,7 +8,12 @@
 // rather than re-running the view, which is why runPreview() has to do its
 // own captureUi/restoreUi — render() never sees this path.
 
-const imp = { file: null, base64: null, accountId: null, preview: null, mapping: null, skip: new Set(), period: null };
+const imp = {
+  file: null, base64: null, accountId: null, preview: null, mapping: null, skip: new Set(), period: null,
+  // null until somebody opens or closes the column mapping; renderPreview()
+  // decides while it is null. See mappingOpen there.
+  mappingOpen: null,
+};
 
 // 銀行的下載頁會讓你選「Statement of 2026-08」「Year to date」「自訂區間」。
 // 那個選擇就是這份檔案涵蓋的期間，而 CSV 本身不會寫。使用者記得自己按了什麼，
@@ -23,6 +28,13 @@ const PERIOD_PRESETS = {
   year: '整個年度',
 };
 
+// The date formats a mapping can name, as the form offers them and as the
+// folded mapping says them back — one list, so the two cannot disagree.
+const DATE_FORMATS = [
+  ['auto', '自動'], ['roc', '民國年 114/09/20'], ['ymd', '西元 2026-09-20'],
+  ['mdy', '美式 09/20/2026'], ['dmy', '歐式 20/09/2026'],
+];
+
 views.import = async () => {
   const [accounts, mappings, imports] = await Promise.all([
     api('/api/accounts'), api('/api/mappings'), api('/api/imports'),
@@ -34,7 +46,7 @@ views.import = async () => {
     </div>
 
     <section class="card">
-      <div class="step ${imp.accountId ? 'done' : ''}"><span class="step-no">1</span><span class="step-label">選擇要匯入的帳戶</span>${accounts.length ? '' : html`<span class="pill">可跳過</span>`}</div>
+      <div class="step ${imp.accountId ? 'done' : ''}"><span class="step-no">1</span><span class="step-label">選擇要匯入的帳戶</span><span class="pill">可跳過</span></div>
       <select id="imp-account" class="constrained">
         <option value="">— 選擇帳戶 —</option>
         ${accounts.map((a) => html`<option value="${a.id}" ${a.id === imp.accountId ? 'selected' : ''}>${a.name}（${a.currency}）</option>`)}
@@ -55,7 +67,7 @@ views.import = async () => {
       <input type="file" id="file-input" accept=".csv,.txt,text/csv" hidden>
       ${storage.name === 'demo' ? html`<div class="toolbar">
         <button class="sm" id="demo-statement">載入一份範例對帳單</button>
-        <span class="muted small">玉山格式：民國年、支出／存入兩欄、有餘額欄可以逐行對帳。沒選帳戶就會走「從這個檔案建立帳戶」</span>
+        <span class="muted small">玉山格式：民國年、支出／存入兩欄、有餘額欄可以逐行對帳。沒選帳戶的話，會問你匯進哪個現有帳戶，或照檔案建一個新的</span>
       </div>` : ''}
       ${mappings.length ? html`<div class="toolbar">
         <span class="muted small">套用記住的對應：</span>
@@ -134,6 +146,8 @@ function loadFile(file) {
   // A new file is a new statement with its own period; keeping the last
   // answer would silently declare it for a file nobody answered for.
   imp.period = null;
+  // And its own mapping, which may be read right where the last one was not.
+  imp.mappingOpen = null;
   const reader = new FileReader();
   reader.onload = () => {
     imp.base64 = String(reader.result).split(',')[1];
@@ -160,7 +174,7 @@ async function runPreview() {
     // offer to create it here rather than sending the user off to another
     // view to type in an opening balance this file already knows.
     if (!imp.accountId && imp.preview.suggested_account) {
-      accountFromCsvForm(imp.preview.suggested_account);
+      await accountFromCsvForm(imp.preview.suggested_account);
       return;
     }
     renderPreview();
@@ -177,20 +191,43 @@ async function runPreview() {
 
 // Everything is pre-filled and everything is editable; nothing is written
 // until 建立 is pressed.
-function accountFromCsvForm(s) {
+//
+// Arriving here only means no account was chosen before the file was dropped.
+// Once the book has accounts, that usually means the statement belongs to one
+// of them, so they are offered first: with nothing but this form, the order of
+// the page was a rule you had to know, and the one way on was a duplicate.
+async function accountFromCsvForm(s) {
+  const accounts = await api('/api/accounts');
+  // The one the file's own name points at leads, then the file's currency.
+  const existing = [...accounts].sort((x, y) =>
+    (y.name === s.name) - (x.name === s.name) || (y.currency === s.currency) - (x.currency === s.currency));
   // A retirement plan's history gets examples of its own: a bank called
   // Chase and an account called "Chase ...0000" are the wrong hints there.
+  // So does a Taiwanese statement, and its country follows its currency by
+  // the rule suggestAccount already applies when it finds an institution.
   const plan = TAX_ADVANTAGED_KINDS.has(s.kind);
-  const inst = s.institution || { name: '', kind: plan ? 'broker' : 'bank', country: 'US' };
-  modal('從這個檔案建立帳戶', html`
+  const tw = s.currency === 'TWD';
+  const hint = plan ? { inst: 'Fidelity', name: '401(k)' }
+    : tw ? { inst: '玉山銀行', name: '玉山 活存' }
+    : { inst: 'Chase', name: 'Chase ...0000' };
+  const inst = s.institution || { name: '', kind: plan ? 'broker' : 'bank', country: tw ? 'TW' : 'US' };
+  modal(existing.length ? '這份檔案要匯到哪個帳戶' : '從這個檔案建立帳戶', html`
     <div class="note small">
       下面是從 <code>${imp.file?.name || 'CSV'}</code> 讀出來的。有錯就直接改，按「建立」才會寫入。
       ${s.covers ? html`<br>檔案涵蓋 ${s.covers.from} → ${s.covers.to}，共 ${s.covers.rows} 筆。` : ''}
     </div>
+    ${existing.length ? html`
+      <div class="row">
+        <label class="field"><span>匯入到現有帳戶</span><select id="a-existing">
+          ${existing.map((a) => html`<option value="${a.id}">${a.name}（${a.currency}）</option>`)}
+        </select></label>
+        <div class="shrink"><button id="a-use">匯入到這個帳戶</button></div>
+      </div>
+      <h2 class="sec spaced">或照檔案內容建立新帳戶</h2>` : ''}
     ${s.notes.map((n) => html`<div class="note warn small">${n}</div>`)}
 
     <div class="row">
-      <label class="field"><span>機構</span><input id="a-inst" value="${inst.name}" placeholder="${plan ? 'Fidelity' : 'Chase'}"></label>
+      <label class="field"><span>機構</span><input id="a-inst" value="${inst.name}" placeholder="${hint.inst}"></label>
       <label class="field"><span>機構類型</span><select id="a-instkind">
         ${[['bank', '銀行'], ['broker', '券商'], ['card', '發卡機構'], ['other', '其他']]
           .map(([v, l]) => html`<option value="${v}" ${v === inst.kind ? 'selected' : ''}>${l}</option>`)}
@@ -202,7 +239,7 @@ function accountFromCsvForm(s) {
     </div>
 
     <div class="row">
-      <label class="field"><span>帳戶名稱</span><input id="a-name" value="${s.name}" placeholder="${plan ? '401(k)' : 'Chase ...0000'}"></label>
+      <label class="field"><span>帳戶名稱</span><input id="a-name" value="${s.name}" placeholder="${hint.name}"></label>
       <label class="field"><span>類型</span><select id="a-kind">
         ${KIND_ORDER.map((k) => html`<option value="${k}" ${k === s.kind ? 'selected' : ''}>${kindName(k)}</option>`)}
       </select></label>
@@ -223,6 +260,23 @@ function accountFromCsvForm(s) {
       <button data-close-modal>取消</button><button class="primary" id="a-save">建立並繼續匯入</button>
     </div>
   `, (body) => {
+    // Both ways out end the same, together: the preview held here was taken
+    // without an account, so its dedup is meaningless now, and the mapping
+    // will be guessed again against the real one.
+    const continueInto = async (id) => {
+      closeModal();
+      imp.accountId = id;
+      imp.preview = null;
+      imp.mapping = null;
+      await render();
+      await runPreview();
+    };
+    const use = $('#a-use', body);
+    if (use) {
+      use.onclick = () => continueInto(Number($('#a-existing', body).value))
+        .catch((e) => toast(e.message, 'err'));
+    }
+
     const note = $('#a-liability', body);
     const syncLiability = () => {
       const kind = $('#a-kind', body).value;
@@ -263,16 +317,8 @@ function accountFromCsvForm(s) {
           opening_balance: Number($('#a-ob', body).value || 0),
           opening_date: $('#a-od', body).value || today(),
         });
-        closeModal();
-        imp.accountId = acct.id;
-        // Both, together. The preview held here was taken without an account,
-        // so its dedup is meaningless now, and the mapping will be guessed
-        // again against the real one.
-        imp.preview = null;
-        imp.mapping = null;
         toast(`已建立「${name}」`, 'ok');
-        await render();
-        await runPreview();
+        await continueInto(acct.id);
       } catch (e) { toast(e.message, 'err'); }
     };
   });
@@ -299,6 +345,17 @@ function renderPreview() {
     <option value="">—</option>
     ${headers.map((h, i) => html`<option value="${i}" ${i === sel ? 'selected' : ''}>${i + 1}. ${h || '(空欄)'}</option>`)}`;
 
+  // The detector reads every supported statement without help, so the dozen
+  // controls of step 3 stay folded into one line saying what it read. They
+  // open by themselves only when the preview says the file was misread: no
+  // date column, nothing parsed, or at least half the rows refused. One
+  // refused footer row — 玉山's 合計 — is the file, not the mapping, and step 4
+  // already says so in red. Opened or closed by hand, it stays that way.
+  const tally = p.summary;
+  const counted = tally.new + tally.duplicate + tally.error + (tally.pending || 0) + (tally.internal || 0);
+  const misread = m.dateCol === null || m.dateCol === undefined || !counted || tally.error * 2 >= counted;
+  const mappingOpen = imp.mappingOpen ?? misread;
+
   // 將匯入 ＋ 重複略過 ＋ 解析失敗 has to account for every row in the file, and
   // a pending row is a fourth way to be left out. Shown only when there are
   // any: Citi is the only export here with a status column at all, so a
@@ -317,6 +374,7 @@ function renderPreview() {
   mount($('#imp-result'), html`
     <section class="card">
       <div class="step done"><span class="step-no">3</span><span class="step-label">欄位對應</span></div>
+      ${mappingOpen ? html`
       <div class="muted small">
         編碼判讀為 <code>${p.encoding}</code>，分隔符 <code>${p.delimiter === '\t' ? '\\t' : p.delimiter}</code>。下方是檔案原始前幾行，藍色那行是被當成標題列的。
       </div>
@@ -331,8 +389,7 @@ function renderPreview() {
         <label class="field"><span>標題列在第幾行</span><input id="m-header" type="number" min="1" value="${m.headerRow}"></label>
         <label class="field"><span>日期欄</span><select id="m-date">${colOpts(m.dateCol)}</select></label>
         <label class="field"><span>日期格式</span><select id="m-datefmt">
-          ${[['auto', '自動'], ['roc', '民國年 114/09/20'], ['ymd', '西元 2026-09-20'], ['mdy', '美式 09/20/2026'], ['dmy', '歐式 20/09/2026']]
-            .map(([v, l]) => html`<option value="${v}" ${v === m.dateFormat ? 'selected' : ''}>${l}</option>`)}
+          ${DATE_FORMATS.map(([v, l]) => html`<option value="${v}" ${v === m.dateFormat ? 'selected' : ''}>${l}</option>`)}
         </select></label>
       </div>
 
@@ -363,7 +420,12 @@ function renderPreview() {
         <label class="field"><span>狀態欄（Pending 的不匯入）</span><select id="m-status">${colOpts(m.statusCol)}</select></label>
         <label class="field"><span>交易類型欄（退休計畫的轉換和損益不匯入）</span><select id="m-activity">${colOpts(m.activityCol)}</select></label>
       </div>
-      <button class="sm" id="m-apply">套用對應，重新預覽</button>
+      <div class="toolbar">
+        <button class="sm" id="m-apply">套用對應，重新預覽</button>
+        <button class="sm" id="m-toggle" aria-expanded="true">收起</button>
+      </div>`
+      : html`<div class="note">自動對應：${mappingSummary(m, headers)}
+        <button class="sm" id="m-toggle" aria-expanded="false">調整欄位對應</button></div>`}
     </section>
 
     <section class="card">
@@ -491,8 +553,19 @@ function renderPreview() {
     c.checked ? imp.skip.delete(line) : imp.skip.add(line);
   }));
 
-  $('#m-mode').onchange = () => { imp.mapping = readMapping(); renderPreview(); runPreview(); };
-  $('#m-apply').onclick = () => { imp.mapping = readMapping(); runPreview(); };
+  // One id in both states, so restoreUi() puts the focus back on the button
+  // that was just pressed when the section redraws around it.
+  $('#m-toggle').onclick = () => {
+    imp.mappingOpen = !mappingOpen;
+    const snap = captureUi();
+    renderPreview();
+    restoreUi(snap);
+  };
+  // The form is only on screen when open; folded, there is nothing to read.
+  if (mappingOpen) {
+    $('#m-mode').onchange = () => { imp.mapping = readMapping(); renderPreview(); runPreview(); };
+    $('#m-apply').onclick = () => { imp.mapping = readMapping(); runPreview(); };
+  }
 
   // The preset only fills the two dates; the dates are what gets sent. A
   // preset that sent its own name would need the server to know what "year to
@@ -559,4 +632,27 @@ function readMapping() {
     activityCol: val('#m-activity'),
     invert: $('#m-invert') ? $('#m-invert').checked : false,
   };
+}
+
+// The mapping in one line: which column is the date, which is the money, and
+// what else will be read. Plain text, not markup — the header names come out
+// of the file, and html`` escapes them where this is interpolated.
+function mappingSummary(m, headers) {
+  const col = (i) => (i === null || i === undefined ? '（沒選）' : `「${headers[i] || '(空欄)'}」`);
+  const format = (DATE_FORMATS.find(([v]) => v === m.dateFormat) || [])[1] || m.dateFormat;
+  const amount = m.amountMode === 'inout' ? `支出${col(m.outCol)}、存入${col(m.inCol)}`
+    : m.amountMode === 'typed' ? `金額${col(m.amountCol)}，方向看${col(m.typeCol)}`
+    : `金額${col(m.amountCol)}${m.invert ? '，正負相反' : ''}`;
+  const extras = [
+    ['餘額', m.balanceCol, '，逐行對帳'], ['分類', m.categoryCol], ['交易序號', m.externalIdCol],
+    ['狀態', m.statusCol], ['交易類型', m.activityCol],
+  ].filter(([, i]) => i !== null && i !== undefined)
+    .map(([label, i, tail = '']) => `${label}${col(i)}${tail}`);
+  return [
+    m.headerRow > 1 ? `標題列在第 ${m.headerRow} 行` : '',
+    `日期${col(m.dateCol)}（${format}）`,
+    amount,
+    (m.descCols || []).length ? `摘要${m.descCols.map(col).join('＋')}` : '',
+    ...extras,
+  ].filter(Boolean).join(' · ');
 }
