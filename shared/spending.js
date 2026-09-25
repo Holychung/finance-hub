@@ -1,8 +1,9 @@
 'use strict';
 
-// Where the money went: monthly in/out, a breakdown by category, and the
-// repeating charges nobody remembers signing up for. Pure — takes rows, returns
-// numbers, touches no database — so every rule below is testable as a function.
+// Where the money went: monthly in/out, a breakdown by category, the repeating
+// charges nobody remembers signing up for, and how much of each budget a month
+// has used. Pure — takes rows, returns numbers, touches no database — so every
+// rule below is testable as a function.
 //
 // Two things it inherits from the rest of the ledger and may not soften:
 //
@@ -35,6 +36,10 @@
   // flattering direction, and the whole point of the rules engine is to make the
   // number visible enough to be worth shrinking.
   const UNCATEGORISED = '';
+  // What the page calls it. One spelling, because the budget routes refuse it
+  // by name: typed into the budget form it would track a category no row
+  // carries and sit at zero forever.
+  const UNCATEGORISED_LABEL = '未分類';
 
   function computeSpending({ txns, accounts, from, to }) {
     const currencyOf = new Map(accounts.map((a) => [a.id, a.currency]));
@@ -97,14 +102,13 @@
       from,
       to,
       currencies: out,
-      // Same fixed display order as netWorth: the same column holds the same
-      // thing every time, rather than moving when one currency overtakes another.
-      order: Object.keys(out).sort((x, y) => {
-        const rank = (c) => (c === 'USD' ? 0 : c === 'TWD' ? 1 : 2);
-        return rank(x) - rank(y) || out[y].expense - out[x].expense;
-      }),
+      order: Object.keys(out).sort((x, y) => displayRank(x) - displayRank(y) || out[y].expense - out[x].expense),
     };
   }
+
+  // Same fixed display order as netWorth: the same column holds the same thing
+  // every time, rather than moving when one currency overtakes another.
+  const displayRank = (c) => (c === 'USD' ? 0 : c === 'TWD' ? 1 : 2);
 
   function monthsBetween(from, to) {
     const out = [];
@@ -219,6 +223,89 @@
     return { items: found, monthly_total: monthly };
   }
 
+  // ---------------------------------------------------------------------------
+  // Budgets
+  // ---------------------------------------------------------------------------
+
+  // A budget is a number the user states — so much a month for a category, in
+  // one currency — and the only arithmetic here is how much of it a month has
+  // used. What "used" means is not decided here at all: it is what
+  // computeSpending says that category spent in that month, called over the
+  // month's window. So a transfer, a change in market value and a refund (an
+  // inflow, not a negative expense) are treated exactly as the breakdown on the
+  // same page treats them, because there is one set of filters rather than two
+  // that happen to agree today.
+  //
+  // Nothing here forecasts. A running month reports how many of its days have
+  // passed, so a bar can show the month so far beside the budget so far; what
+  // the two mean together is the reader's call, not an "on track" the code
+  // would be guessing at. A past month carries no such figure: it is over.
+  //
+  // `today` is injected like every other clock in shared/. The running month
+  // counts up to it, the way the spending page's window ends on it, and a
+  // month that has not started counts nothing.
+  function computeBudgets({ budgets, txns, accounts, month, today }) {
+    const [y, m] = month.split('-').map(Number);
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const from = `${month}-01`;
+    const last = `${month}-${String(days).padStart(2, '0')}`;
+    const to = last < today ? last : today;
+    const running = today.slice(0, 7) === month;
+    const sp = computeSpending({ txns, accounts, from, to });
+
+    const currencies = {};
+    for (const cur of new Set([...budgets.map((b) => b.currency), ...sp.order])) {
+      const spent = new Map(((sp.currencies[cur] || {}).categories || []).map((c) => [c.category, c]));
+      const mine = budgets.filter((b) => b.currency === cur);
+      const items = mine
+        .map((b) => {
+          const c = spent.get(b.category) || { total: 0, count: 0 };
+          return {
+            id: b.id,
+            category: b.category,
+            currency: cur,
+            amount: b.amount,
+            spent: c.total,
+            count: c.count,
+            // Negative once the month is over; the page says 超支 in words.
+            remaining: round2(b.amount - c.total),
+            // Not capped at 100: 130% is the fact, and it is the bar that clips.
+            used_pct: b.amount > 0 ? round2((c.total / b.amount) * 100) : 0,
+          };
+        })
+        // The biggest budget first, so the lines that matter most lead; the
+        // name breaks a tie, so the order never depends on when a row was added.
+        .sort((a, b) => b.amount - a.amount || a.category.localeCompare(b.category));
+
+      // Everything this currency spent in categories with no budget, 未分類
+      // included — reported rather than dropped, for the reason 未分類 stays
+      // in the breakdown: a card that shows only the budgeted categories makes
+      // every month look better than it was.
+      const budgeted = new Set(mine.map((b) => b.category));
+      const rest = [...spent.values()].filter((c) => !budgeted.has(c.category));
+      currencies[cur] = {
+        items,
+        budgeted: round2(items.reduce((n, i) => n + i.amount, 0)),
+        spent: round2(items.reduce((n, i) => n + i.spent, 0)),
+        unbudgeted: {
+          total: round2(rest.reduce((n, c) => n + c.total, 0)),
+          count: rest.reduce((n, c) => n + c.count, 0),
+        },
+      };
+    }
+
+    return {
+      month,
+      from,
+      to,
+      running,
+      days_in_month: days,
+      days_elapsed: running ? Number(today.slice(8, 10)) : null,
+      currencies,
+      order: Object.keys(currencies).sort((a, b) => displayRank(a) - displayRank(b) || a.localeCompare(b)),
+    };
+  }
+
   function median(xs) {
     const s = [...xs].sort((a, b) => a - b);
     const mid = s.length >> 1;
@@ -237,8 +324,8 @@
   // the global for the browser's classic scripts, onto module.exports for
   // Node. Everything above stays inside the closure.
   const api = {
-    computeSpending, computeRecurring, monthsBetween, CADENCES,
-    MIN_OCCURRENCES, UNCATEGORISED,
+    computeSpending, computeRecurring, computeBudgets, monthsBetween, CADENCES,
+    MIN_OCCURRENCES, UNCATEGORISED, UNCATEGORISED_LABEL,
   };
   Object.assign(root, api);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
