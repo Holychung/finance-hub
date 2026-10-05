@@ -6,11 +6,10 @@
 ```
 ~/.finance-hub/finance.db     ← 你的帳本
 ~/.finance-hub/backups/       ← 匯入前、升級結構前的自動快照
-~/.finance-hub/ai-keys.json   ← AI 健檢的 API key，有貼才有（見 ai.md）
 ```
 
-key 不放在帳本裡：快照就是整個資料庫的複本，key 放進去就會跟著進每一份備份。它自己一個檔、只有
-你的帳號讀得到，每本帳（每個 profile）共用。
+AI 健檢的 API key 不在這裡：不在帳本裡（快照就是整個資料庫的複本，key 放進去就會跟著進每一份
+備份），也不是這個資料夾裡的檔案，而是在 macOS 鑰匙圈（見 [`ai.md`](ai.md)）。
 
 放在 `<repo>/data/` 會是什麼結果：`.gitignore` 擋得住 commit，但**`git clean -xdf` 會把整
 個 `data/` 刪掉**——連快照一起，而那是「整理工作區」的標準指令，不是危險指令。而且每開一個
@@ -124,7 +123,7 @@ seeder 離最糟的 bug 只差一個手誤。`--force` 只會清掉目標那一�
 
 兩層，因為任何一層都可能失手：
 
-1. **`.gitignore`** —— 擋 `*.db`、`data/`、`.env`、AI 健檢的 `ai-keys.json`，以及**所有 `*.csv` 和 `*.pdf`**。對帳單
+1. **`.gitignore`** —— 擋 `*.db`、`data/`、`.env`，以及**所有 `*.csv` 和 `*.pdf`**。對帳單
    存進來時叫 `stmt.csv`、`eStmt_2025-04-01.csv` 或 `Statement.pdf`，比對不到任何特定檔名，
    所以整類擋掉。
 2. **`githooks/pre-commit`** —— `.gitignore` 擋不住 `git add -f`，也管不到已經被追蹤的檔案。

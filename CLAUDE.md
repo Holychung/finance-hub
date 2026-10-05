@@ -66,10 +66,15 @@ unless its owner turns on one of the two opt-in exceptions below and, for AI
   and the page shows both before the button. 送出 carries the preview's digest
   back; the server rebuilds the document from the book and refuses a mismatch
   with a 409, so what is sent is what was shown or nothing. It reads nothing but that
-  document and writes nothing to the ledger. The key lives beside the book in
-  `ai-keys.json` (`paths.AI_KEYS_PATH`, mode 600) or in the provider's usual
-  environment variable, **never in the database**, because every snapshot is a
-  copy of the database; no response carries it back. The answer is text from
+  document and writes nothing to the ledger. A pasted key goes into the macOS
+  login keychain — one item per provider per data directory, written through
+  `security -i` on stdin so it never sits on a command line — or comes from the
+  provider's usual environment variable. It is **never in the database**,
+  because every snapshot is a copy of the database, and **never a plain-text
+  file**: where there is no keychain, pasting is refused and the variable is
+  the way. No response carries it back. Every test server runs with
+  `FINANCE_AI_VAULT=memory`, and anything else in that variable is refused, so
+  the suite cannot reach a real keychain by a typo. The answer is text from
   somewhere this app does not control, so `view-ai.js` rebuilds its few
   Markdown shapes as elements and never turns a link into one. The hosted demo
   refuses every AI route. Nothing else in the app may call a model.
@@ -103,7 +108,7 @@ server/money.js   the loaders — one query-runner per `compute*` in shared/
 server/prices.js  outbound call one — opt-in daily close fetch, off by
                   default, server-side; deps-test allows Yahoo only here
 server/ai.js      outbound call two — AI 健檢: providers, the instruction, the
-                  key file, the one request; deps-test allows the three
+                  keychain vault, the one request; deps-test allows the three
                   providers' endpoints only here
 server/api.js     JSON handlers, registered via on(method, pattern, fn)
 server/index.js   HTTP server, request guards, routing, static files; loads what
@@ -129,7 +134,8 @@ test/budgets.test.js a budget's spent figure is the breakdown's, for its month
 test/import.test.js  the import gate over plain rows: what stops a file, and
                      what is the file behaving normally
 test/prices.test.js  the close fetch, offline — injected getter, throwaway db
-test/ai.test.js      AI 健檢, offline — each provider's shapes, the key file,
+test/ai.test.js      AI 健檢, offline — each provider's shapes, the keychain
+                     vault over a stand-in for /usr/bin/security,
                      review() over an injected sender, the answer's rendering
 test/currency.test.js  the scale follows the currency, and round2 is unchanged
 test/kinds.test.js   the kind list is complete, and the rules encoded in it
@@ -151,7 +157,7 @@ wrangler.jsonc                the hosted demo's deploy config — read on
 scripts/fixtures/             builds the invented Fidelity statement PDF, its
                               history and its figures; needs Chrome, run by
                               hand, never by the suite
-githooks/pre-commit           refuses staged .db / .csv / .pdf / .env / ai-keys.json
+githooks/pre-commit           refuses staged .db / .csv / .pdf / .env
 docs/design/                  design comps, as a record — history, not spec
 ```
 
@@ -182,7 +188,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-706 tests across 112 suites cover Big5 decoding, ROC dates, two-digit years,
+711 tests across 113 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -203,7 +209,8 @@ zero-dependency and no-outbound rules (with the two opt-in exceptions tested
 offline — the close fetch through an injected getter, AI 健檢 through an
 injected sender, with a stale digest refused before anything is sent — and the deps scan
 pinning Yahoo to `server/prices.js` and the three AI providers to
-`server/ai.js`), AI 健檢's key living beside the book and never in it, the
+`server/ai.js`), AI 健檢's key kept in the keychain and never in the book or
+a plain-text file, the
 ledger location rules, the
 schema migration runner, the pure half of `money.js`, the demo adapter
 answering the same as a real server, the demo book being one definition the
@@ -578,10 +585,7 @@ Protection against committing data is layered, because any single layer fails:
 walks past it and an
 already-tracked file is never reconsulted; `githooks/pre-commit` reads what is
 actually staged and refuses it. Enable it per clone with
-`git config core.hooksPath githooks`. AI 健檢's `ai-keys.json` is in both
-layers too: it lands beside the book, so a scratch book pointed into a checkout
-with `FINANCE_DB` puts a live key in the working tree, and `test/ai.test.js`
-runs both layers against a throwaway repo to prove neither lets it through.
+`git config core.hooksPath githooks`.
 
 ## Adding a bank
 

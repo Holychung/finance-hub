@@ -305,9 +305,10 @@ before(async () => {
     // falls back to them for a key, so a developer's own ANTHROPIC_API_KEY
     // would otherwise reach the server under test — and the suite could only
     // prove "no key, no request" on a machine that happened to have none.
+    // For the same reason a pasted key goes into memory, never the keychain.
     env: {
       ...process.env, FINANCE_DB: dbPath, PORT: String(port),
-      ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', GEMINI_API_KEY: '',
+      ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', GEMINI_API_KEY: '', FINANCE_AI_VAULT: 'memory',
     },
     stdio: 'ignore',
   });
@@ -643,6 +644,7 @@ describe('AI 健檢', () => {
     assert.equal(s.provider, 'anthropic');
     assert.equal(s.model, 'claude-opus-5');
     assert.equal(s.key.set, false, '測試的伺服器看不到任何人的 key');
+    assert.equal(s.key.store, 'memory', '測試的伺服器碰不到鑰匙圈');
     assert.deepEqual(s.providers.map((p) => p.key), ['anthropic', 'openai', 'gemini']);
   });
 
@@ -688,36 +690,34 @@ describe('AI 健檢', () => {
     assert.equal((await GET('/api/ai')).model, 'claude-opus-5');
   });
 
-  // Beside the book, never in it: a backup is a copy of the database, and the
-  // JSON export dumps its tables.
-  it('key 存在帳本旁邊、只有擁有者讀得到；API 只給最後四碼；資料庫裡沒有它', async () => {
+  // Never in the book and never a plain-text file: a backup is a copy of the
+  // database, the JSON export dumps its tables, and a file beside the book is
+  // one `cat` away. So every byte the server wrote into its data directory —
+  // the database, its -wal, any snapshot — is searched for the key.
+  it('key 不在帳本裡，資料目錄裡也沒有任何檔案寫著它；API 只給最後四碼', async () => {
     const key = 'sk-ant-test-0000000000000abcd';
     const saved = await PUT('/api/ai/key', { provider: 'anthropic', key });
     assert.equal(saved.key.hint, '…abcd');
-    const file = path.join(tmpDir, 'ai-keys.json');
-    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { anthropic: key });
-    if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 
     const s = await GET('/api/ai');
     assert.equal(s.key.set, true);
-    assert.equal(s.key.source, 'file');
+    assert.equal(s.key.source, 'stored');
     for (const p of ['/api/ai', '/api/settings', '/api/export/json']) {
       assert.ok(!JSON.stringify(await GET(p)).includes(key), `${p} 帶出了 key`);
     }
-    // Under WAL the newest pages are still in the -wal, so both files count.
-    for (const f of [dbPath, `${dbPath}-wal`]) {
-      if (fs.existsSync(f)) assert.ok(!fs.readFileSync(f).includes(key), `${path.basename(f)} 裡有 key`);
+    for (const f of fs.readdirSync(tmpDir, { recursive: true })) {
+      const full = path.join(tmpDir, f);
+      if (fs.statSync(full).isFile()) assert.ok(!fs.readFileSync(full).includes(key), `${f} 裡有 key`);
     }
 
     assert.deepEqual(await req('DELETE', '/api/ai/key?provider=anthropic'), { deleted: 1 });
     assert.equal((await GET('/api/ai')).key.set, false);
-    assert.ok(!fs.existsSync(file), '最後一把 key 刪掉，檔案也不見了');
   });
 
   it('不像 key 的東西，和不認得的供應商，都拒絕', async () => {
     assert.equal((await call('PUT', '/api/ai/key', { provider: 'anthropic', key: 'has space in it' })).status, 400);
     assert.equal((await call('PUT', '/api/ai/key', { provider: 'nope', key: 'sk-0123456789' })).status, 400);
-    assert.ok(!fs.existsSync(path.join(tmpDir, 'ai-keys.json')));
+    assert.equal((await GET('/api/ai')).key.set, false);
   });
 
   // What the page shows above 送出 is the 匯出全覽 file, and review() sends

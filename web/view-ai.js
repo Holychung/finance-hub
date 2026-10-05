@@ -67,12 +67,12 @@ views.ai = async () => {
 
       <h2 class="sec">${provider.label} 的 API key</h2>
       <div class="muted small">${keyLine(s.key)}</div>
-      <div class="row spaced">
+      ${s.key.store === 'none' ? '' : html`<div class="row spaced">
         <label class="field"><span>${s.key.set ? '換一個 key' : '貼上 key'}</span><input id="ai-key" type="password"
           autocomplete="off" spellcheck="false"></label>
         <div class="shrink"><button id="ai-key-save">儲存 key</button></div>
-        ${s.key.source === 'file' ? html`<div class="shrink"><button class="danger" id="ai-key-del">刪除 key</button></div>` : ''}
-      </div>
+        ${s.key.source === 'stored' ? html`<div class="shrink"><button class="danger" id="ai-key-del">刪除 key</button></div>` : ''}
+      </div>`}
     </section>
 
     <section class="card">
@@ -103,16 +103,23 @@ views.ai = async () => {
   wireAi(s, provider, preview);
 };
 
+// Where the key is kept, said in the words the server chose (`where`), so the
+// page never claims a keychain on a machine that has none.
 function keyLine(k) {
-  if (k.source === 'file') {
-    return html`已設定（${k.hint}），存在這台電腦的 <code>${k.path}</code>：只有你的帳號讀得到，不在帳本裡，
-      不會進備份或匯出。`;
+  if (k.source === 'stored') {
+    return html`已設定（${k.hint}），存在${k.where}：加密保存，不是明文檔案，不在帳本裡，不會進備份或匯出。`;
   }
   if (k.source === 'env') {
-    return html`用的是環境變數 <code>${k.env}</code>（${k.hint}）。在這裡貼一個 key，就會改用貼上的那個。`;
+    return k.store === 'none'
+      ? html`用的是環境變數 <code>${k.env}</code>（${k.hint}）。`
+      : html`用的是環境變數 <code>${k.env}</code>（${k.hint}）。在這裡貼一個 key，就會改用貼上的那個。`;
   }
-  return html`還沒有設定。貼在下面，或在啟動前設定環境變數 <code>${k.env}</code>。貼上的 key 存在
-    <code>${k.path}</code>：只有你的帳號讀得到，不在帳本裡。`;
+  if (k.store === 'none') {
+    return html`還沒有設定。這台電腦沒有鑰匙圈，key 不會被寫成明文檔案，所以不能在這裡貼：請在啟動前設定環境變數
+      <code>${k.env}</code>。`;
+  }
+  return html`還沒有設定。貼在下面，或在啟動前設定環境變數
+    <code>${k.env}</code>。貼上的 key 存在${k.where}，加密保存，不是明文檔案。`;
 }
 
 function answerSection(a) {
@@ -144,7 +151,9 @@ function wireAi(s, provider, preview) {
     e.target.checked ? '已開啟 AI 健檢' : '已關閉');
   $('#ai-provider').onchange = (e) => save('/api/ai', { provider: e.target.value }, `改用 ${e.target.selectedOptions[0].text}`);
   $('#ai-model-save').onclick = () => save('/api/ai', { model: $('#ai-model').value }, '已儲存模型');
-  $('#ai-key-save').onclick = () => save('/api/ai/key', { provider: provider.key, key: $('#ai-key').value }, '已儲存 key');
+  if ($('#ai-key-save')) {
+    $('#ai-key-save').onclick = () => save('/api/ai/key', { provider: provider.key, key: $('#ai-key').value }, '已儲存 key');
+  }
   if ($('#ai-key-del')) {
     $('#ai-key-del').onclick = () => save(`/api/ai/key?provider=${provider.key}`, null, '已刪除 key');
   }

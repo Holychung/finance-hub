@@ -27,18 +27,18 @@
 // The key belongs to the person, not to the book, so it is not stored in the
 // ledger. Every snapshot is a copy of the database, and a key kept there would
 // travel into every backup and into every file somebody is handed to debug an
-// import. It sits beside the book in `ai-keys.json`, readable by its owner
-// only, or comes from the provider's usual environment variable. No response
-// carries it back: the page is told whether a key is set and its last four
-// characters.
+// import. Nor is it written to a file in plain text: a pasted key goes into the
+// macOS login keychain, encrypted at rest, or comes from the provider's usual
+// environment variable. No response carries it back: the page is told whether
+// a key is set and its last four characters.
 //
 // Testability follows prices.js. Each provider's request and response shapes
 // are pure, and `review()` takes its sender, its settings and its key store as
-// arguments, so a canned sender and a throwaway directory drive the whole path
+// arguments, so a canned sender and an in-memory vault drive the whole path
 // with nothing leaving the machine. Nothing here requires ./db at load.
 
 const https = require('node:https');
-const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const paths = require('./paths');
 const { overviewMarkdown } = require('../shared/overview');
@@ -233,10 +233,11 @@ const providerInfo = (key) => PROVIDERS.find((p) => p.key === key) || null;
 // three providers publish; a slash, a colon or a space is refused rather than
 // sent.
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-// Printable ASCII with no whitespace, which every provider's keys are. A key
+// Letters, digits and the few symbols the three providers' keys use. A key
 // pasted with a newline on the end or a space in the middle fails here with a
-// message, instead of at the provider with a 401.
-const KEY_RE = /^[\x21-\x7e]{8,512}$/;
+// message, instead of at the provider with a 401 — and no quote or backslash
+// can reach the command line keychainVault() writes.
+const KEY_RE = /^[A-Za-z0-9._~+/=-]{8,512}$/;
 
 // ---------------------------------------------------------------------------
 // What is sent
@@ -339,37 +340,108 @@ function saveSettings(b, { getMeta, setMeta }) {
   return { ok: true };
 }
 
-const KEYS = { file: paths.AI_KEYS_PATH, env: process.env };
+// ---------------------------------------------------------------------------
+// Where a pasted key is kept
+// ---------------------------------------------------------------------------
+//
+// A vault is get / set / remove by provider, and says where it keeps things.
+// There are three and the choice is made once, at load:
+//
+//   keychainVault  macOS: the login keychain, through /usr/bin/security.
+//   noVault        anywhere else: pasting is refused rather than written to a
+//                  plain-text file, and the environment variable is the way.
+//   memoryVault    FINANCE_AI_VAULT=memory: a Map that dies with the process.
+//                  What every test server runs, so the suite can save, read
+//                  and delete keys without touching anybody's keychain.
 
-function readKeys(file) {
-  let raw;
-  try { raw = fs.readFileSync(file, 'utf8'); }
-  catch (e) { if (e.code === 'ENOENT') return {}; throw e; }
-  try {
-    const keys = JSON.parse(raw);
-    return keys && typeof keys === 'object' && !Array.isArray(keys) ? keys : {};
-  } catch {
-    return fail(500, `${file} 不是合法的 JSON。刪掉它，再把 key 貼一次。`);
-  }
+const KEYCHAIN_SERVICE = 'Finance Hub AI 健檢';
+const SECURITY = '/usr/bin/security';
+
+// One item per provider per data directory. The personal book and its demo
+// profile share ~/.finance-hub and so share a key; a throwaway FINANCE_DB in
+// its own directory gets an account name nothing real has ever been saved
+// under, so a scratch server cannot find the owner's key even by accident.
+const keychainAccount = (providerKey, dir) => `${providerKey}:${sha1Hex(path.resolve(dir)).slice(0, 12)}`;
+
+function runSecurity(args, input) {
+  const r = spawnSync(SECURITY, args, { input, encoding: 'utf8', timeout: 10000 });
+  if (r.error) fail(500, `讀不到 macOS 鑰匙圈（${r.error.message}）`);
+  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 
-// Written to a `.part` and renamed, so a crash cannot leave a half-written
-// key file, and chmod'ed explicitly because `mode` only applies to a file
-// being created. With no key left the file goes too.
-function writeKeys(file, keys) {
-  if (!Object.keys(keys).length) { fs.rmSync(file, { force: true }); return; }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const part = `${file}.part`;
-  fs.writeFileSync(part, `${JSON.stringify(keys, null, 2)}\n`, { mode: 0o600 });
-  fs.chmodSync(part, 0o600);
-  fs.renameSync(part, file);
+// The key never goes on a command line, where any process could read it from
+// the process table: `security -i` takes its command on stdin. KEY_RE keeps
+// quotes, backslashes and whitespace out of that line, and the read-back after
+// it is the only check that it worked — interactive mode exits 0 when its
+// command failed, sometimes without a word on stderr.
+function keychainVault({ dir = paths.DATA_DIR, run = runSecurity } = {}) {
+  const account = (p) => keychainAccount(p, dir);
+  const refused = (what, r, key) => fail(500,
+    `macOS 鑰匙圈${what}失敗：${scrub(r.stderr.trim() || `security 結束碼 ${r.status}`, key)}`);
+  const vault = {
+    kind: 'keychain',
+    where: `這台 Mac 的鑰匙圈裡名為「${KEYCHAIN_SERVICE}」的項目`,
+    get(p) {
+      const r = run(['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', account(p), '-w']);
+      if (r.status === 44) return null; // errSecItemNotFound
+      if (r.status !== 0) refused('讀取', r);
+      return r.stdout.replace(/\r?\n$/, '') || null;
+    },
+    set(p, key) {
+      const line = `add-generic-password -U -s "${KEYCHAIN_SERVICE}" -a ${account(p)} -l "${KEYCHAIN_SERVICE} (${p})" -w ${key}\n`;
+      const r = run(['-i'], line);
+      if (r.status !== 0) refused('寫入', r, key);
+      if (vault.get(p) !== key) {
+        fail(500, `macOS 鑰匙圈寫入失敗：寫完讀不回同一把 key。${scrub(r.stderr.trim(), key)}`.trim());
+      }
+    },
+    remove(p) {
+      const r = run(['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', account(p)]);
+      if (r.status === 44) return false;
+      if (r.status !== 0) refused('刪除', r);
+      return true;
+    },
+  };
+  return vault;
 }
 
-// The file wins over the environment: a key pasted into the page is the more
+function noVault() {
+  return {
+    kind: 'none',
+    where: null,
+    get: () => null,
+    set: (p) => fail(400, `這台電腦不是 macOS，沒有鑰匙圈可以放 key，也不會把它寫成明文檔案。請在啟動前設定環境變數 ${providerInfo(p).env}。`),
+    remove: () => false,
+  };
+}
+
+function memoryVault() {
+  const m = new Map();
+  return {
+    kind: 'memory',
+    where: '記憶體（伺服器一停就不見）',
+    get: (p) => m.get(p) || null,
+    set: (p, key) => { m.set(p, key); },
+    remove: (p) => m.delete(p),
+  };
+}
+
+// A typo here must not fall through to the real keychain, so anything but
+// `memory` is refused at startup.
+function defaultVault(env = process.env, platform = process.platform) {
+  const v = env.FINANCE_AI_VAULT;
+  if (v === 'memory') return memoryVault();
+  if (v) throw new Error(`FINANCE_AI_VAULT 只能是 memory 或不設，收到的是 ${JSON.stringify(v)}`);
+  return platform === 'darwin' ? keychainVault() : noVault();
+}
+
+const KEYS = { vault: defaultVault(), env: process.env };
+
+// The vault wins over the environment: a key pasted into the page is the more
 // recent decision. An empty variable is an unset one.
-function keyFor(provider, { file, env } = KEYS) {
-  const stored = readKeys(file)[provider.key];
-  if (typeof stored === 'string' && stored) return { key: stored, source: 'file' };
+function keyFor(provider, { vault, env } = KEYS) {
+  const stored = vault.get(provider.key);
+  if (stored) return { key: stored, source: 'stored' };
   const fromEnv = String((env && env[provider.env]) || '').trim();
   return fromEnv ? { key: fromEnv, source: 'env' } : null;
 }
@@ -381,25 +453,22 @@ function keyStatus(provider, keys = KEYS) {
     source: found ? found.source : null,
     hint: found ? `…${found.key.slice(-4)}` : null,
     env: provider.env,
-    path: keys.file,
+    store: keys.vault.kind,
+    where: keys.vault.where,
   };
 }
 
 function saveKey(providerKey, key, keys = KEYS) {
   const provider = providerInfo(String(providerKey)) || fail(400, `provider 只能是 ${PROVIDERS.map((p) => p.key).join('、')}`);
   const k = String(key === undefined || key === null ? '' : key).trim();
-  if (!KEY_RE.test(k)) fail(400, 'API key 看起來不對：要是一串 8 到 512 個字、中間沒有空白的英數字與符號');
-  writeKeys(keys.file, { ...readKeys(keys.file), [provider.key]: k });
+  if (!KEY_RE.test(k)) fail(400, 'API key 看起來不對：要是一串 8 到 512 個字的英數字，中間沒有空白，符號只能是 - _ . ~ + / =');
+  keys.vault.set(provider.key, k);
   return { ok: true, key: keyStatus(provider, keys) };
 }
 
 function deleteKey(providerKey, keys = KEYS) {
   const provider = providerInfo(String(providerKey)) || fail(400, `provider 只能是 ${PROVIDERS.map((p) => p.key).join('、')}`);
-  const all = readKeys(keys.file);
-  if (!(provider.key in all)) return { deleted: 0 };
-  delete all[provider.key];
-  writeKeys(keys.file, all);
-  return { deleted: 1 };
+  return { deleted: keys.vault.remove(provider.key) ? 1 : 0 };
 }
 
 // What the page needs to draw the settings card. Never the key itself.
@@ -549,6 +618,7 @@ async function review({ mode, asOf, digest, getMeta, document, keys = KEYS, send
 module.exports = {
   ANTHROPIC_URL, OPENAI_URL, GEMINI_BASE, MAX_OUTPUT,
   PROVIDERS, MODES, MODEL_RE, KEY_RE, AiError, providerInfo,
-  documentFor, settings, saveSettings, readKeys, keyFor, keyStatus, saveKey, deleteKey,
+  documentFor, settings, saveSettings, keyFor, keyStatus, saveKey, deleteKey,
+  KEYCHAIN_SERVICE, keychainAccount, keychainVault, noVault, memoryVault, defaultVault,
   status, preview, review, httpsPostJson,
 };
