@@ -219,6 +219,34 @@ describe('示範資料的產生器', () => {
     }
   });
 
+  // The hosted demo builds its book from today, and every month used to be
+  // written in full — on the 5th it showed the 25th's mortgage. The days are
+  // the ones that bite: before the first payday, mid-month, and a month's end,
+  // where nothing should be dropped at all.
+  it('建到今天就停在今天：沒有未來的交易，餘額也不會因此變動', () => {
+    const DAYS = ['2026-10-01', '2026-10-04', '2026-10-14', '2026-10-31'];
+    const balances = DAYS.map((to) => {
+      let n = 0;
+      const book = buildDemoBook({ to, months: 18, now: () => 'x', uuid: () => `g${++n}` });
+      const late = book.txns.filter((t) => t.date > to);
+      assert.equal(late.length, 0, `${to}：${late.map((t) => `${t.date} ${t.description}`).slice(0, 3)}`);
+      for (const i of book.imports) {
+        assert.ok(i.date_to <= to, `${to}：匯入宣告涵蓋到 ${i.date_to}`);
+        if (i.span_to) assert.ok(i.span_from >= i.date_from && i.span_to <= i.date_to, `${to}：${i.filename} 的列跑出宣告範圍`);
+      }
+      // A transfer drops whole or not at all.
+      const legs = new Map();
+      for (const t of book.txns) if (t.transfer_group) legs.set(t.transfer_group, (legs.get(t.transfer_group) || 0) + 1);
+      for (const [g, count] of legs) assert.equal(count, 2, `${to}：轉帳 ${g} 剩 ${count} 邊`);
+      // Opening balances are derived from the rows that are left, so every
+      // account the book aims at a figure still lands on it. The 401(k) states
+      // its opening instead and ends wherever its funds went.
+      return Object.fromEntries(book.accounts.filter((a) => a.kind !== 'retirement').map((a) => [a.name,
+        M.round2(a.opening_balance + book.txns.filter((t) => t.account_id === a.id).reduce((s, t) => s + t.amount, 0))]));
+    });
+    for (const [i, b] of balances.entries()) assert.deepEqual(b, balances[0], `${DAYS[i]} 的餘額跟 ${DAYS[0]} 不同`);
+  });
+
   // The reason the book moved out of this script and into shared/: the
   // hosted demo loads the same rows into memory. Two hand-written fake
   // ledgers would have drifted the first time either was touched, and a
