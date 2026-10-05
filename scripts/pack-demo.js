@@ -146,13 +146,21 @@ function patchHtml(html, version) {
 }
 
 const headersFile = () => [
-  '# Read by Cloudflare Pages and by Netlify. A host that ignores this file',
-  '# still gets the <meta> copy of the policy in index.html — with the one',
-  '# directive the meta form cannot carry, frame-ancestors, missing.',
+  '# Read by Cloudflare (Workers static assets and Pages) and by Netlify. A host',
+  '# that ignores this file still gets the <meta> copy of the policy in',
+  '# index.html — with the one directive the meta form cannot carry,',
+  '# frame-ancestors, missing.',
+  '#',
+  '# no-transform is the half of "served bytes are the committed bytes" that',
+  '# lives in the repo: Cloudflare documents that its proxy will not modify a',
+  '# response carrying it, which keeps the analytics beacon and the email',
+  '# obfuscation script it injects by default out of the page. The other half',
+  '# is a Configuration Rule on the hostname — see docs/security.md.',
   '/*',
   `  Content-Security-Policy: ${csp(HOSTED)}`,
   '  X-Content-Type-Options: nosniff',
   '  Referrer-Policy: no-referrer',
+  '  Cache-Control: public, max-age=0, must-revalidate, no-transform',
   '',
 ].join('\n');
 
@@ -182,8 +190,10 @@ function main() {
   console.log('  放上去的時候：');
   console.log('    · 要放在網域根目錄。index.html 的 script 用的是 /html.js 這種絕對路徑，');
   console.log('      掛在 /finance-hub/ 這種子路徑底下會整頁載不起來。');
-  console.log('    · 挑一個讀得到 _headers 的 host（Cloudflare Pages、Netlify）。讀不到的話');
-  console.log('      meta 那份還在，但擋不了別人把這頁包進 iframe。');
+  console.log('    · 挑一個讀得到 _headers 的 host（Cloudflare Workers 靜態資產、Pages、Netlify）。');
+  console.log('      讀不到的話 meta 那份還在，但擋不了別人把這頁包進 iframe。');
+  console.log('    · 正式那份不是手動放的：merge 進 main 後由 Cloudflare 照 wrangler.jsonc 重跑');
+  console.log('      這支腳本再部署。上線後的確認方式在 docs/security.md。');
   console.log('    · 這份是示範：沒有伺服器，也沒有任何一列真實資料。');
   console.log('');
 }

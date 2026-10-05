@@ -1,0 +1,29 @@
+// Deploy config for the hosted demo. Read by Cloudflare Workers Builds on
+// Cloudflare's own machine after a merge to main — nothing in this repo reads
+// it, and wrangler runs there, not here, which is why there is still no
+// package.json. An assets-only Worker: no `main`, so no code runs at the
+// edge; `dist/`, exactly as scripts/pack-demo.js wrote it, is what is served.
+// test/pack.test.js holds this file to that.
+//
+// The hostname is not in here. It is bound in the dashboard (the Worker's
+// Settings → Domains & Routes), the same way personal-site's is, so that a
+// deploy never creates or changes a DNS record by itself.
+{
+  "name": "finance-hub-demo",
+  "compatibility_date": "2026-09-01",
+  // One hostname. A workers.dev route or a version URL would be a second
+  // public copy that nobody checked the headers of.
+  "workers_dev": false,
+  "preview_urls": false,
+  "send_metrics": false,
+  // Workers Logs would keep three days of request records for a page that
+  // has nothing to debug that a curl cannot show.
+  "observability": { "enabled": false },
+  "assets": {
+    "directory": "./dist",
+    // Real paths (/account/5) are routed in the browser, so a path that is not
+    // a file gets index.html with a 200 — the fallback server/index.js does for
+    // APP_ROUTES, minus the route list, which the platform cannot read.
+    "not_found_handling": "single-page-application"
+  }
+}
