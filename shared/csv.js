@@ -602,19 +602,27 @@
   //
   // It only ever relabels a row that is already refused, so it cannot let
   // anything import; the worst a wrong match does is call a broken row a
-  // summary. Even so it takes a word that positively says so — a total with
-  // no date, a balance with a date and no amount — and never a row whose
-  // shape was off, repaired or not, since every cell of a shifted row started
-  // out as somebody else's.
+  // summary. Even so it takes a word that positively says so, and never a row
+  // whose shape was off, repaired or not, since every cell of a shifted row
+  // started out as somebody else's:
+  //
+  //   a total     no date, and the first cell is the word for a total
+  //   a balance   a date and a balance, the amount cells *empty* — not merely
+  //               unreadable — and a cell that opens by naming the balance
+  //
+  // The balance case is the narrow one on purpose. A real transaction whose
+  // amount cell is mangled (`12O.00`) and whose description happens to be
+  // `MINIMUM BALANCE FEE` is a broken row, and relabelled it would vanish
+  // from the import with the result calling it the statement's own line.
   const TOTAL_LINE = /^(合計|總計|小計|總額|total|totals|subtotal|grand total)\s*[:：]?$/i;
-  const BALANCE_WORD = /\bbalance\b|餘額|結餘/i;
+  const BALANCE_LINE = /^((beginning|ending|opening|closing|starting|previous)\s+balance\b|(期初|期末|上期|本期|前期)(餘額|結餘))/i;
 
-  function isSummaryLine(r, { date, amount, balance, ragged, repaired, unreadableDirection }) {
+  function isSummaryLine(r, { date, balance, ragged, repaired, amountBlank }) {
     if (ragged || repaired) return false;
     const first = r.find((c) => String(c ?? '').trim());
     if (!date && first !== undefined && TOTAL_LINE.test(String(first).trim())) return true;
-    return !!date && amount === null && unreadableDirection === null && balance !== null &&
-      r.some((c) => BALANCE_WORD.test(String(c ?? '')));
+    return !!date && amountBlank && balance !== null &&
+      r.some((c) => BALANCE_LINE.test(String(c ?? '').trim()));
   }
 
   // One cell of a row, by a column index out of the mapping. A mapping index
@@ -732,8 +740,10 @@
           : '收支別是空的，看不出這行是進還是出');
       } else if (amount === null) errors.push('金額無法解析或為零');
 
+      const amountCells = mapping.amountMode === 'inout' ? [mapping.outCol, mapping.inCol] : [mapping.amountCol];
+      const amountBlank = amountCells.every((c) => !String(cell(r, c) ?? '').trim());
       const summaryLine = errors.length > 0 &&
-        isSummaryLine(r, { date, amount, balance, ragged, repaired, unreadableDirection });
+        isSummaryLine(r, { date, balance, ragged, repaired, amountBlank });
 
       out.push({
         lineNo,

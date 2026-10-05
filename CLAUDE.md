@@ -156,7 +156,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-644 tests across 102 suites cover Big5 decoding, ROC dates, two-digit years,
+652 tests across 102 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -659,8 +659,10 @@ Three rules hold that line, and none may be relaxed into a guess:
   wrong with it.
 - **Overflow folds back into the description** (`repairRagged`), the one
   free-text column a comma can escape from. The row is marked `repaired`;
-  repair is never silent. A repair the balance chain confirms imports, and one
-  nothing can confirm stops the import for a person to look at the amount.
+  repair is never silent. A repair the balance chain confirms imports; one
+  nothing can confirm stops the import for a person to look at the amount; and
+  one the chain *disproves* is its own issue (`repair_contradicted`), never
+  described as unverifiable.
 - **A running-balance column checks every row** (`checkBalanceChain`):
   previous balance + amount must equal this balance. This is the only check
   that catches a row the file never contained, and the independent confirmation
@@ -672,7 +674,10 @@ A statement's own total or balance line (玉山's `合計`, BoA's `Beginning
 balance as of …`) is still refused, and reported as `summary_line` rather than
 `error`. It relabels a row already refused and never un-refuses one, takes a
 word that positively says so, and never applies to a row whose shape was off,
-repaired or not.
+repaired or not. The balance case also needs the amount cells *empty*, not
+unreadable, and a cell that opens with the balance's name: a mangled real
+transaction described `MINIMUM BALANCE FEE` relabelled would vanish from the
+import, so it stays a refusal a person is asked about.
 
 ## The import gate
 
@@ -680,9 +685,19 @@ A file whose checks all agree is written without asking; `shared/import.js`
 decides what a person has to answer instead (`importIssues`), and **the commit
 enforces it, not the page**: `/api/import/commit` re-reads the bytes, recomputes
 the issues and answers 409 — writing nothing, taking no snapshot — while any
-is unanswered (`accept: [code, …]`). `unreadable` cannot be accepted at all.
+is unanswered (`accept: [key, …]`). `unreadable` cannot be accepted at all.
 That is what makes the page's auto-import safe, so never add a path that writes
 imported rows around it, and never answer an issue on the person's behalf.
+
+- **An answer is given to an issue's `key`, not its code.** The key carries the
+  rows and the figure — a mismatch's stated balance and ledger, a sign
+  suspicion's counts — so "import anyway" covers exactly what was on screen.
+  Re-read with another mapping, skip a row, or let another import land, and a
+  0.50 gap that was waved through does not stand for a 50,000 one.
+- **Once the page has shown a file's issues it stops auto-importing it**
+  (`imp.hold`): 正負反過來 is asking to see the result, not to write it.
+- A commit with nothing new to write is refused (400) rather than recorded as
+  a zero-row batch with a snapshot of an unchanged book.
 
 - **The statement is reconciled on its own last day** (`reconcile.ledger`), not
   against today's balance: a backfilled older statement never agrees with

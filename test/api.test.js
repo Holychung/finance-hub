@@ -2672,6 +2672,9 @@ describe('匯入的關卡：沒事直接寫入，有事先問', () => {
   const commit = (account_id, text, p, extra = {}) =>
     POST('/api/import/commit', { account_id, filename: 'gate.csv', content_base64: b64(text), mapping: p.mapping, ...extra });
   const codes = (p) => p.issues.map((i) => i.code);
+  // An answer is given to an issue's key — its code, rows and figure — the
+  // way the page gives it.
+  const keys = (p, ...wanted) => p.issues.filter((i) => wanted.includes(i.code)).map((i) => i.key);
   const txnCount = async (id) => (await GET(`/api/txns?account=${id}&limit=500`)).total;
 
   it('對得上的檔案：沒有要問的事，commit 不必回答任何東西', async () => {
@@ -2700,7 +2703,7 @@ describe('匯入的關卡：沒事直接寫入，有事先問', () => {
     assert.equal(await txnCount(id), 0, '一筆都不能寫進去');
     assert.equal((await GET('/api/backups')).length, backups, '被擋下來的匯入不該留下快照');
 
-    const r = await commit(id, MARCH, p, { accept: ['balance_mismatch'] });
+    const r = await commit(id, MARCH, p, { accept: keys(p, 'balance_mismatch') });
     assert.equal(r.imported, 3, '回答了就照樣匯入');
     assert.equal(r.reconcile.matches, false, '結果照實說它對不上');
   });
@@ -2712,7 +2715,7 @@ describe('匯入的關卡：沒事直接寫入，有事先問', () => {
     const id = await open();
     const april = await preview(id, APRIL);
     assert.deepEqual(codes(april), ['balance_mismatch'], '三月還沒匯，四月的餘額當然對不上');
-    await commit(id, APRIL, april, { accept: ['balance_mismatch'] });
+    await commit(id, APRIL, april, { accept: keys(april, 'balance_mismatch') });
 
     const march = await preview(id, MARCH);
     assert.equal(march.reconcile.stated_on, '2026-03-09');
@@ -2730,7 +2733,7 @@ describe('匯入的關卡：沒事直接寫入，有事先問', () => {
     const bad = await preview(id, MARCH, { mapping: wrong });
     assert.deepEqual(codes(bad), ['unreadable']);
     assert.equal(bad.issues[0].acceptable, false);
-    await assert.rejects(() => commit(id, MARCH, bad, { accept: ['unreadable'] }), (e) => statusOf(e) === 409);
+    await assert.rejects(() => commit(id, MARCH, bad, { accept: keys(bad, 'unreadable') }), (e) => statusOf(e) === 409);
     assert.equal(await txnCount(id), 0);
   });
 
@@ -2741,7 +2744,7 @@ describe('匯入的關卡：沒事直接寫入，有事先問', () => {
     assert.deepEqual(codes(p), ['refused']);
     assert.deepEqual(p.issues[0].lines, [3]);
     await assert.rejects(() => commit(id, text, p), (e) => statusOf(e) === 409);
-    assert.equal((await commit(id, text, p, { accept: ['refused'] })).imported, 2);
+    assert.equal((await commit(id, text, p, { accept: keys(p, 'refused') })).imported, 2);
   });
 
   it('自動修復、又沒有餘額能驗證的行：可以照樣匯入，也可以略過', async () => {
@@ -2786,6 +2789,35 @@ describe('匯入的關卡：沒事直接寫入，有事先問', () => {
     // on the statement's last day, so the file no longer agrees.
     await POST('/api/txns', { account_id: id, date: '2026-03-04', amount: -50, description: 'GATE INTERLOPER' });
     await assert.rejects(() => commit(id, MARCH, p), (e) => statusOf(e) === 409);
+  });
+
+  it('答應過的差額變了，舊的答案就不算數', async () => {
+    const id = await open({ opening_balance: 999.5 });
+    const p = await preview(id, MARCH);
+    assert.deepEqual(codes(p), ['balance_mismatch']);
+    near(p.reconcile.drift, -0.5, '只差五毛，照樣匯入很合理');
+    // Then the ledger moves: the same answer now stands for a different gap.
+    await POST('/api/txns', { account_id: id, date: '2026-03-01', amount: -5000, description: 'GATE LATE ENTRY' });
+    await assert.rejects(() => commit(id, MARCH, p, { accept: keys(p, 'balance_mismatch') }), (e) => statusOf(e) === 409);
+    assert.equal(await txnCount(id), 1, '只有手動記的那一筆');
+  });
+
+  it('accept 不是陣列就是 400，不是 500', async () => {
+    const id = await open();
+    const p = await preview(id, MARCH);
+    await assert.rejects(() => commit(id, MARCH, p, { accept: { 0: 'x' } }), (e) => statusOf(e) === 400 && /accept 要是陣列/.test(e.message));
+    await assert.rejects(() => preview(id, MARCH, { skip_lines: 'all' }), (e) => statusOf(e) === 400);
+  });
+
+  it('沒有新交易就沒有匯入：不留一筆零筆的紀錄，也不拍快照', async () => {
+    const id = await open();
+    const p = await preview(id, MARCH);
+    await commit(id, MARCH, p);
+    const imports = (await GET('/api/imports')).length;
+    const backups = (await GET('/api/backups')).length;
+    await assert.rejects(() => commit(id, MARCH, p), (e) => statusOf(e) === 400 && /沒有新的交易/.test(e.message));
+    assert.equal((await GET('/api/imports')).length, imports);
+    assert.equal((await GET('/api/backups')).length, backups);
   });
 
   describe('涵蓋期間在匯入之後才回答', () => {

@@ -899,9 +899,11 @@
 
     // server/api.js's analyseImport, over the Map.
     function analyseImport(account, grid, mapping, skipLines) {
+      const skip = I.importListParam(skipLines, 'skip_lines');
+      if (skip.error) bad(skip.error);
       const { rows } = csv.extractRows(grid, mapping, account ? account.id : null);
       csv.markDuplicates(rows, existingCounts(account ? account.id : null));
-      I.skipImportRows(rows, skipLines || []);
+      I.skipImportRows(rows, skip);
       const st = I.statedBalance(rows);
       const { summary, reconcile } = I.computeImportSummary({
         rows, account,
@@ -973,10 +975,13 @@
       const grid = csv.parseCsv(text, mapping.delimiter || ',');
       const { rows, summary, reconcile, issues } = analyseImport(account, grid, mapping, b.skip_lines);
 
-      const refusal = I.commitRefusal(issues, b.accept);
+      const accept = I.importListParam(b.accept, 'accept');
+      if (accept.error) bad(accept.error);
+      const refusal = I.commitRefusal(issues, accept);
       if (refusal) conflict(refusal);
 
       const toInsert = rows.filter((r) => r.status === 'new');
+      if (!toInsert.length) bad('這份檔案沒有新的交易可以匯入');
 
       const span = I.fileSpan(rows);
       const declaredFrom = OPT(b.period_from) && S(b.period_from);

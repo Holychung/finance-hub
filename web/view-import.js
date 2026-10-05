@@ -20,16 +20,22 @@ const imp = {
   file: null, base64: null, accountId: null, preview: null, mapping: null,
   // Rows the person chose to leave out, by line number.
   skip: new Set(),
-  // Issues answered "import anyway", by code and the lines they named — so an
-  // answer lapses when a fresh reading names different rows.
+  // Issues answered "import anyway", by their key — code, rows and figure —
+  // so an answer lapses when a fresh reading says something different.
   accepted: new Set(),
   // The full column-mapping form: opened by hand, or by an unreadable file.
   mappingOpen: false,
   // A name to remember the mapping under, typed into that form.
   saveAs: '',
-  // Set when a commit was refused: the next reading is shown, not written,
-  // so a page and a server that disagree cannot loop.
+  // Set once the person has been shown issues for this file, or a commit was
+  // refused: from then on a clean reading waits for 匯入 instead of writing
+  // itself. Pressing 正負反過來 is asking to see the result, not to commit it,
+  // and a page and a server that disagree cannot loop.
   hold: false,
+  // Which reading is current. A preview still in flight when the account or
+  // the mapping changes must not land on top of the newer one.
+  seq: 0,
+  committing: false,
   // The last commit's answer, shown until the next file, and the period form
   // while somebody is changing what that import is credited with.
   result: null, periodDraft: null,
@@ -56,8 +62,6 @@ const DATE_FORMATS = [
   ['auto', '自動'], ['roc', '民國年 114/09/20'], ['ymd', '西元 2026-09-20'],
   ['mdy', '美式 09/20/2026'], ['dmy', '歐式 20/09/2026'],
 ];
-
-const issueKey = (i) => `${i.code}:${(i.lines || []).join(',')}`;
 
 views.import = async () => {
   const [accounts, mappings, imports] = await Promise.all([
@@ -118,8 +122,7 @@ views.import = async () => {
   $('#imp-account').onchange = (e) => {
     imp.accountId = e.target.value ? Number(e.target.value) : null;
     imp.preview = null;
-    // An answer was about the file against the other account.
-    imp.accepted = new Set();
+    forgetAnswers();
     runPreview();
   };
 
@@ -155,8 +158,16 @@ views.import = async () => {
 function clearImportFile() {
   imp.file = null; imp.base64 = null;
   imp.preview = null; imp.mapping = null;
-  imp.skip = new Set(); imp.accepted = new Set();
+  forgetAnswers();
   imp.mappingOpen = false; imp.saveAs = ''; imp.hold = false;
+}
+
+// What the person answered and which rows they left out were about this file
+// against one account. Against another account they are a different
+// question, and carried over they would decide it without anybody asking.
+function forgetAnswers() {
+  imp.accepted = new Set();
+  imp.skip = new Set();
 }
 
 function loadFile(file) {
@@ -177,15 +188,19 @@ async function runPreview() {
   // block can hold the mapping form — change 標題列, press 套用, and the field
   // you were in is a new node.
   const snap = captureUi();
+  const seq = ++imp.seq;
   try {
-    imp.preview = await post('/api/import/preview', {
+    const p = await post('/api/import/preview', {
       account_id: imp.accountId || undefined,
       content_base64: imp.base64,
       filename: imp.file?.name,
       mapping: imp.mapping || undefined,
       skip_lines: [...imp.skip],
     });
-    imp.mapping = imp.preview.mapping;
+    // A newer reading was asked for while this one was out; it decides.
+    if (seq !== imp.seq || !imp.base64) return;
+    imp.preview = p;
+    imp.mapping = p.mapping;
     // No account yet: the file has just told us most of what one needs, so
     // offer the accounts there are and the one it describes, here.
     if (!imp.accountId && imp.preview.suggested_account) {
@@ -213,6 +228,10 @@ async function runPreview() {
 
 async function commitImport() {
   const p = imp.preview;
+  // One commit per reading: a second click while the first is out would only
+  // come back refused, with nothing new left to write.
+  if (!p || imp.committing) return;
+  imp.committing = true;
   try {
     const r = await post('/api/import/commit', {
       account_id: imp.accountId,
@@ -220,7 +239,7 @@ async function commitImport() {
       filename: imp.file?.name || 'upload.csv',
       mapping: imp.mapping,
       skip_lines: [...imp.skip],
-      accept: p.issues.filter((i) => imp.accepted.has(issueKey(i))).map((i) => i.code),
+      accept: p.issues.filter((i) => imp.accepted.has(i.key)).map((i) => i.key),
       save_mapping_as: imp.saveAs.trim() || undefined,
     });
     imp.result = r;
@@ -235,6 +254,8 @@ async function commitImport() {
     toast(e.message, 'err');
     imp.hold = true;
     await runPreview();
+  } finally {
+    imp.committing = false;
   }
 }
 
@@ -327,7 +348,7 @@ async function accountFromCsvForm(s) {
       imp.accountId = id;
       imp.preview = null;
       imp.mapping = null;
-      imp.accepted = new Set();
+      forgetAnswers();
       await render();
       await runPreview();
     };
@@ -421,13 +442,15 @@ function renderPreview() {
       ${importLeftOut(s)}
       <div class="toolbar"><button class="sm" id="imp-done">好</button></div>
     </section>`);
-    $('#imp-done').onclick = () => { clearImportFile(); render(); };
+    $('#imp-done').onclick = () => { clearImportFile(); imp.accountId = null; render(); };
     return;
   }
 
   const byLine = new Map(p.rows.map((r) => [r.lineNo, r]));
-  const open = p.issues.filter((i) => !(i.acceptable && imp.accepted.has(issueKey(i))));
+  const open = p.issues.filter((i) => !(i.acceptable && imp.accepted.has(i.key)));
   const ready = !open.length && s.new > 0;
+  // Shown issues once: whatever the next reading says, it waits for 匯入.
+  if (p.issues.length) imp.hold = true;
 
   mount(slot, html`
     <section class="card">
@@ -447,7 +470,14 @@ function renderPreview() {
   `);
 
   $('#imp-commit').onclick = () => commitImport();
-  $('#imp-abandon').onclick = () => { clearImportFile(); toast('已放棄這個檔案，什麼都沒寫入'); render(); };
+  // The account goes with the file, as it does after a commit: the usual
+  // reason to give up is that it was the wrong one.
+  $('#imp-abandon').onclick = () => {
+    clearImportFile();
+    imp.accountId = null;
+    toast('已放棄這個檔案，什麼都沒寫入');
+    render();
+  };
   if ($('#imp-unskip')) $('#imp-unskip').onclick = () => { imp.skip = new Set(); runPreview(); };
 
   // Answering moves nothing on the server, so the panel redraws in place.
@@ -462,12 +492,13 @@ function renderPreview() {
     imp.mapping = { ...imp.mapping, invert: !imp.mapping.invert };
     runPreview();
   }));
-  // Read without an account, which is what asks for one.
+  // Read without an account, which is what asks for one. Rendered first, so
+  // the account select stops showing the account just let go of.
   $$('[data-reaccount]').forEach((b) => (b.onclick = () => {
     imp.accountId = null;
     imp.preview = null;
-    imp.accepted = new Set();
-    runPreview();
+    forgetAnswers();
+    render().then(runPreview);
   }));
   $$('[data-open-mapping]').forEach((b) => (b.onclick = () => { imp.mappingOpen = true; redrawPreview(); }));
 
@@ -499,7 +530,7 @@ function importLeftOut(s) {
 
 // One issue: what it is, the rows it is about, and its ways out.
 function issueBlock(i, p, byLine, cur) {
-  const key = issueKey(i);
+  const key = i.key;
   const r = p.reconcile;
   const title = html`<b>${IMPORT_ISSUE_TITLES[i.code]}</b>`;
   if (i.acceptable && imp.accepted.has(key)) {
@@ -523,6 +554,12 @@ function issueBlock(i, p, byLine, cur) {
         檔案沒有餘額能逐行驗證修得對不對，<b>看一下金額</b>。`,
       html`<div class="toolbar">${accept('金額沒錯，照樣匯入')}
         <button class="sm" data-skip="${lines}">這幾行不要匯入</button></div>`,
+    ],
+    repair_contradicted: [
+      html`銀行把摘要欄裡的引號寫壞了，這幾行的欄位多出來，已經把多的接回摘要欄——但檔案自己的餘額欄
+        <b>證明修出來的金額不對</b>（說明欄寫著差多少）。建議這幾行不要匯入，到網銀確認之後手動記。`,
+      html`<div class="toolbar"><button class="sm" data-skip="${lines}">這幾行不要匯入</button>
+        ${accept('照樣匯入')}</div>`,
     ],
     balance_breaks: [
       html`這幾行「上一行餘額＋本行金額」不等於本行餘額。通常是檔案漏了幾行，或中間有一段缺口。

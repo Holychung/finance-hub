@@ -693,9 +693,11 @@ const balanceOf = (id, asOf) => M.accountsWithBalances(asOf).find((a) => a.id ==
 // shown, so the two have to read them the same way — down to the issues,
 // which the commit enforces and the preview only reports.
 function analyseImport(account, grid, mapping, skipLines) {
+  const skip = I.importListParam(skipLines, 'skip_lines');
+  if (skip.error) bad(skip.error);
   const { rows } = csv.extractRows(grid, mapping, account ? account.id : null);
   csv.markDuplicates(rows, existingCounts(account ? account.id : null));
-  I.skipImportRows(rows, skipLines || []);
+  I.skipImportRows(rows, skip);
   const st = I.statedBalance(rows);
   const { summary, reconcile } = I.computeImportSummary({
     rows, account,
@@ -784,10 +786,16 @@ on('POST', '/api/import/commit', (_p, b) => {
 
   // The gate. Whatever the page decided, a file with an unanswered issue does
   // not reach the ledger — see shared/import.js.
-  const refusal = I.commitRefusal(issues, b.accept);
+  const accept = I.importListParam(b.accept, 'accept');
+  if (accept.error) bad(accept.error);
+  const refusal = I.commitRefusal(issues, accept);
   if (refusal) conflict(refusal);
 
+  // Nothing to write is not an import: it would leave a batch of zero rows in
+  // the history and a snapshot of a book nobody changed. The usual way here
+  // is the same file committed twice — two quick clicks, two tabs.
   const toInsert = rows.filter((r) => r.status === 'new');
+  if (!toInsert.length) bad('這份檔案沒有新的交易可以匯入');
 
   // What period this file covers. The user's answer wins, because the file
   // does not carry one: a bank's download page offers "Statement of 2026-08"

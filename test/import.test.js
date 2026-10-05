@@ -60,6 +60,25 @@ describe('對帳單自己寫的合計與期初餘額', () => {
     assert.deepEqual(rows.map((r) => r.status), ['error', 'error']);
   });
 
+  // A real transaction whose amount cell is mangled, described with the word
+  // balance in it. Relabelled, it would vanish from the import with the result
+  // calling it the statement's own line — so it has to stay a refusal, which
+  // is what makes somebody look at it.
+  it('金額欄壞掉、摘要剛好有 balance 的真交易，還是讀不出來，不是期初餘額列', () => {
+    const { rows } = read('Date,Description,Amount,Balance\n2026-03-01,A,-1,999\n2026-03-02,MINIMUM BALANCE FEE,12O.00,987\n2026-03-03,B,-2,985\n');
+    assert.equal(rows[1].status, 'error');
+  });
+
+  it('金額欄空著、但描述不是在講餘額的行，也還是讀不出來', () => {
+    const { rows } = read('Date,Description,Amount,Balance\n2026-03-01,A,-1,999\n2026-03-02,BALANCE TRANSFER,,999\n');
+    assert.equal(rows[1].status, 'error');
+  });
+
+  it('期末餘額、期初餘額這種中文寫法也認得', () => {
+    const { rows } = read('交易日期,摘要,支出金額,存入金額,餘額\n115/07/01,期初餘額,,,1000\n115/07/02,薪資,,"1,000",2000\n');
+    assert.equal(rows[0].status, 'summary_line');
+  });
+
   it('「Balance transfer」這種有金額的交易就是交易', () => {
     const { rows } = read('Date,Description,Amount\n2026-03-02,BALANCE TRANSFER,-300\n');
     assert.equal(rows[0].status, 'new');
@@ -107,7 +126,7 @@ describe('哪些情況要停下來問人', () => {
     const j = judge({ ...reading, mapping: { ...reading.mapping, dateCol: null } });
     assert.deepEqual(codes(j), ['unreadable']);
     assert.equal(j.issues[0].acceptable, false);
-    assert.equal(I.unansweredIssues(j.issues, ['unreadable']).length, 1);
+    assert.equal(I.unansweredIssues(j.issues, j.issues.map((i) => i.key)).length, 1);
   });
 
   it('一半以上的行讀不出來是欄位對應的問題，不是檔案的', () => {
@@ -119,7 +138,8 @@ describe('哪些情況要停下來問人', () => {
     const j = judge(read('Date,Description,Amount\n2026-03-02,A,-1\nx,B,-2\n2026-03-03,C,-3\n'));
     assert.deepEqual(codes(j), ['refused']);
     assert.deepEqual(j.issues[0].lines, [3]);
-    assert.deepEqual(I.unansweredIssues(j.issues, ['refused']), []);
+    assert.deepEqual(I.unansweredIssues(j.issues, [j.issues[0].key]), []);
+    assert.equal(I.unansweredIssues(j.issues, ['refused']).length, 1, '只說類別不算回答：回答的是這幾行');
   });
 
   it('合計列不算進「讀不出來」的那一半', () => {
@@ -162,13 +182,27 @@ describe('哪些情況要停下來問人', () => {
     assert.deepEqual(j.issues[0].lines, [3]);
   });
 
-  it('修復過又接不起來的行，在「修復」裡問過就不再問一次', () => {
+  // The strongest evidence the gate ever has that a repair went wrong: the
+  // row was compared and disagreed. Telling the person "nothing could check
+  // this, look at the amount" — and offering 金額沒錯 — would be the opposite
+  // of what the file just proved.
+  it('修復過、而餘額鏈證明修錯的行，是另一件事，不說成「沒有餘額能驗證」', () => {
     const j = judge(
       read('Date,Description,Amount,Balance\n2026-03-01,A,-1,999\n2026-03-02,FOO, BAR,-5,990\n'),
       { before: 996, ledgerOn: 996 }
     );
-    assert.deepEqual(codes(j), ['repaired']);
+    assert.deepEqual(codes(j), ['repair_contradicted']);
     assert.deepEqual(j.issues[0].lines, [3]);
+    assert.ok(!codes(j).includes('balance_breaks'), '同一行不問兩次');
+  });
+
+  it('答案綁著它看到的數字：差額變了，舊的「照樣匯入」就不算', () => {
+    const small = judge(read(STMT), { before: 999.5, ledgerOn: 999.5 });
+    const large = judge(read(STMT), { before: 0, ledgerOn: 0 });
+    assert.deepEqual(codes(small), ['balance_mismatch']);
+    assert.deepEqual(codes(large), ['balance_mismatch']);
+    assert.notEqual(small.issues[0].key, large.issues[0].key);
+    assert.equal(I.unansweredIssues(large.issues, [small.issues[0].key]).length, 1);
   });
 
   it('信用卡收到大多是流入的檔案，問正負號', () => {
@@ -208,18 +242,28 @@ describe('哪些情況要停下來問人', () => {
 });
 
 describe('commit 的拒絕', () => {
-  const issues = [{ code: 'refused', acceptable: true, lines: [3] }, { code: 'sign_suspect', acceptable: true }];
+  const issues = [
+    { code: 'refused', acceptable: true, lines: [3], key: 'refused:3:' },
+    { code: 'sign_suspect', acceptable: true, key: 'sign_suspect::2/3' },
+  ];
 
-  it('全部回答了就放行', () => assert.equal(I.commitRefusal(issues, ['refused', 'sign_suspect']), null));
+  it('全部回答了就放行', () => assert.equal(I.commitRefusal(issues, ['refused:3:', 'sign_suspect::2/3']), null));
 
   it('沒回答的，用畫面上的同一個名字講出來', () => {
-    const msg = I.commitRefusal(issues, ['refused']);
+    const msg = I.commitRefusal(issues, ['refused:3:']);
     assert.ok(msg.includes(I.IMPORT_ISSUE_TITLES.sign_suspect));
     assert.ok(!msg.includes(I.IMPORT_ISSUE_TITLES.refused));
   });
 
+  it('答案和略過的行要是陣列，不是就說清楚，不是丟一個 TypeError', () => {
+    assert.deepEqual(I.importListParam(undefined, 'accept'), []);
+    assert.deepEqual(I.importListParam(['a'], 'accept'), ['a']);
+    assert.match(I.importListParam({ 0: 'a' }, 'accept').error, /accept 要是陣列/);
+    assert.match(I.importListParam('refused', 'skip_lines').error, /skip_lines 要是陣列/);
+  });
+
   it('每一種問題都有名字', () => {
-    for (const code of ['unreadable', 'refused', 'repaired', 'balance_breaks', 'balance_mismatch', 'sign_suspect']) {
+    for (const code of ['unreadable', 'refused', 'repaired', 'repair_contradicted', 'balance_breaks', 'balance_mismatch', 'sign_suspect']) {
       assert.ok(I.IMPORT_ISSUE_TITLES[code], code);
     }
   });

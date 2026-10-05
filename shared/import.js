@@ -14,7 +14,8 @@
 //   unreadable        the mapping read nothing sensible       fix it, or give up
 //   refused           rows that would not parse               leave them out
 //   repaired          a shifted row put back, unconfirmed     keep, or leave out
-//   balance_breaks    the file's own running balance breaks   import anyway
+//   repair_contradicted  a repair the balance chain disproves leave out, or keep
+//   balance_breaks   the file's own running balance breaks   import anyway
 //   balance_mismatch  the account will not agree with the     import anyway
 //                     statement's last balance afterwards
 //   sign_suspect      a card or loan receiving mostly inflows flip, or keep
@@ -28,7 +29,7 @@
 // is unanswered, so no path to the database can skip it — a page that auto-
 // imports is only safe because the server would refuse it if it should not.
 // `unreadable` cannot be answered at all; the rest are answered by naming
-// their code in `accept`.
+// their `key` in `accept` — see importIssues for why a key and not a code.
 //
 // Pure, like the rest of `shared/`: rows in, answer out. The two balances it
 // needs are the loader's to fetch, because only the loader can see the book.
@@ -127,8 +128,18 @@
   // What has to be answered before this file may be written. Empty means it
   // may go straight in. Nothing new to write means nothing to ask, except
   // that the mapping read nothing at all, which is worth saying either way.
+  //
+  // Each issue carries a `key`: its code, the rows it names, and the figure it
+  // is about. An answer is given to a key, not to a code, so it covers exactly
+  // what the person saw — re-read the file with another mapping, skip a row,
+  // or let another import land first, and a mismatch of 0.50 that was waved
+  // through does not quietly stand for one of 50,000.
   function importIssues({ summary, reconcile, rows, mapping }) {
     const lines = (pred) => rows.filter(pred).map((r) => r.lineNo);
+    const issue = (code, extra = {}, detail = '') => ({
+      code, acceptable: code !== 'unreadable', ...extra,
+      key: [code, (extra.lines || []).join(','), detail].join(':'),
+    });
     const read = summary.new + summary.duplicate + summary.pending + summary.internal + summary.skipped;
     // Half or more of the rows refused is the mapping, not the file: a
     // statement with that many broken lines is not one anybody exports. The
@@ -136,26 +147,36 @@
     // neither read nor broken.
     if (mapping.dateCol === null || mapping.dateCol === undefined ||
         (summary.error > 0 && summary.error * 2 >= read + summary.error)) {
-      return [{ code: 'unreadable', acceptable: false, lines: lines((r) => r.status === 'error') }];
+      return [issue('unreadable', { lines: lines((r) => r.status === 'error') })];
     }
     if (!summary.new) return [];
 
     const issues = [];
     const refused = lines((r) => r.status === 'error');
-    if (refused.length) issues.push({ code: 'refused', acceptable: true, lines: refused });
+    if (refused.length) issues.push(issue('refused', { lines: refused }));
 
     // A repair folds overflow back into the description and trusts the cells
-    // after it. A running balance that agrees on that row is independent proof
-    // the trust was right; without one, somebody has to look at the amount.
-    const repaired = lines((r) => r.status === 'new' && r.repaired && !(r.chained && r.balanceBreak === undefined));
-    if (repaired.length) issues.push({ code: 'repaired', acceptable: true, lines: repaired });
+    // after it. A running balance compared on that row settles it either way:
+    // agreeing, it is proof the repair was right and nobody is asked; not
+    // agreeing, it is proof the repair produced the wrong amount, which is a
+    // different thing to tell a person than "nothing could check this".
+    const repairs = rows.filter((r) => r.status === 'new' && r.repaired);
+    const unconfirmed = repairs.filter((r) => !r.chained).map((r) => r.lineNo);
+    const contradicted = repairs.filter((r) => r.chained && r.balanceBreak !== undefined).map((r) => r.lineNo);
+    if (contradicted.length) issues.push(issue('repair_contradicted', { lines: contradicted }));
+    if (unconfirmed.length) issues.push(issue('repaired', { lines: unconfirmed }));
 
-    const askedAbout = new Set(repaired);
+    const askedAbout = new Set([...unconfirmed, ...contradicted]);
     const breaks = lines((r) => r.balanceBreak !== undefined && !askedAbout.has(r.lineNo));
-    if (breaks.length) issues.push({ code: 'balance_breaks', acceptable: true, lines: breaks });
+    if (breaks.length) issues.push(issue('balance_breaks', { lines: breaks }));
 
-    if (reconcile && reconcile.matches === false) issues.push({ code: 'balance_mismatch', acceptable: true });
-    if (summary.sign_suspect) issues.push({ code: 'sign_suspect', acceptable: true });
+    if (reconcile && reconcile.matches === false) {
+      issues.push(issue('balance_mismatch', {}, `${reconcile.stated_on}=${reconcile.stated}/${reconcile.ledger}`));
+    }
+    if (summary.sign_suspect) {
+      const fresh = rows.filter((r) => r.status === 'new');
+      issues.push(issue('sign_suspect', {}, `${fresh.filter((r) => r.amount > 0).length}/${fresh.length}`));
+    }
     return issues;
   }
 
@@ -166,15 +187,25 @@
     unreadable: '欄位對應讀不出這個檔案',
     refused: '有幾行讀不出來',
     repaired: '有幾行是自動修復的，沒有餘額能驗證',
+    repair_contradicted: '自動修復的行，跟檔案自己的餘額對不上',
     balance_breaks: '檔案自己的餘額欄接不起來',
     balance_mismatch: '匯入後跟對帳單的餘額不一致',
     sign_suspect: '正負號可能是反的',
   };
 
-  // The issues still standing once `accept` (a list of codes) is applied.
+  // The issues still standing once `accept` (a list of issue keys) is applied.
   function unansweredIssues(issues, accept = []) {
     const yes = new Set(accept);
-    return issues.filter((i) => !(i.acceptable && yes.has(i.code)));
+    return issues.filter((i) => !(i.acceptable && yes.has(i.key)));
+  }
+
+  // A request's list of answers or of line numbers: absent is empty, anything
+  // but an array is the caller's mistake, reported as such rather than thrown
+  // as a TypeError from somewhere inside a Set.
+  function importListParam(v, name) {
+    if (v === undefined || v === null) return [];
+    if (!Array.isArray(v)) return { error: `${name} 要是陣列` };
+    return v;
   }
 
   // The commit's refusal, or null when everything has been answered. It
@@ -207,7 +238,7 @@
   // Node. Everything above stays inside the closure.
   const api = {
     fileSpan, statedBalance, skipImportRows, computeImportSummary, importIssues, unansweredIssues, commitRefusal,
-    periodProblem, IMPORT_ISSUE_TITLES,
+    periodProblem, importListParam, IMPORT_ISSUE_TITLES,
   };
   Object.assign(root, api);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

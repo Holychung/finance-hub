@@ -316,7 +316,7 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     assert.equal(rb.status, 409);
     assert.equal(ra.message, rb.message);
 
-    const body = { ...unanswered, accept: ['balance_mismatch'] };
+    const body = { ...unanswered, accept: pre.issues.map((i) => i.key) };
     const [a, b] = [await demo.post('/api/import/commit', body), await live.post('/api/import/commit', body)];
     assert.equal(a.imported, b.imported);
     assert.equal(a.skipped, b.skipped);
