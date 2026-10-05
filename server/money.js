@@ -7,6 +7,9 @@
 // storage. The names and signatures are the ones `api.js` has always called,
 // so nothing above this file has to know the split exists — and the pure half
 // is re-exported below, so `M.computeNetWorth` still resolves through here.
+// `overview()` is the one whose namesake lives elsewhere: `computeOverview`
+// composes what the others return, and is in shared/overview.js with the file
+// it writes.
 //
 // A query belongs in this file and nowhere else. The moment a `compute*`
 // reaches for `db` it stops being testable without a server and stops being
@@ -15,6 +18,8 @@
 const crypto = require('node:crypto');
 const { db, getMeta } = require('./db');
 const pure = require('../shared/money');
+const SP = require('../shared/spending');
+const { computeOverview } = require('../shared/overview');
 
 const {
   round2, todayISO, COVERAGE_MONTHS,
@@ -64,6 +69,14 @@ function netWorth(asOf = todayISO()) {
     holdings: holdingsValued(asOf),
     asOf,
   });
+}
+
+// Where a line drawn over the whole book starts: its first transaction, else
+// the earliest opening date, else the day being asked about.
+function seriesStart(asOf) {
+  const firstTxn = db.prepare('SELECT MIN(date) AS d FROM txns').get().d;
+  const firstAcct = db.prepare('SELECT MIN(opening_date) AS d FROM accounts').get().d;
+  return firstTxn || firstAcct || asOf;
 }
 
 function netWorthSeries(from, to, access = null) {
@@ -127,6 +140,44 @@ function reconcile() {
   return computeReconcile({ checks });
 }
 
+// The rows the spending breakdown and the recurring scan both read, over one
+// window. They want the same columns, so they share a loader rather than
+// walking the table twice per page load — and the overview export reads them
+// too, which is why they live here and not beside the two routes.
+const spendingRows = (from, to) =>
+  db
+    .prepare(
+      `SELECT account_id, date, amount, description, category, kind, transfer_group
+         FROM txns WHERE date >= ? AND date <= ? ORDER BY date`
+    )
+    .all(from, to);
+
+const accountCurrencies = () => db.prepare('SELECT id, name, currency FROM accounts').all();
+
+// The whole book as of one day, for the overview export. Every piece is the
+// loader the page that shows it already uses, over the window that page uses
+// — a year of spending, two of recurring charges — so the file cannot say a
+// different number from the screen.
+function overview(to = todayISO()) {
+  const accounts = accountsWithBalances(to);
+  const holdings = holdingsValued(to);
+  const currencies = accountCurrencies();
+  const spendFrom = SP.yearsBefore(to, 1);
+  const recurFrom = SP.yearsBefore(to, 2);
+  return computeOverview({
+    asOf: to,
+    netWorth: computeNetWorth({ accounts, holdings, asOf: to }),
+    accounts,
+    holdings,
+    series: netWorthSeries(seriesStart(to), to),
+    spending: SP.computeSpending({ txns: spendingRows(spendFrom, to), accounts: currencies, from: spendFrom, to }),
+    recurring: SP.computeRecurring({ txns: spendingRows(recurFrom, to), accounts: currencies, to }),
+    coverage: coverage({ to }),
+    reconcile: reconcile(),
+    transferCandidates: findTransferCandidates(),
+  });
+}
+
 function findTransferCandidates({ windowDays = 3, tolerancePct = 1.5 } = {}) {
   const rows = db
     .prepare(
@@ -163,7 +214,8 @@ module.exports = {
 
   // Load the rows, then call the matching compute* in shared/money.js.
   baseCurrency, buildFxLookup, buildPriceLookup, accountsWithBalances, holdingsValued,
-  netWorth, netWorthSeries, accountSeries, coverage, reconcile, findTransferCandidates,
+  netWorth, seriesStart, netWorthSeries, accountSeries, coverage, reconcile, findTransferCandidates,
+  spendingRows, accountCurrencies, overview,
 
   // Writes. Still the odd ones out; nothing needs them pure yet.
   applyTransferPairs, unlinkTransfer,
