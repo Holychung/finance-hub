@@ -1,8 +1,9 @@
 'use strict';
 
-// Everything every other file needs: DOM helpers, the money formatters, the
-// fetch wrapper, the toast and modal chrome, the names the API speaks in, and
-// the focus/scroll pair every full redraw goes through.
+// Everything every other file needs: DOM helpers, the number formatter and
+// the colour of an amount, the fetch wrapper, the toast and modal chrome, the
+// names the API speaks in, and the focus/scroll pair every full redraw goes
+// through.
 //
 // Markup is built with the html`` tag from html.js: interpolated values are
 // escaped unless they are themselves html`` output, and mount() is the only
@@ -19,19 +20,12 @@ const nf = (n, d = 0) =>
     ? '—'
     : Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 
-// Symbol and decimals come from shared/currency.js, not from a ternary on
-// 'USD'. The ternary wrote `NT$` for every currency that was not USD, so a
-// JPY balance read as `NT$1,234` — the right number in the wrong country, and
-// the kind of wrong that looks fine until you hold three currencies.
-const money = (n, cur = 'TWD') => {
-  if (n === null || n === undefined) return '—';
-  return `${n < 0 ? '-' : ''}${symbolOf(cur)}${nf(Math.abs(n), decimalsOf(cur))}`;
-};
+// `money()` and `signed()` — an amount with its currency's symbol and decimal
+// places — are in shared/currency.js with `quantity()` and `unitPrice()`, off
+// the global like the rest of that module. They are testable there and this
+// file is not, because it touches the document at load; and the overview
+// export writes the same digits, so there is one definition of them.
 
-// `quantity()` for share and coin counts is in shared/currency.js, off the
-// global like the rest of that module — it is testable there and this file is
-// not, because it touches the document at load.
-const signed = (n, cur = 'TWD') => (n > 0 ? '+' : '') + money(n, cur);
 // A delta is news in both directions, so `cls` colours both. A level is not:
 // colouring every positive balance green leaves the negative ones no louder
 // than the rest, which is the only thing colouring a balance is for. See
@@ -71,11 +65,14 @@ const del = (p) => storage.del(p);
 // in its Content-Disposition, down to the date stamp, and setting `download`
 // would override that with the last path segment. An adapter handing back a
 // `blob:` URL has to supply one, because a blob carries no name at all.
-const exportLink = (label, path, filename) => {
+// `size` is 'sm' where the link stands among small controls: the overview's
+// page head, beside its segmented switch and 重新整理.
+const exportLink = (label, path, filename, size) => {
   const name = filename || storage.exportName(path);
+  const classes = size === 'sm' ? 'btn sm' : 'btn';
   return name
-    ? html`<a class="btn" href="${storage.exportHref(path)}" download="${name}">${label}</a>`
-    : html`<a class="btn" href="${storage.exportHref(path)}">${label}</a>`;
+    ? html`<a class="${classes}" href="${storage.exportHref(path)}" download="${name}">${label}</a>`
+    : html`<a class="${classes}" href="${storage.exportHref(path)}">${label}</a>`;
 };
 
 let toastTimer;

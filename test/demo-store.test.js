@@ -108,6 +108,18 @@ const SCRIPT = async (s) => {
   await s.post('/api/balance-checks', { account_id: 1, date: '2026-03-31', stated: 155349.5 });
   await s.post('/api/rules', { pattern: 'UBER EATS', category: '食', priority: 10 });
 
+  // Budgets, so both sides are asked what each one spent and what went
+  // unbudgeted: 食 is February's PX MART row, and the UBER EATS rows carry no
+  // category (a rule only applies on import), so they are unbudgeted. The
+  // lower-case currency and the string amount are normalised on both sides.
+  // The delete takes a budget that is not the newest, so the next id is the
+  // same on both — SQLite would hand a deleted newest id back, the demo not.
+  await s.post('/api/budgets', { category: '食', currency: 'TWD', amount: 1000 });
+  await s.post('/api/budgets', { category: '交通', currency: 'twd', amount: '1500' });
+  const travel = await s.post('/api/budgets', { category: 'Travel', currency: 'USD', amount: 80 });
+  await s.put(`/api/budgets/${travel.id}`, { amount: 120.5 });
+  await s.del('/api/budgets/2');
+
   // A write that reads back what it wrote, and the edit path.
   const extra = await s.post('/api/txns', { account_id: 1, date: '2026-05-01', amount: -10, description: 'TO BE EDITED' });
   await s.put(`/api/txns/${extra.id}`, { amount: -25.5, description: 'EDITED' });
@@ -140,6 +152,7 @@ const scrubIds = scrubWith(['id', 'import_id']);
 describe('demo adapter 跟真伺服器回同一份東西', () => {
   let child;
   let tmpDir;
+  let base;
   let live;
   let demo;
 
@@ -153,9 +166,10 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       stdio: 'ignore',
     });
     child.on('error', (e) => { throw e; });
-    await waitForReady(`http://127.0.0.1:${port}`);
+    base = `http://127.0.0.1:${port}`;
+    await waitForReady(base);
 
-    live = httpClient(`http://127.0.0.1:${port}`);
+    live = httpClient(base);
     demo = createDemoStorage({
       raw: makeMapStore({ meta: [{ key: 'base_currency', value: 'TWD' }] }),
       now: () => '2026-09-21T00:00:00.000Z',
@@ -195,6 +209,10 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/coverage?months=6&to=2026-09-30',
     '/api/spending?from=2026-01-01&to=2026-09-30',
     '/api/recurring?from=2025-01-01&to=2026-09-30',
+    // Past months on both clocks, so neither side cuts the window at its own
+    // today; the running month is the one read that cannot be pinned.
+    '/api/budgets?month=2026-02',
+    '/api/budgets?month=2026-04',
     '/api/export/json',
     '/api/accounts/1/series?to=2026-09-30',
     '/api/accounts/5/series?to=2026-09-30',
@@ -205,6 +223,28 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       assert.deepEqual(scrub(await demo.get(p)), scrub(await live.get(p)));
     });
   }
+
+  // A file rather than JSON, so it is compared as bytes: the server writes it
+  // from SQL, the demo from its Map, both through shared/overview.js. Pinned
+  // to a day so neither clock decides what it says.
+  it('資產全覽：兩邊寫出一模一樣的檔案', async () => {
+    const p = '/api/export/overview?to=2026-09-30';
+    const res = await fetch(base + p);
+    assert.equal(res.status, 200);
+    const f = demo.exportFile(p);
+    assert.equal(f.name, 'overview_2026-09-30.md');
+    assert.equal(f.type, 'text/markdown;charset=utf-8');
+    assert.equal(f.body, await res.text());
+    assert.ok(f.body.includes('## USD') && f.body.includes('## TWD'), '比的要是一份有東西的檔案');
+  });
+
+  it('資產全覽的日期讀不懂，兩邊都是 400，而且是同一句話', async () => {
+    const res = await fetch(`${base}/api/export/overview?to=nope`);
+    const err = await res.json();
+    assert.equal(res.status, 400);
+    assert.throws(() => demo.exportFile('/api/export/overview?to=nope'),
+      (e) => e.status === 400 && e.message === err.error);
+  });
 
   // The overview reads the clock for `as_of` and for the end of the series,
   // so it is compared field by field against a pinned day rather than whole.
@@ -351,9 +391,30 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       ['/api/prices', { symbol: 'ETH', market: 'eth-chain', date: '2026-01-01', price: 1 }],
       ['/api/accounts', { name: 'IRA', kind: 'retirement', tax_status: 'ira' }],
       ['/api/accounts', { name: 'IRA', kind: 'retirement', unvested: -1 }],
+      ['/api/budgets', { category: '', currency: 'TWD', amount: 100 }],
+      ['/api/budgets', { category: '未分類', currency: 'TWD', amount: 100 }],
+      ['/api/budgets', { category: '居住', currency: 'NT', amount: 100 }],
+      ['/api/budgets', { category: '居住', currency: 'TWD', amount: 0 }],
+      ['/api/budgets', { category: '居住', currency: 'TWD', amount: 'abc' }],
+      ['/api/budgets', { category: '食', currency: 'twd', amount: 100 }],
     ]) {
       const of = async (s) => { try { await s.post(p, body); return null; } catch (e) { return [e.status, e.message]; } };
       assert.deepEqual(await of(demo), await of(live), `${p} ${JSON.stringify(body)}`);
+    }
+  });
+
+  // The budget refusals that are not a POST: a month that is not one, a
+  // budget that does not exist, and a rename onto a budget that does.
+  it('預算：壞月份、不存在的預算、改名撞到另一條，兩邊回同一個錯', async () => {
+    const of = async (call) => { try { await call(); return null; } catch (e) { return [e.status, e.message]; } };
+    for (const [what, call] of [
+      ['壞月份', (s) => s.get('/api/budgets?month=2026-13')],
+      ['不存在', (s) => s.put('/api/budgets/999', { amount: 1 })],
+      ['撞名', (s) => s.put('/api/budgets/1', { category: 'Travel', currency: 'usd' })],
+    ]) {
+      const [a, b] = [await of(() => call(demo)), await of(() => call(live))];
+      assert.ok(b, `${what}：伺服器應該拒絕`);
+      assert.deepEqual(a, b, what);
     }
   });
 
@@ -479,6 +540,33 @@ describe('demo adapter — 用一個純 Map 驅動', () => {
 
     // The month is not a constant, so the days have to survive February.
     assert.match(buildDemoStatement('2026-03-05').text, /115\/02\/28,/);
+  });
+
+  // A page builds all its export links in one render — settings builds five —
+  // and each call used to revoke the URL the call before it had handed out,
+  // so in the demo only the last link on the page downloaded anything.
+  it('同一頁有好幾個匯出連結，每一個都還下載得到', async () => {
+    const { s } = build({});
+    await s.post('/api/accounts', { name: '活存', currency: 'TWD', opening_balance: 1000 });
+    const { createObjectURL, revokeObjectURL } = URL;
+    const revoked = new Set();
+    let n = 0;
+    URL.createObjectURL = () => `blob:demo/${++n}`;
+    URL.revokeObjectURL = (u) => revoked.add(u);
+    try {
+      const json = s.exportHref('/api/export/json');
+      const csv = s.exportHref('/api/export/csv?type=txns');
+      assert.ok(!revoked.has(json), '建第二個連結就把第一個的網址收回去了');
+      // The next render builds the same links again, and only then is the old
+      // URL for the same export let go — or every render would keep another
+      // copy of the ledger alive.
+      s.exportHref('/api/export/json');
+      assert.ok(revoked.has(json), '同一個匯出重建時，舊的網址要放掉');
+      assert.ok(!revoked.has(csv));
+    } finally {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    }
   });
 
   it('匯出的是真的檔案內容，不是一個開不起來的 blob 網址', async () => {

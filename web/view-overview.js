@@ -71,7 +71,7 @@ views.overview = async () => {
   }
   // Blocking first. Sort is stable, so items of one severity keep the order
   // they were pushed in, and adding a level cannot silently reshuffle them.
-  todos.sort((a, b) => TODO_LEVELS[a.level].rank - TODO_LEVELS[b.level].rank);
+  todos.sort((a, b) => ATTENTION_LEVELS[a.level].rank - ATTENTION_LEVELS[b.level].rank);
 
   // One column per currency, side by side. Nothing is converted, so there is no
   // grand total and no rate quietly deciding what the headline number is — each
@@ -130,6 +130,7 @@ views.overview = async () => {
       <div class="row shrink">
         ${split ? html`<div class="seg" role="group" aria-label="淨值要看哪一部分">${OVERVIEW_SCOPES.map((s) => html`<button
           data-scope="${s.key}" aria-pressed="${ariaBool(s.key === scope)}">${s.label}</button>`)}</div>` : ''}
+        ${exportLink('匯出全覽', '/api/export/overview', null, 'sm')}
         <button class="sm shrink" id="refresh">重新整理</button>
       </div>
     </div>
@@ -166,13 +167,9 @@ views.overview = async () => {
 
 // The icon is not here: `.todo-item.<level>` draws it from the same mask the
 // matching `.note` variant uses, so a severity has exactly one shape wherever
-// it appears and a row cannot be written without one. This table is what the
-// level means in words and where it sorts.
-const TODO_LEVELS = {
-  err:  { rank: 0, label: '需處理' },
-  warn: { rank: 1, label: '待確認' },
-};
-
+// it appears and a row cannot be written without one. What a level means in
+// words and where it sorts is ATTENTION_LEVELS, in shared/overview.js: the
+// exported overview says 需處理 and 待確認 about the same things.
 function todoList(todos) {
   return html`<div class="card todo">
     <div class="todo-head">
@@ -181,7 +178,7 @@ function todoList(todos) {
     </div>
     ${todos.map((t) => html`<div class="todo-item ${t.level}">
       <div class="todo-body">
-        <div class="todo-label">${TODO_LEVELS[t.level].label}</div>
+        <div class="todo-label">${ATTENTION_LEVELS[t.level].label}</div>
         <div class="todo-text">${t.text}</div>
       </div>
       <a class="btn" href="${t.href}">${t.cta}</a>
