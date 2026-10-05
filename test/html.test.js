@@ -388,7 +388,12 @@ describe('前端靜態防線', () => {
   // currency": the overview is right to take the default, everything there
   // having already been converted to the base currency. These two render raw
   // account amounts, which nothing converts.
-  for (const fn of ['function renderPreview()', 'async function renderSidebarAccounts()']) {
+  // renderResult and the two helpers that draw an import's rows and issues
+  // render the same raw amounts, after the commit and before it.
+  for (const fn of [
+    'function renderPreview()', 'function renderResult()', 'function issueBlock(', 'function issueRows(',
+    'async function renderSidebarAccounts()',
+  ]) {
     it(`${fn.replace(/^(async )?function /, '').replace('()', '')} 的每個金額都帶幣別，不吃 TWD 預設`, () => {
       const start = SRC.indexOf(fn);
       assert.ok(start !== -1, `找不到 ${fn}`);

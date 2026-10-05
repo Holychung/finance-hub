@@ -380,7 +380,17 @@ describe('CSV 解析：Big5、民國年、支出／存入兩欄', () => {
   it('「128,000」存入 → +128000', () => near(p.rows[0].amount, 128000, '存入'));
   it('「640,000」支出 → -640000', () => near(p.rows[1].amount, -640000, '支出'));
   it('5 筆可匯入', () => assert.equal(p.summary.new, 5));
-  it('尾端「合計」列被標為解析失敗', () => assert.equal(p.summary.error, 1));
+  // Refused either way — it has no date — but reported as what it is. As
+  // 解析失敗 it made every clean 玉山 import look like it had lost a row, and
+  // the import would now stop to ask about it.
+  it('尾端「合計」列是對帳單自己的合計，不算解析失敗，也不匯入', () => {
+    assert.equal(p.summary.error, 0);
+    assert.equal(p.summary.summary_line, 1);
+    const footer = p.rows.find((r) => r.raw[0] === '合計');
+    assert.equal(footer.status, 'summary_line');
+    assert.equal(footer.fingerprint, null, '沒有指紋就不可能被匯入');
+    assert.deepEqual(p.issues, [], '乾淨的玉山檔不該有任何要問的事');
+  });
 
   it('同日同額但備註不同的兩筆都保留', () => {
     const pair = p.rows.filter((r) => r.date === '2026-07-10');
@@ -1013,7 +1023,8 @@ describe('壞掉的對帳單：BoA 引號、摘要區塊、餘額鏈', () => {
   it('修復後每行都對得上檔案自己的餘額，淨額等於期初期末差', async () => {
     const p = boa.preview;
     assert.equal(p.summary.balance_breaks, 0, '餘額鏈獨立確認修復結果正確');
-    assert.equal(p.summary.error, 1, '「Beginning balance」沒有金額，不當成交易');
+    assert.equal(p.summary.error, 0, '「Beginning balance」沒有金額，但它不是讀壞的行');
+    assert.equal(p.summary.summary_line, 1, '它是對帳單自己寫的期初餘額，不當成交易');
     assert.equal(p.summary.new, 4);
     near(p.summary.net, 46565.00 - 48250.00, '淨額等於對帳單自己宣告的差額');
   });
@@ -1024,7 +1035,8 @@ describe('壞掉的對帳單：BoA 引號、摘要區塊、餘額鏈', () => {
       mapping: { ...boa.preview.mapping, descCols: [] },
     });
     assert.equal(p.summary.repaired, 0, '沒有錨點就修不了');
-    assert.equal(p.summary.error, 3, '2 行欄位數不符 + 1 行期初餘額');
+    assert.equal(p.summary.error, 2, '2 行欄位數不符');
+    assert.equal(p.summary.summary_line, 1, '期初餘額那行不靠摘要欄也認得出來');
     assert.ok(
       !p.rows.some((r) => r.status === 'new' && r.amount === 118),
       '碎片 118 沒有被當成一筆收入匯入'
@@ -2763,6 +2775,220 @@ describe('使用者宣告的匯入期間', () => {
   });
 });
 
+// The import writes a clean file without asking, so what stops it writing a
+// wrong one has to be the server's, not the page's: the commit reads the file
+// again, lists what a person must answer, and refuses while anything is open.
+// Each issue is reached here the way a real file reaches it.
+describe('匯入的關卡：沒事直接寫入，有事先問', () => {
+  const PUT = (p, b) => req('PUT', p, b);
+  const statusOf = (e) => Number(/→ (\d{3})/.exec(e.message)?.[1]);
+  // A deposit export with a running balance, starting from 1,000.
+  const MARCH = 'Date,Description,Amount,Balance\n2026-03-02,GATE PAY,100,1100\n2026-03-05,GATE RENT,-400,700\n2026-03-09,GATE COFFEE,-5,695\n';
+  const APRIL = 'Date,Description,Amount,Balance\n2026-04-02,GATE PAY,100,795\n';
+  let n = 0;
+  const open = (body = {}) => POST('/api/accounts', {
+    name: `關卡測試 ${++n}`, kind: 'cash', currency: 'USD', opening_balance: 1000, opening_date: '2026-03-01', ...body,
+  }).then((r) => r.id);
+  const preview = (account_id, text, extra = {}) =>
+    POST('/api/import/preview', { account_id, content_base64: b64(text), ...extra });
+  const commit = (account_id, text, p, extra = {}) =>
+    POST('/api/import/commit', { account_id, filename: 'gate.csv', content_base64: b64(text), mapping: p.mapping, ...extra });
+  const codes = (p) => p.issues.map((i) => i.code);
+  // An answer is given to an issue's key — its code, rows and figure — the
+  // way the page gives it.
+  const keys = (p, ...wanted) => p.issues.filter((i) => wanted.includes(i.code)).map((i) => i.key);
+  const txnCount = async (id) => (await GET(`/api/txns?account=${id}&limit=500`)).total;
+
+  it('對得上的檔案：沒有要問的事，commit 不必回答任何東西', async () => {
+    const id = await open();
+    const p = await preview(id, MARCH);
+    assert.deepEqual(p.issues, []);
+    assert.equal(p.reconcile.matches, true);
+    const r = await commit(id, MARCH, p);
+    assert.equal(r.imported, 3);
+    // Everything the page's result is drawn from comes back with it.
+    assert.deepEqual(r.account, { id, name: `關卡測試 ${n}`, kind: 'cash', currency: 'USD' });
+    assert.equal(r.summary.new, 3);
+    assert.equal(r.reconcile.matches, true);
+    near(r.reconcile.after, 695, '匯入後的餘額');
+    assert.deepEqual(r.period, { from: '2026-03-02', to: '2026-03-09', kind: 'derived' });
+  });
+
+  it('對不上的檔案：沒回答就 409，什麼都不寫，也不拍快照', async () => {
+    const id = await open({ opening_balance: 0 });
+    const p = await preview(id, MARCH);
+    assert.deepEqual(codes(p), ['balance_mismatch']);
+    near(p.reconcile.drift, -1000, '差的正好是沒填的期初');
+
+    const backups = (await GET('/api/backups')).length;
+    await assert.rejects(() => commit(id, MARCH, p), (e) => statusOf(e) === 409 && /匯入後跟對帳單的餘額不一致/.test(e.message));
+    assert.equal(await txnCount(id), 0, '一筆都不能寫進去');
+    assert.equal((await GET('/api/backups')).length, backups, '被擋下來的匯入不該留下快照');
+
+    const r = await commit(id, MARCH, p, { accept: keys(p, 'balance_mismatch') });
+    assert.equal(r.imported, 3, '回答了就照樣匯入');
+    assert.equal(r.reconcile.matches, false, '結果照實說它對不上');
+  });
+
+  // Compared against today's balance, an older statement imported into an
+  // account that already holds later months never agrees — a check that is
+  // wrong whenever somebody backfills is a check people learn to click past.
+  it('補匯較早的對帳單：比的是對帳單那一天的帳面，不是今天的', async () => {
+    const id = await open();
+    const april = await preview(id, APRIL);
+    assert.deepEqual(codes(april), ['balance_mismatch'], '三月還沒匯，四月的餘額當然對不上');
+    await commit(id, APRIL, april, { accept: keys(april, 'balance_mismatch') });
+
+    const march = await preview(id, MARCH);
+    assert.equal(march.reconcile.stated_on, '2026-03-09');
+    near(march.reconcile.ledger, 695, '三月九日那天的帳面');
+    assert.equal(march.reconcile.matches, true);
+    assert.deepEqual(march.issues, [], '補上的這一份自己是對的，不該被擋');
+    near(march.reconcile.after, 795, '今天的餘額另外報，不拿來比');
+  });
+
+  it('欄位對應讀不出這個檔案：怎麼回答都不放行', async () => {
+    const id = await open();
+    const p = await preview(id, MARCH);
+    // Point the amount at the description: every row then has no amount.
+    const wrong = { ...p.mapping, amountCol: p.mapping.descCols[0] };
+    const bad = await preview(id, MARCH, { mapping: wrong });
+    assert.deepEqual(codes(bad), ['unreadable']);
+    assert.equal(bad.issues[0].acceptable, false);
+    await assert.rejects(() => commit(id, MARCH, bad, { accept: keys(bad, 'unreadable') }), (e) => statusOf(e) === 409);
+    assert.equal(await txnCount(id), 0);
+  });
+
+  it('有一行讀不出來：其他照樣匯入要先說好', async () => {
+    const id = await open();
+    const text = 'Date,Description,Amount\n2026-03-02,GATE A,-1\nnot a date,GATE B,-2\n2026-03-03,GATE C,-3\n';
+    const p = await preview(id, text);
+    assert.deepEqual(codes(p), ['refused']);
+    assert.deepEqual(p.issues[0].lines, [3]);
+    await assert.rejects(() => commit(id, text, p), (e) => statusOf(e) === 409);
+    assert.equal((await commit(id, text, p, { accept: keys(p, 'refused') })).imported, 2);
+  });
+
+  it('自動修復、又沒有餘額能驗證的行：可以照樣匯入，也可以略過', async () => {
+    const id = await open();
+    // One unquoted comma inside a description: four fields under three.
+    const text = 'Date,Description,Amount\n2026-03-02,GATE FOO, BAR,-5\n2026-03-03,GATE BAZ,-7\n';
+    const p = await preview(id, text);
+    assert.deepEqual(codes(p), ['repaired']);
+    assert.deepEqual(p.issues[0].lines, [2]);
+
+    const skipped = await preview(id, text, { skip_lines: [2] });
+    assert.deepEqual(skipped.issues, [], '略過那一行就沒有要問的了');
+    assert.equal(skipped.summary.skipped, 1);
+    assert.equal(skipped.summary.new, 1);
+    const r = await commit(id, text, p, { skip_lines: [2] });
+    assert.equal(r.imported, 1);
+    assert.equal(r.summary.skipped, 1);
+  });
+
+  it('餘額鏈確認過的修復不必問（BoA 的檔案直接進得去）', async () => {
+    const id = await open({ opening_balance: 48250, opening_date: '2025-03-31' });
+    const text = fixture('boa-checking.csv');
+    const p = await preview(id, text);
+    assert.equal(p.summary.repaired, 2);
+    assert.deepEqual(p.issues, [], '兩行修復都被餘額鏈確認了，期初餘額那行也不是錯誤');
+  });
+
+  it('負債帳戶收到一份大多是流入的檔案：反過來之後就不用問了', async () => {
+    const id = await open({ kind: 'card', opening_balance: 0 });
+    const text = 'Date,Description,Amount\n2026-03-02,GATE SHOP,12.50\n2026-03-03,GATE CAFE,4.20\n2026-03-04,GATE PAYMENT,-16.70\n';
+    const p = await preview(id, text);
+    assert.deepEqual(codes(p), ['sign_suspect']);
+    const flipped = await preview(id, text, { mapping: { ...p.mapping, invert: !p.mapping.invert } });
+    assert.deepEqual(flipped.issues, []);
+  });
+
+  it('commit 自己重讀檔案：預覽之後帳上多了東西，舊的回答不算數', async () => {
+    const id = await open();
+    const p = await preview(id, MARCH);
+    assert.deepEqual(p.issues, []);
+    // Something lands between the preview and the commit and moves the ledger
+    // on the statement's last day, so the file no longer agrees.
+    await POST('/api/txns', { account_id: id, date: '2026-03-04', amount: -50, description: 'GATE INTERLOPER' });
+    await assert.rejects(() => commit(id, MARCH, p), (e) => statusOf(e) === 409);
+  });
+
+  it('答應過的差額變了，舊的答案就不算數', async () => {
+    const id = await open({ opening_balance: 999.5 });
+    const p = await preview(id, MARCH);
+    assert.deepEqual(codes(p), ['balance_mismatch']);
+    near(p.reconcile.drift, -0.5, '只差五毛，照樣匯入很合理');
+    // Then the ledger moves: the same answer now stands for a different gap.
+    await POST('/api/txns', { account_id: id, date: '2026-03-01', amount: -5000, description: 'GATE LATE ENTRY' });
+    await assert.rejects(() => commit(id, MARCH, p, { accept: keys(p, 'balance_mismatch') }), (e) => statusOf(e) === 409);
+    assert.equal(await txnCount(id), 1, '只有手動記的那一筆');
+  });
+
+  it('accept 不是陣列就是 400，不是 500', async () => {
+    const id = await open();
+    const p = await preview(id, MARCH);
+    await assert.rejects(() => commit(id, MARCH, p, { accept: { 0: 'x' } }), (e) => statusOf(e) === 400 && /accept 要是陣列/.test(e.message));
+    await assert.rejects(() => preview(id, MARCH, { skip_lines: 'all' }), (e) => statusOf(e) === 400);
+  });
+
+  it('沒有新交易就沒有匯入：不留一筆零筆的紀錄，也不拍快照', async () => {
+    const id = await open();
+    const p = await preview(id, MARCH);
+    await commit(id, MARCH, p);
+    const imports = (await GET('/api/imports')).length;
+    const backups = (await GET('/api/backups')).length;
+    await assert.rejects(() => commit(id, MARCH, p), (e) => statusOf(e) === 400 && /沒有新的交易/.test(e.message));
+    assert.equal((await GET('/api/imports')).length, imports);
+    assert.equal((await GET('/api/backups')).length, backups);
+  });
+
+  describe('涵蓋期間在匯入之後才回答', () => {
+    let importId;
+    before(async () => {
+      const id = await open();
+      const p = await preview(id, MARCH);
+      importId = (await commit(id, MARCH, p)).import_id;
+    });
+    const stored = async () => (await GET('/api/imports')).find((i) => i.id === importId);
+
+    it('commit 記下檔案自己的範圍', async () => {
+      const i = await stored();
+      assert.equal(i.span_from, '2026-03-02');
+      assert.equal(i.span_to, '2026-03-09');
+      assert.equal(i.period_kind, 'derived');
+    });
+
+    it('宣告一個包住整個檔案的期間', async () => {
+      const r = await PUT(`/api/imports/${importId}`, { period_from: '2026-03-01', period_to: '2026-03-31' });
+      assert.deepEqual(r.period, { from: '2026-03-01', to: '2026-03-31', kind: 'declared' });
+      const i = await stored();
+      assert.equal(i.date_from, '2026-03-01');
+      assert.equal(i.period_kind, 'declared');
+    });
+
+    it('沒包住檔案的每一行就擋下來，跟匯入前宣告的規則一樣', async () => {
+      await assert.rejects(
+        () => PUT(`/api/imports/${importId}`, { period_from: '2026-03-05', period_to: '2026-03-31' }),
+        /落在期間外/
+      );
+      assert.equal((await stored()).date_from, '2026-03-01', '被擋下來的不會寫進去');
+    });
+
+    it('只給一頭不行', async () => {
+      await assert.rejects(() => PUT(`/api/imports/${importId}`, { period_from: '2026-03-01' }), /起日和迄日/);
+    });
+
+    it('收回宣告，回到檔案自己的範圍', async () => {
+      const r = await PUT(`/api/imports/${importId}`, {});
+      assert.deepEqual(r.period, { from: '2026-03-02', to: '2026-03-09', kind: 'derived' });
+    });
+
+    it('不存在的匯入是 404', async () => {
+      await assert.rejects(() => PUT('/api/imports/999999', {}), (e) => statusOf(e) === 404);
+    });
+  });
+});
+
 // Whether there is a rule between you and the money. Nothing reads it yet —
 // net worth splits on it later (docs/plans/asset-classes.md PR 6) — so what
 // is worth pinning now is that it is stored exactly, and that a value outside
@@ -2964,6 +3190,30 @@ describe('退休金帳戶', () => {
     await POST('/api/balance-checks', { account_id: id, date: '2026-06-30', stated: 10000 });
     const check = (await GET('/api/reconcile')).find((c) => c.account_id === id);
     assert.ok(check.ok, `對帳應該對得上，差 ${check.diff}`);
+  });
+
+  // The account page turns the latest check's difference into one button: a
+  // 市值變動 row for exactly that amount, dated on the check. That closes the
+  // gap only because a check counts every row up to and including its own
+  // date, and it touches no earlier check because it is dated after them.
+  it('最新一筆對帳的差額記成當天的市值變動，那筆就對上，較早的不動', async () => {
+    const id = await open({ name: '一鍵補市值變動', opening_balance: 10000, opening_date: '2026-01-01' });
+    await POST('/api/balance-checks', { account_id: id, date: '2026-03-31', stated: 10000 });
+    await POST('/api/balance-checks', { account_id: id, date: '2026-06-30', stated: 11234.56 });
+    const mine = async () => (await GET('/api/reconcile')).filter((c) => c.account_id === id);
+
+    const [latest, earlier] = await mine();
+    assert.equal(latest.date, '2026-06-30', '最新的排在最前面，頁面拿第一筆');
+    assert.equal(latest.ok, false);
+    assert.equal(latest.diff, 1234.56);
+    assert.ok(earlier.ok);
+
+    await POST('/api/txns', {
+      account_id: id, date: latest.date, amount: latest.diff, kind: 'valuation', description: '市值變動（對帳差額）',
+    });
+    const after = await mine();
+    assert.ok(after.every((c) => c.ok), `兩筆都要對得上：${after.map((c) => `${c.date} 差 ${c.diff}`).join('、')}`);
+    assert.equal((await find(id)).balance, 11234.56, '餘額就是對帳單上的數字');
   });
 
   it('稅務性質存得進去、清得掉，而且清單以外的拒絕', async () => {
