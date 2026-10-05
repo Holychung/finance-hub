@@ -7,6 +7,7 @@ const csv = require('../shared/csv');
 const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
+const I = require('../shared/import');
 const PRICES = require('./prices');
 const {
   DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, defaultAccessFor, TAX_STATUS_KEYS,
@@ -29,6 +30,7 @@ class HttpError extends Error {
 }
 const bad = (msg) => { throw new HttpError(400, msg); };
 const missing = (msg) => { throw new HttpError(404, msg); };
+const conflict = (msg) => { throw new HttpError(409, msg); };
 
 // ---------------------------------------------------------------------------
 
@@ -470,15 +472,6 @@ on('GET', '/api/coverage', (_p, _b, q) => {
 // bound here under the names every handler below already calls.
 const { spendingRows, accountCurrencies } = M;
 
-// The earliest and latest date any row in a parsed file carries. Shared by
-// the preview (to prefill the period box) and the commit (as the fallback
-// when nobody declared one), so the two cannot disagree about what the file's
-// own extent is.
-function rowSpan(rows) {
-  const dates = rows.map((r) => r.date).filter(Boolean).sort();
-  return { from: dates[0] || null, to: dates[dates.length - 1] || null };
-}
-
 // The default window is twelve months back, which is the shortest one that
 // shows a yearly subscription at all.
 function windowFrom(q) {
@@ -693,6 +686,27 @@ function existingCounts(accountId) {
   return { fingerprints, externalIds };
 }
 
+const balanceOf = (id, asOf) => M.accountsWithBalances(asOf).find((a) => a.id === id)?.balance ?? 0;
+
+// One reading of a file against one account, for the preview and the commit
+// alike. The commit re-reads the bytes rather than trusting rows the page was
+// shown, so the two have to read them the same way — down to the issues,
+// which the commit enforces and the preview only reports.
+function analyseImport(account, grid, mapping, skipLines) {
+  const skip = I.importListParam(skipLines, 'skip_lines');
+  if (skip.error) bad(skip.error);
+  const { rows } = csv.extractRows(grid, mapping, account ? account.id : null);
+  csv.markDuplicates(rows, existingCounts(account ? account.id : null));
+  I.skipImportRows(rows, skip);
+  const st = I.statedBalance(rows);
+  const { summary, reconcile } = I.computeImportSummary({
+    rows, account,
+    before: account ? balanceOf(account.id) : null,
+    ledgerOn: account && st ? balanceOf(account.id, st.stated_on) : null,
+  });
+  return { rows, summary, reconcile, issues: I.importIssues({ summary, reconcile, rows, mapping }) };
+}
+
 // The account is optional here on purpose. Without it there is nowhere to
 // import to, but the file can still be read — and reading it is what supplies
 // the numbers needed to create the account in the first place. Requiring one
@@ -722,41 +736,13 @@ on('POST', '/api/import/preview', (_p, b) => {
     ? { ...b.mapping, delimiter, encoding }
     : { ...csv.guessMapping(headers, grid.slice(headerRow)), delimiter, encoding, headerRow };
 
-  const { rows } = csv.extractRows(grid, mapping, accountId);
-  csv.markDuplicates(rows, existingCounts(accountId));
-
-  const summary = rows.reduce(
-    (acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; },
-    { new: 0, duplicate: 0, error: 0, pending: 0, internal: 0 }
-  );
-  const fresh = rows.filter((r) => r.status === 'new');
-  const net = M.round2(fresh.reduce((s, r) => s + r.amount, 0));
-
-  // What the user actually wants to know before pressing import is not how
-  // much this moves the account by, but whether the account will agree with
-  // the statement afterwards. When the file carries a running balance it has
-  // already stated the answer, so the check costs nothing — and reconciling
-  // is the whole point of this ledger.
-  //
-  // Duplicates are excluded from `net` and already counted in the current
-  // balance, so the sum covers every row in the file either way. It will not
-  // match when the account holds transactions from outside this statement's
-  // range, which is a fact about the account rather than a fault in the file.
-  let reconcile = null;
-  if (account) {
-    const before = M.accountsWithBalances().find((a) => a.id === account.id)?.balance ?? 0;
-    const after = M.round2(before + net);
-    const lastWithBalance = csv.inDateOrder(rows).filter((r) => r.balance !== null && !r.ragged).pop();
-    const stated = lastWithBalance ? lastWithBalance.balance : null;
-    reconcile = {
-      before,
-      after,
-      stated,
-      stated_on: lastWithBalance ? lastWithBalance.date : null,
-      matches: stated === null ? null : Math.abs(after - stated) < 0.005,
-      drift: stated === null ? null : M.round2(after - stated),
-    };
-  }
+  // What the user actually wants to know before anything is written is not
+  // how much this moves the account by, but whether the account will agree
+  // with the statement afterwards. When the file carries a running balance it
+  // has already stated the answer, so the check costs nothing — and
+  // reconciling is the whole point of this ledger. See computeImportSummary
+  // for why it is compared on the statement's own last day.
+  const { rows, summary, reconcile, issues } = analyseImport(account, grid, mapping, b.skip_lines);
 
   return {
     encoding, delimiter, headers, mapping,
@@ -774,31 +760,15 @@ on('POST', '/api/import/preview', (_p, b) => {
     grid_preview: grid.slice(0, Math.max(headerRow + 5, 8)),
     rows: rows.slice(0, 500),
     truncated: rows.length > 500,
-    summary: {
-      ...summary,
-      total: rows.length,
-      repaired: rows.filter((r) => r.repaired).length,
-      balance_breaks: rows.filter((r) => r.balanceBreak !== undefined).length,
-      // A card statement is nearly all charges, so a file that is mostly
-      // inflows is almost certainly stating what you owe rather than what the
-      // account is worth. Card exports carry no running balance, so this is
-      // the only check available — and every row of an inverted file parses
-      // perfectly. Bank of America's own CSV needs no flipping even though
-      // its web view shows the opposite signs; other issuers differ.
-      sign_suspect:
-        M.LIABILITY_KINDS.has(S(account?.kind)) &&
-        fresh.filter((r) => r.amount > 0).length > fresh.filter((r) => r.amount < 0).length,
-      net,
-      date_min: fresh.length ? fresh.reduce((a, r) => (r.date < a ? r.date : a), fresh[0].date) : null,
-      date_max: fresh.length ? fresh.reduce((a, r) => (r.date > a ? r.date : a), fresh[0].date) : null,
-      // Over every row, not just the new ones, and computed here rather than
-      // in the browser because `rows` is truncated at 500 — a two-year export
-      // would have the client prefilling the period box from the first 500
-      // lines and calling it the file's extent.
-      span_from: rowSpan(rows).from,
-      span_to: rowSpan(rows).to,
-    },
+    // Counted over every row, here rather than in the browser, because `rows`
+    // is truncated at 500 — a two-year export would otherwise be described by
+    // its first 500 lines, its extent included.
+    summary,
     reconcile,
+    // Empty when the file may go straight in. Only meaningful with an
+    // account: without one there is nothing to dedup or reconcile against
+    // yet, and the page asks for the account first.
+    issues,
   };
 });
 
@@ -807,9 +777,44 @@ on('POST', '/api/import/commit', (_p, b) => {
   if (!accountId) bad('請先選擇要匯入的帳戶');
   const buf = Buffer.from(S(b.content_base64), 'base64');
   const mapping = b.mapping || bad('缺少欄位對應設定');
+  const account = db.prepare('SELECT id, name, kind, currency FROM accounts WHERE id = ?').get(accountId) ||
+    missing('帳戶不存在');
+
+  const { text } = csv.decode(buf, mapping.encoding || 'auto');
+  const grid = csv.parseCsv(text, mapping.delimiter || ',');
+  const { rows, summary, reconcile, issues } = analyseImport(account, grid, mapping, b.skip_lines);
+
+  // The gate. Whatever the page decided, a file with an unanswered issue does
+  // not reach the ledger — see shared/import.js.
+  const accept = I.importListParam(b.accept, 'accept');
+  if (accept.error) bad(accept.error);
+  const refusal = I.commitRefusal(issues, accept);
+  if (refusal) conflict(refusal);
+
+  // Nothing to write is not an import: it would leave a batch of zero rows in
+  // the history and a snapshot of a book nobody changed. The usual way here
+  // is the same file committed twice — two quick clicks, two tabs.
+  const toInsert = rows.filter((r) => r.status === 'new');
+  if (!toInsert.length) bad('這份檔案沒有新的交易可以匯入');
+
+  // What period this file covers. The user's answer wins, because the file
+  // does not carry one: a bank's download page offers "Statement of 2026-08"
+  // or "Year to date" and the person clicking knows which they picked, while
+  // the CSV that comes back states only its rows. Failing that, the file's
+  // own span, which is recorded either way so the answer can still be given
+  // afterwards (PUT /api/imports/:id).
+  const span = I.fileSpan(rows);
+  const declaredFrom = OPT(b.period_from) && S(b.period_from);
+  const declaredTo = OPT(b.period_to) && S(b.period_to);
+  const declared = !!(declaredFrom && declaredTo);
+  if (declared) {
+    const problem = I.periodProblem({ from: declaredFrom, to: declaredTo }, span);
+    if (problem) bad(problem);
+  }
 
   // Refuse rather than import without a safety net — the point of the
-  // snapshot is the case where the mapping turns out to be wrong.
+  // snapshot is the case where the mapping turns out to be wrong. Taken after
+  // every refusal above, so a commit that writes nothing leaves no snapshot.
   let backupFile = null;
   if (!b.skip_backup) {
     try {
@@ -820,55 +825,18 @@ on('POST', '/api/import/commit', (_p, b) => {
     }
   }
 
-  const { text } = csv.decode(buf, mapping.encoding || 'auto');
-  const grid = csv.parseCsv(text, mapping.delimiter || ',');
-  const { rows } = csv.extractRows(grid, mapping, accountId);
-  csv.markDuplicates(rows, existingCounts(accountId));
-
-  const skipLines = new Set((b.skip_lines || []).map(Number));
-  const toInsert = rows.filter((r) => r.status === 'new' && !skipLines.has(r.lineNo));
-
-  // What period this file covers. The user's answer wins, because the file
-  // does not carry one: a bank's download page offers "Statement of 2026-08"
-  // or "Year to date" and the person clicking knows which they picked, while
-  // the CSV that comes back states only its rows.
-  //
-  // Failing that, the span of every row the file contained — not of the rows
-  // that ended up inserted. A duplicate is still proof the statement reached
-  // that date, and so is a row refused for being shifted. Recording only what
-  // landed would shrink the range every time a file overlapped one already
-  // imported, which is the normal case.
-  const span = rowSpan(rows);
-  const declaredFrom = OPT(b.period_from) && S(b.period_from);
-  const declaredTo = OPT(b.period_to) && S(b.period_to);
-  const declared = !!(declaredFrom && declaredTo);
-  if (declared && declaredFrom > declaredTo) bad('期間的起日不能晚於迄日');
-
-  // A row outside the declared period is not a warning, it is proof the
-  // declaration is wrong — either the wrong period was picked or this is not
-  // the file the user thinks it is. Importing anyway would write a coverage
-  // claim that the file itself contradicts, and /coverage would then report
-  // confirmed months on the strength of it.
-  if (declared) {
-    const outside = rows.filter((r) => r.date && (r.date < declaredFrom || r.date > declaredTo));
-    if (outside.length) {
-      bad(
-        `宣告的期間是 ${declaredFrom} 到 ${declaredTo}，但檔案裡有 ${outside.length} 行落在期間外` +
-          `（${outside[0].date} 等）。期間填錯了，或這份檔案不是你以為的那一份。`
-      );
-    }
-  }
-
+  const period = declared
+    ? { from: declaredFrom, to: declaredTo, kind: 'declared' }
+    : { from: span.from, to: span.to, kind: 'derived' };
   const imp = db
     .prepare(
-      `INSERT INTO imports (account_id, filename, mapping, imported, skipped, created_at, date_from, date_to, period_kind)
-       VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?)`
+      `INSERT INTO imports (account_id, filename, mapping, imported, skipped, created_at,
+                            date_from, date_to, period_kind, span_from, span_to)
+       VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       accountId, S(b.filename, 'upload.csv'), JSON.stringify(mapping), now(),
-      declared ? declaredFrom : span.from,
-      declared ? declaredTo : span.to,
-      declared ? 'declared' : 'derived'
+      period.from, period.to, period.kind, span.from, span.to
     );
   const importId = Number(imp.lastInsertRowid);
 
@@ -906,10 +874,18 @@ on('POST', '/api/import/commit', (_p, b) => {
     ).run(String(b.save_mapping_as).trim(), JSON.stringify(mapping), now(), now());
   }
 
+  // Everything the page's result needs, so it can say what happened without
+  // a second round trip. `summary` and `reconcile` are the reading the gate
+  // just passed, which is also what was written: nothing between the two
+  // changes the rows.
   return {
     import_id: importId,
     imported: toInsert.length,
     skipped: rows.length - toInsert.length,
+    account,
+    summary,
+    reconcile,
+    period,
     transfer_candidates: M.findTransferCandidates().length,
     backup: backupFile,
   };
@@ -929,6 +905,31 @@ on('DELETE', '/api/imports/:id', (p) => {
   const n = db.prepare('DELETE FROM txns WHERE import_id = ?').run(id).changes;
   db.prepare('DELETE FROM imports WHERE id = ?').run(id);
   return { reverted: n };
+});
+
+// The period an import is credited with, answered after the fact: both dates
+// to declare one, neither to go back to the file's own span. The question
+// used to stand between the file and the commit, asked of every import
+// whether or not the answer mattered; it is the same question, held to the
+// same rule — a declaration contains every row of the file — against the
+// span the commit recorded.
+on('PUT', '/api/imports/:id', (p, b) => {
+  const imp = db.prepare('SELECT * FROM imports WHERE id = ?').get(N(p.id)) || missing('匯入紀錄不存在');
+  if (!imp.span_from || !imp.span_to) bad('這筆匯入沒有記下檔案的範圍（是舊版匯入的），涵蓋期間不能再改。');
+  const rawFrom = OPT(b.period_from);
+  const rawTo = OPT(b.period_to);
+  if (!!rawFrom !== !!rawTo) bad('期間要有起日和迄日');
+  const from = rawFrom && (csv.parseDate(rawFrom, 'ymd') || bad(`日期無法解析：${rawFrom}`));
+  const to = rawTo && (csv.parseDate(rawTo, 'ymd') || bad(`日期無法解析：${rawTo}`));
+  const span = { from: imp.span_from, to: imp.span_to };
+  if (from) {
+    const problem = I.periodProblem({ from, to }, span);
+    if (problem) bad(problem);
+  }
+  const period = from ? { from, to, kind: 'declared' } : { ...span, kind: 'derived' };
+  db.prepare('UPDATE imports SET date_from = ?, date_to = ?, period_kind = ? WHERE id = ?')
+    .run(period.from, period.to, period.kind, imp.id);
+  return { id: imp.id, period };
 });
 
 // --- settings & backup -----------------------------------------------------

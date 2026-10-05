@@ -475,18 +475,26 @@
       { account: 'cathay', from: `${cathayOpenMonth}-01`, to: lastDayOf(months[months.length - 1]) },
       { account: 'sinopac', from: `${months[0]}-01`, to: lastDayOf(months[months.length - 1]) },
     ];
-    const imports = spans.map((s, n) => ({
-      id: n + 1,
-      account_id: acctId.get(s.account),
-      filename: `${s.account}-${s.from}.csv`,
-      mapping: '{}',
-      imported: draft.filter((t) => t.account === s.account && t.date >= s.from && t.date <= s.to).length,
-      skipped: 0,
-      created_at: stamp,
-      date_from: s.from,
-      date_to: s.to,
-      period_kind: 'declared',
-    }));
+    const imports = spans.map((s, n) => {
+      // The file's own extent is its first and last row, which a declared
+      // period has to contain — the same rule a real import is held to.
+      const dates = draft.filter((t) => t.account === s.account && t.date >= s.from && t.date <= s.to)
+        .map((t) => t.date).sort();
+      return {
+        id: n + 1,
+        account_id: acctId.get(s.account),
+        filename: `${s.account}-${s.from}.csv`,
+        mapping: '{}',
+        imported: dates.length,
+        skipped: 0,
+        created_at: stamp,
+        date_from: s.from,
+        date_to: s.to,
+        period_kind: 'declared',
+        span_from: dates[0] || null,
+        span_to: dates[dates.length - 1] || null,
+      };
+    });
 
     const fx_rates = months
       .filter((_, i) => i % 3 === 0)

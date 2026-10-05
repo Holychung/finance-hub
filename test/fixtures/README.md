@@ -47,7 +47,7 @@ directory — so there is no separate list to keep in step. A PDF goes through
 
 | file | shape it documents | 換行 |
 |---|---|---|
-| `esun-savings.csv` | 玉山 deposit export: ROC dates, `支出金額`/`存入金額` in two columns, thousands separators inside quotes, a `合計` footer row that must be refused, and two same-day same-amount rows differing only by note | CRLF |
+| `esun-savings.csv` | 玉山 deposit export: ROC dates, `支出金額`/`存入金額` in two columns, thousands separators inside quotes, a `合計` footer row that must be refused — as the statement's own summary line, not as a parse failure — and two same-day same-amount rows differing only by note | CRLF |
 | `firstrade-brokerage.csv` | The plainest US shape: `MM/DD/YYYY`, one signed Amount column. Its ACH row is the other leg of 玉山's 轉出至證券戶, exact at the 2026-07-05 rate | CRLF |
 | `boa-checking.csv` | BoA deposit export: a five-line summary block before the header, a balance-only opening row, a running balance, and the raw `"` BoA writes inside an already-quoted description — two rows of which shift | CRLF |
 | `boa-card.csv` | BoA card export: no balance column, and a `Reference Number` that is a run of spaces on bank-generated rows such as interest | CRLF |
