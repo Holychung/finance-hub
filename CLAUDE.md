@@ -158,7 +158,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-657 tests across 103 suites cover Big5 decoding, ROC dates, two-digit years,
+658 tests across 103 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -180,7 +180,8 @@ offline through an injected getter, and the deps scan pinning Yahoo to
 `server/prices.js`), the ledger location rules, the
 schema migration runner, the pure half of `money.js`, the demo adapter
 answering the same as a real server, the demo book being one definition the
-seeder and the browser both open, `shared/` loading
+seeder and the browser both open and holding nothing after the day it is
+built to, `shared/` loading
 identically under `require` and as a plain `<script>`, the storage seam, the
 hosted copy containing every file `index.html` asks for and nothing else, the
 deploy config serving the packer's directory on one hostname, the
@@ -825,7 +826,10 @@ the browser; the server's only job is to answer when someone refreshes on one.
   tables. Two hand-written fake ledgers drift the first time either is
   touched, and then the demo shows something the app does not do. It is
   deterministic for the same reason — fixed jitter seed, injected `now` and
-  `uuid`, and it throws without them.
+  `uuid`, and it throws without them. **Built to a day, it stops at that day**:
+  every month is written in full and anything dated after `to` is then
+  dropped, so the running month never shows rows from its future and the
+  jitter, and with it every past month, is the same whatever day it is.
 
   **`db_path: null` is what the chrome branches on**, not the profile name:
   amber 示範資料 badge, 備份與匯出 saying the snapshot has nowhere to go
