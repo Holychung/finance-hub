@@ -66,15 +66,15 @@ unless its owner turns on one of the two opt-in exceptions below and, for AI
   and the page shows both before the button. 送出 carries the preview's digest
   back; the server rebuilds the document from the book and refuses a mismatch
   with a 409, so what is sent is what was shown or nothing. It reads nothing but that
-  document and writes nothing to the ledger. A pasted key goes into the macOS
-  login keychain — one item per provider per data directory, written through
-  `security -i` on stdin so it never sits on a command line — or comes from the
-  provider's usual environment variable. It is **never in the database**,
-  because every snapshot is a copy of the database, and **never a plain-text
-  file**: where there is no keychain, pasting is refused and the variable is
-  the way. No response carries it back. Every test server runs with
-  `FINANCE_AI_VAULT=memory`, and anything else in that variable is refused, so
-  the suite cannot reach a real keychain by a typo. The answer is text from
+  document and writes nothing to the ledger. **The key is set on the machine,
+  never through the app**: there is no field for it and no route that takes
+  one. The server only reads — the macOS keychain item `finance-hub` /
+  `<provider>`, which the owner adds with the `security` command the page
+  shows, then the provider's usual environment variable. The app never writes
+  the key anywhere: not the database, because every snapshot is a copy of the
+  database, and not a file. No response carries it back. Every test server
+  runs with `FINANCE_AI_VAULT=memory`, and anything else in that variable is
+  refused, so the suite cannot read a real keychain by a typo. The answer is text from
   somewhere this app does not control, so `view-ai.js` rebuilds its few
   Markdown shapes as elements and never turns a link into one. The hosted demo
   refuses every AI route. Nothing else in the app may call a model.
@@ -188,7 +188,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-712 tests across 113 suites cover Big5 decoding, ROC dates, two-digit years,
+709 tests across 113 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming

@@ -5,8 +5,8 @@
 //
 // Off until the box is ticked, and even then nothing leaves until 送出 is
 // pressed. The page shows the instruction and the document first, and those
-// are exactly what server/ai.js sends. The key is pasted here and stored beside
-// the book, never in it, and the page is only ever told whether one is set.
+// are exactly what server/ai.js sends. The key is not entered here: it is set
+// on the machine, and the page is only ever told whether one is set.
 
 // Page state, like spendingYears: which question to ask, and the last answer,
 // which has to survive the re-render that every setting change triggers.
@@ -66,13 +66,7 @@ views.ai = async () => {
         也可以填這家供應商的其他模型名稱。</div>
 
       <h2 class="sec">${provider.label} 的 API key</h2>
-      <div class="muted small">${keyLine(s.key)}</div>
-      ${s.key.store === 'none' ? '' : html`<div class="row spaced">
-        <label class="field"><span>${s.key.set ? '換一個 key' : '貼上 key'}</span><input id="ai-key" type="password"
-          autocomplete="off" spellcheck="false"></label>
-        <div class="shrink"><button id="ai-key-save">儲存 key</button></div>
-        ${s.key.source === 'stored' ? html`<div class="shrink"><button class="danger" id="ai-key-del">刪除 key</button></div>` : ''}
-      </div>`}
+      ${keySection(s.key)}
     </section>
 
     <section class="card">
@@ -100,26 +94,29 @@ views.ai = async () => {
     ${aiAnswer ? answerSection(aiAnswer) : ''}
   `);
 
-  wireAi(s, provider, preview);
+  wireAi(preview);
 };
 
-// Where the key is kept, said in the words the server chose (`where`), so the
-// page never claims a keychain on a machine that has none.
-function keyLine(k) {
-  if (k.source === 'stored') {
-    return html`已設定（${k.hint}），存在${k.where}：加密保存，不是明文檔案，不在帳本裡，不會進備份或匯出。`;
+// The key is set on this machine, never through this page: there is no field
+// for it. The page says whether one is set and how to set one, and the command
+// comes from the server (`k.keychain`), so a machine with no keychain is never
+// told to use one.
+function keySection(k) {
+  const cmd = k.keychain && html`<pre class="ai-text">${k.keychain}</pre>`;
+  if (k.source === 'keychain') {
+    return html`<div class="muted small">已設定（${k.hint}），從這台
+      Mac 的鑰匙圈讀取：加密保存，不在帳本裡，不會進備份或匯出。要換一把，在終端機再跑一次同一行：</div>${cmd}`;
   }
   if (k.source === 'env') {
-    return k.store === 'none'
-      ? html`用的是環境變數 <code>${k.env}</code>（${k.hint}）。`
-      : html`用的是環境變數 <code>${k.env}</code>（${k.hint}）。在這裡貼一個 key，就會改用貼上的那個。`;
+    return html`<div class="muted small">用的是環境變數 <code>${k.env}</code>（${k.hint}）。${k.keychain
+      ? '存進鑰匙圈會優先用鑰匙圈的，而且不是明文：' : ''}</div>${cmd || ''}`;
   }
-  if (k.store === 'none') {
-    return html`還沒有設定。這台電腦沒有鑰匙圈，key 不會被寫成明文檔案，所以不能在這裡貼：請在啟動前設定環境變數
-      <code>${k.env}</code>。`;
+  if (!k.keychain) {
+    return html`<div class="muted small">還沒有設定。請在啟動伺服器前設定環境變數 <code>${k.env}</code>。</div>`;
   }
-  return html`還沒有設定。貼在下面，或在啟動前設定環境變數
-    <code>${k.env}</code>。貼上的 key 存在${k.where}，加密保存，不是明文檔案。`;
+  return html`<div class="muted small">還沒有設定。在終端機跑下面這一行，照提示貼上
+    key（畫面不會顯示），它就存進這台 Mac 的鑰匙圈，不必重新啟動。也可以在啟動前設定環境變數
+    <code>${k.env}</code>，但那是明文。</div>${cmd}`;
 }
 
 function answerSection(a) {
@@ -136,12 +133,12 @@ function answerSection(a) {
   </section>`;
 }
 
-function wireAi(s, provider, preview) {
+function wireAi(preview) {
   // Every setting is one write and a redraw: the page is drawn from what the
   // server says the settings are, never from what the form last held.
   const save = async (path, body, done) => {
     try {
-      await (body === null ? del(path) : put(path, body));
+      await put(path, body);
       if (done) toast(done, 'ok');
       render();
     } catch (e) { toast(e.message, 'err'); }
@@ -151,12 +148,6 @@ function wireAi(s, provider, preview) {
     e.target.checked ? '已開啟 AI 健檢' : '已關閉');
   $('#ai-provider').onchange = (e) => save('/api/ai', { provider: e.target.value }, `改用 ${e.target.selectedOptions[0].text}`);
   $('#ai-model-save').onclick = () => save('/api/ai', { model: $('#ai-model').value }, '已儲存模型');
-  if ($('#ai-key-save')) {
-    $('#ai-key-save').onclick = () => save('/api/ai/key', { provider: provider.key, key: $('#ai-key').value }, '已儲存 key');
-  }
-  if ($('#ai-key-del')) {
-    $('#ai-key-del').onclick = () => save(`/api/ai/key?provider=${provider.key}`, null, '已刪除 key');
-  }
 
   $$('[data-aimode]').forEach((b) => (b.onclick = () => { aiMode = b.dataset.aimode; render(); }));
 

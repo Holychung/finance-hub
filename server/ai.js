@@ -24,13 +24,14 @@
 //                    and refuses a mismatch, so what is sent is what was
 //                    shown or nothing at all.
 //
-// The key belongs to the person, not to the book, so it is not stored in the
-// ledger. Every snapshot is a copy of the database, and a key kept there would
-// travel into every backup and into every file somebody is handed to debug an
-// import. Nor is it written to a file in plain text: a pasted key goes into the
-// macOS login keychain, encrypted at rest, or comes from the provider's usual
-// environment variable. No response carries it back: the page is told whether
-// a key is set and its last four characters.
+// The key belongs to the person, not to the book, and it is set up on the
+// machine, not through the page: the app reads it and never writes it. It is
+// not in the ledger — every snapshot is a copy of the database, and a key kept
+// there would travel into every backup and into every file somebody is handed
+// to debug an import — and the app never writes it to a file. It comes from the
+// macOS keychain, encrypted at rest, or from the provider's usual environment
+// variable. No response carries it back: the page is told whether a key is set
+// and its last four characters.
 //
 // Testability follows prices.js. Each provider's request and response shapes
 // are pure, and `review()` takes its sender, its settings and its key store as
@@ -39,8 +40,6 @@
 
 const https = require('node:https');
 const { spawnSync } = require('node:child_process');
-const path = require('node:path');
-const paths = require('./paths');
 const { overviewMarkdown } = require('../shared/overview');
 const { sha1Hex } = require('../shared/sha1');
 
@@ -233,11 +232,6 @@ const providerInfo = (key) => PROVIDERS.find((p) => p.key === key) || null;
 // three providers publish; a slash, a colon or a space is refused rather than
 // sent.
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-// Letters, digits and the few symbols the three providers' keys use. A key
-// pasted with a newline on the end or a space in the middle fails here with a
-// message, instead of at the provider with a 401 — and no quote or backslash
-// can reach the command line keychainVault() writes.
-const KEY_RE = /^[A-Za-z0-9._~+/=-]{8,512}$/;
 
 // ---------------------------------------------------------------------------
 // What is sent
@@ -341,89 +335,51 @@ function saveSettings(b, { getMeta, setMeta }) {
 }
 
 // ---------------------------------------------------------------------------
-// Where a pasted key is kept
+// Where the key comes from
 // ---------------------------------------------------------------------------
 //
-// A vault is get / set / remove by provider, and says where it keeps things.
-// There are three and the choice is made once, at load:
+// The key is set on the machine, by its owner, outside the app: the page has
+// no field for it and the API no route that writes one. The server only reads,
+// from one of three vaults chosen once at load, then from the provider's usual
+// environment variable:
 //
-//   keychainVault  macOS: the login keychain, through /usr/bin/security.
-//   noVault        anywhere else: pasting is refused rather than written to a
-//                  plain-text file, and the environment variable is the way.
-//   memoryVault    FINANCE_AI_VAULT=memory: a Map that dies with the process.
-//                  What every test server runs, so the suite can save, read
-//                  and delete keys without touching anybody's keychain.
+//   keychainVault  macOS: an item the owner added with `security` (the command
+//                  is `setupCommand()`, and the page shows it).
+//   noVault        anywhere else: no keychain, so the variable is the way.
+//   memoryVault    FINANCE_AI_VAULT=memory: a Map, empty unless a test seeds
+//                  it. What every test server runs, so the suite never reads
+//                  anybody's keychain.
 
-const KEYCHAIN_SERVICE = 'Finance Hub AI 健檢';
+const KEYCHAIN_SERVICE = 'finance-hub';
 const SECURITY = '/usr/bin/security';
 
-// One item per provider per data directory. The personal book and its demo
-// profile share ~/.finance-hub and so share a key; a throwaway FINANCE_DB in
-// its own directory gets an account name nothing real has ever been saved
-// under, so a scratch server cannot find the owner's key even by accident.
-const keychainAccount = (providerKey, dir) => `${providerKey}:${sha1Hex(path.resolve(dir)).slice(0, 12)}`;
+// `-w` last with no value makes `security` prompt for the key, so it lands in
+// neither the command line nor the shell's history. `-U` replaces an old one.
+const setupCommand = (providerKey) => `security add-generic-password -U -s ${KEYCHAIN_SERVICE} -a ${providerKey} -w`;
 
-function runSecurity(args, input) {
-  const r = spawnSync(SECURITY, args, { input, encoding: 'utf8', timeout: 10000 });
+function runSecurity(args) {
+  const r = spawnSync(SECURITY, args, { encoding: 'utf8', timeout: 10000 });
   if (r.error) fail(500, `讀不到 macOS 鑰匙圈（${r.error.message}）`);
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 
-// The key never goes on a command line, where any process could read it from
-// the process table: `security -i` takes its command on stdin. KEY_RE keeps
-// quotes, backslashes and whitespace out of that line, and the read-back after
-// it is the only check that it worked — interactive mode exits 0 when its
-// command failed, sometimes without a word on stderr.
-function keychainVault({ dir = paths.DATA_DIR, run = runSecurity } = {}) {
-  const account = (p) => keychainAccount(p, dir);
-  const refused = (what, r, key) => fail(500,
-    `macOS 鑰匙圈${what}失敗：${scrub(r.stderr.trim() || `security 結束碼 ${r.status}`, key)}`);
-  const vault = {
+function keychainVault({ run = runSecurity } = {}) {
+  return {
     kind: 'keychain',
-    where: `這台 Mac 的鑰匙圈裡名為「${KEYCHAIN_SERVICE}」的項目`,
     get(p) {
-      const r = run(['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', account(p), '-w']);
+      const r = run(['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', p, '-w']);
       if (r.status === 44) return null; // errSecItemNotFound
-      if (r.status !== 0) refused('讀取', r);
-      return r.stdout.replace(/\r?\n$/, '') || null;
+      if (r.status !== 0) fail(500, `讀取 macOS 鑰匙圈失敗：${r.stderr.trim() || `security 結束碼 ${r.status}`}`);
+      return r.stdout.trim() || null;
     },
-    set(p, key) {
-      const line = `add-generic-password -U -s "${KEYCHAIN_SERVICE}" -a ${account(p)} -l "${KEYCHAIN_SERVICE} (${p})" -w ${key}\n`;
-      const r = run(['-i'], line);
-      if (r.status !== 0) refused('寫入', r, key);
-      if (vault.get(p) !== key) {
-        fail(500, `macOS 鑰匙圈寫入失敗：寫完讀不回同一把 key。${scrub(r.stderr.trim(), key)}`.trim());
-      }
-    },
-    remove(p) {
-      const r = run(['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', account(p)]);
-      if (r.status === 44) return false;
-      if (r.status !== 0) refused('刪除', r);
-      return true;
-    },
-  };
-  return vault;
-}
-
-function noVault() {
-  return {
-    kind: 'none',
-    where: null,
-    get: () => null,
-    set: (p) => fail(400, `這台電腦不是 macOS，沒有鑰匙圈可以放 key，也不會把它寫成明文檔案。請在啟動前設定環境變數 ${providerInfo(p).env}。`),
-    remove: () => false,
   };
 }
 
-function memoryVault() {
-  const m = new Map();
-  return {
-    kind: 'memory',
-    where: '記憶體（伺服器一停就不見）',
-    get: (p) => m.get(p) || null,
-    set: (p, key) => { m.set(p, key); },
-    remove: (p) => m.delete(p),
-  };
+const noVault = () => ({ kind: 'none', get: () => null });
+
+function memoryVault(seed = {}) {
+  const m = new Map(Object.entries(seed));
+  return { kind: 'memory', get: (p) => m.get(p) || null };
 }
 
 // A typo here must not fall through to the real keychain, so anything but
@@ -437,15 +393,17 @@ function defaultVault(env = process.env, platform = process.platform) {
 
 const KEYS = { vault: defaultVault(), env: process.env };
 
-// The vault wins over the environment: a key pasted into the page is the more
-// recent decision. An empty variable is an unset one.
+// The keychain wins over the environment: it is the place that is not plain
+// text, so a key put there is the one meant. An empty variable is an unset one.
 function keyFor(provider, { vault, env } = KEYS) {
   const stored = vault.get(provider.key);
-  if (stored) return { key: stored, source: 'stored' };
+  if (stored) return { key: stored, source: 'keychain' };
   const fromEnv = String((env && env[provider.env]) || '').trim();
   return fromEnv ? { key: fromEnv, source: 'env' } : null;
 }
 
+// Whether a key is set, its last four characters, and how to set one here.
+// Never the key itself.
 function keyStatus(provider, keys = KEYS) {
   const found = keyFor(provider, keys);
   return {
@@ -454,21 +412,8 @@ function keyStatus(provider, keys = KEYS) {
     hint: found ? `…${found.key.slice(-4)}` : null,
     env: provider.env,
     store: keys.vault.kind,
-    where: keys.vault.where,
+    keychain: keys.vault.kind === 'none' ? null : setupCommand(provider.key),
   };
-}
-
-function saveKey(providerKey, key, keys = KEYS) {
-  const provider = providerInfo(String(providerKey)) || fail(400, `provider 只能是 ${PROVIDERS.map((p) => p.key).join('、')}`);
-  const k = String(key === undefined || key === null ? '' : key).trim();
-  if (!KEY_RE.test(k)) fail(400, 'API key 看起來不對：要是一串 8 到 512 個字的英數字，中間沒有空白，符號只能是 - _ . ~ + / =');
-  keys.vault.set(provider.key, k);
-  return { ok: true, key: keyStatus(provider, keys) };
-}
-
-function deleteKey(providerKey, keys = KEYS) {
-  const provider = providerInfo(String(providerKey)) || fail(400, `provider 只能是 ${PROVIDERS.map((p) => p.key).join('、')}`);
-  return { deleted: keys.vault.remove(provider.key) ? 1 : 0 };
 }
 
 // What the page needs to draw the settings card. Never the key itself.
@@ -580,7 +525,7 @@ async function review({ mode, asOf, digest, getMeta, document, keys = KEYS, send
   if (!s.enabled) fail(400, 'AI 健檢沒有開啟。先在這一頁打開它。');
   const provider = providerInfo(s.provider);
   const found = keyFor(provider, keys);
-  if (!found) fail(400, `還沒有 ${provider.label} 的 API key。貼在這一頁，或設定環境變數 ${provider.env}。`);
+  if (!found) fail(400, `還沒有 ${provider.label} 的 API key。在這台電腦上設定：存進 macOS 鑰匙圈，或在啟動前設定環境變數 ${provider.env}。這一頁有指令。`);
 
   const started = now();
   let res;
@@ -617,8 +562,8 @@ async function review({ mode, asOf, digest, getMeta, document, keys = KEYS, send
 
 module.exports = {
   ANTHROPIC_URL, OPENAI_URL, GEMINI_BASE, MAX_OUTPUT,
-  PROVIDERS, MODES, MODEL_RE, KEY_RE, AiError, providerInfo,
-  documentFor, settings, saveSettings, keyFor, keyStatus, saveKey, deleteKey,
-  KEYCHAIN_SERVICE, keychainAccount, keychainVault, noVault, memoryVault, defaultVault,
+  PROVIDERS, MODES, MODEL_RE, AiError, providerInfo,
+  documentFor, settings, saveSettings, keyFor, keyStatus,
+  KEYCHAIN_SERVICE, setupCommand, keychainVault, noVault, memoryVault, defaultVault,
   status, preview, review, httpsPostJson,
 };

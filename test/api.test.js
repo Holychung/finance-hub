@@ -305,7 +305,7 @@ before(async () => {
     // falls back to them for a key, so a developer's own ANTHROPIC_API_KEY
     // would otherwise reach the server under test — and the suite could only
     // prove "no key, no request" on a machine that happened to have none.
-    // For the same reason a pasted key goes into memory, never the keychain.
+    // For the same reason the key is looked up in memory, never the keychain.
     env: {
       ...process.env, FINANCE_DB: dbPath, PORT: String(port),
       ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', GEMINI_API_KEY: '', FINANCE_AI_VAULT: 'memory',
@@ -690,34 +690,21 @@ describe('AI 健檢', () => {
     assert.equal((await GET('/api/ai')).model, 'claude-opus-5');
   });
 
-  // Never in the book and never a plain-text file: a backup is a copy of the
-  // database, the JSON export dumps its tables, and a file beside the book is
-  // one `cat` away. So every byte the server wrote into its data directory —
-  // the database, its -wal, any snapshot — is searched for the key.
-  it('key 不在帳本裡，資料目錄裡也沒有任何檔案寫著它；API 只給最後四碼', async () => {
+  // The key is set on the machine, never through the app: there is no route
+  // that would take one, so a page — or anything else that reaches the
+  // server — has nowhere to send it.
+  it('沒有收 key 的 route：送過來的 key 無處可去', async () => {
     const key = 'sk-ant-test-0000000000000abcd';
-    const saved = await PUT('/api/ai/key', { provider: 'anthropic', key });
-    assert.equal(saved.key.hint, '…abcd');
-
+    assert.equal((await call('PUT', '/api/ai/key', { provider: 'anthropic', key })).status, 404);
+    assert.equal((await call('DELETE', '/api/ai/key?provider=anthropic')).status, 404);
+    assert.equal((await call('PUT', '/api/ai', { key })).status, 200, '設定 route 不認得 key 欄位，照樣只存設定');
     const s = await GET('/api/ai');
-    assert.equal(s.key.set, true);
-    assert.equal(s.key.source, 'stored');
-    for (const p of ['/api/ai', '/api/settings', '/api/export/json']) {
-      assert.ok(!JSON.stringify(await GET(p)).includes(key), `${p} 帶出了 key`);
-    }
+    assert.equal(s.key.set, false);
+    assert.equal(s.key.keychain, 'security add-generic-password -U -s finance-hub -a anthropic -w');
     for (const f of fs.readdirSync(tmpDir, { recursive: true })) {
       const full = path.join(tmpDir, f);
       if (fs.statSync(full).isFile()) assert.ok(!fs.readFileSync(full).includes(key), `${f} 裡有 key`);
     }
-
-    assert.deepEqual(await req('DELETE', '/api/ai/key?provider=anthropic'), { deleted: 1 });
-    assert.equal((await GET('/api/ai')).key.set, false);
-  });
-
-  it('不像 key 的東西，和不認得的供應商，都拒絕', async () => {
-    assert.equal((await call('PUT', '/api/ai/key', { provider: 'anthropic', key: 'has space in it' })).status, 400);
-    assert.equal((await call('PUT', '/api/ai/key', { provider: 'nope', key: 'sk-0123456789' })).status, 400);
-    assert.equal((await GET('/api/ai')).key.set, false);
   });
 
   // What the page shows above 送出 is the 匯出全覽 file, and review() sends

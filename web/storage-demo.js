@@ -1116,8 +1116,7 @@
       + '在自己的電腦上跑 node server/index.js 才有。';
     on('GET', '/api/ai', () => ({ available: false, reason: NO_AI }));
     for (const [method, pattern] of [
-      ['PUT', '/api/ai'], ['PUT', '/api/ai/key'], ['DELETE', '/api/ai/key'],
-      ['GET', '/api/ai/preview'], ['POST', '/api/ai/review'],
+      ['PUT', '/api/ai'], ['GET', '/api/ai/preview'], ['POST', '/api/ai/review'],
     ]) on(method, pattern, () => bad(NO_AI));
 
     const exportJson = () => ({

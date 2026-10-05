@@ -971,13 +971,13 @@ const viaAi = (fn) => (...args) => {
   } catch (e) { throw asHttp(e); }
 };
 
-on('GET', '/api/ai', () => AI.status({ getMeta }));
+// It reads the keychain, so a locked one is an AiError too.
+on('GET', '/api/ai', viaAi(() => AI.status({ getMeta })));
 
 on('PUT', '/api/ai', viaAi((_p, b) => AI.saveSettings(b, { getMeta, setMeta })));
 
-on('PUT', '/api/ai/key', viaAi((_p, b) => AI.saveKey(b.provider, b.key)));
-
-on('DELETE', '/api/ai/key', viaAi((_p, _b, q) => AI.deleteKey(q.provider)));
+// There is no route that takes a key. It is set on the machine, by its owner,
+// in the keychain or the environment; the page only says how.
 
 // Exactly what 送出 would send, for the page to show above the button. `to`
 // pins the day, so a test can hold it against the exported file.

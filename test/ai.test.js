@@ -34,9 +34,9 @@ function meta(init = {}) {
   return { getMeta: (k, f = null) => (m.has(k) ? m.get(k) : f), setMeta: (k, v) => m.set(k, String(v)), m };
 }
 
-// A fresh in-memory vault per case, so a key saved by one cannot be read by
-// another.
-const keyStore = (env = {}) => ({ vault: AI.memoryVault(), env });
+// A fresh in-memory vault per case, holding what the keychain would: `seed`
+// is { provider: key }, and `env` stands in for process.env.
+const keyStore = (env = {}, seed = {}) => ({ vault: AI.memoryVault(seed), env });
 
 // A sender that records what it was handed and answers with `reply`.
 function sender(reply) {
@@ -246,55 +246,38 @@ describe('設定', () => {
   });
 });
 
-describe('key 的存放', () => {
-  it('存起來、讀得回來，回應只給最後四碼', () => {
-    const keys = keyStore();
-    const out = AI.saveKey('anthropic', `  ${KEY}\n`, keys);
-    assert.equal(keys.vault.get('anthropic'), KEY, '頭尾的空白去掉');
-    assert.equal(out.key.hint, `…${KEY.slice(-4)}`);
-    assert.equal(out.key.source, 'stored');
-    assert.equal(out.key.store, 'memory');
-    const s = AI.status({ getMeta: meta().getMeta, keys });
-    assert.ok(!JSON.stringify(s).includes(KEY), '狀態裡不能有 key 本身');
-  });
-
-  it('沒有存 key 就用環境變數；存了的話存的那把優先；空的變數等於沒設', () => {
-    const keys = keyStore({ ANTHROPIC_API_KEY: 'sk-from-env-99999999', OPENAI_API_KEY: '   ' });
-    assert.equal(AI.keyStatus(provider('anthropic'), keys).source, 'env');
-    assert.equal(AI.keyStatus(provider('openai'), keys).set, false);
-    AI.saveKey('anthropic', KEY, keys);
-    assert.equal(AI.keyStatus(provider('anthropic'), keys).source, 'stored');
-    assert.equal(AI.keyFor(provider('anthropic'), keys).key, KEY);
-  });
-
-  it('刪掉一把只刪那一把；沒有的刪了是 0', () => {
-    const keys = keyStore();
-    AI.saveKey('anthropic', KEY, keys);
-    AI.saveKey('openai', `${KEY}-2`, keys);
-    assert.deepEqual(AI.deleteKey('anthropic', keys), { deleted: 1 });
-    assert.equal(keys.vault.get('anthropic'), null);
-    assert.equal(keys.vault.get('openai'), `${KEY}-2`);
-    assert.deepEqual(AI.deleteKey('anthropic', keys), { deleted: 0 });
-  });
-
-  // Quotes, backslashes and whitespace are refused here, not escaped later:
-  // they are what could change the meaning of the line keychainVault() writes.
-  it('看起來不像 key 的東西直接拒絕，什麼都沒存', () => {
-    const keys = keyStore();
-    for (const bad of ['', 'short', 'sk-with space-1234567', `sk-${'x'.repeat(600)}`, 'sk-中文-12345678',
-      '"sk-12345678"', 'sk-1234\\5678', 'sk-12345678;x', 'sk-1234\t5678']) {
-      assert.throws(() => AI.saveKey('anthropic', bad, keys), (e) => e.status === 400, JSON.stringify(bad));
-    }
-    assert.throws(() => AI.saveKey('mistral', KEY, keys), (e) => e.status === 400);
-    assert.equal(keys.vault.get('anthropic'), null);
-  });
-
-  it('沒有鑰匙圈的電腦：拒絕貼上，不寫明文檔，只能用環境變數', () => {
-    const keys = { vault: AI.noVault(), env: { ANTHROPIC_API_KEY: KEY } };
-    assert.throws(() => AI.saveKey('openai', KEY, keys), (e) => e.status === 400 && /OPENAI_API_KEY/.test(e.message));
+describe('key 從哪裡來', () => {
+  it('鑰匙圈裡有就用；回應只給最後四碼，和怎麼設定', () => {
+    const keys = keyStore({}, { anthropic: KEY });
     const s = AI.keyStatus(provider('anthropic'), keys);
-    assert.deepEqual([s.set, s.source, s.store], [true, 'env', 'none']);
-    assert.deepEqual(AI.deleteKey('anthropic', keys), { deleted: 0 });
+    assert.deepEqual([s.set, s.source, s.hint], [true, 'keychain', `…${KEY.slice(-4)}`]);
+    assert.equal(s.keychain, 'security add-generic-password -U -s finance-hub -a anthropic -w');
+    assert.equal(AI.keyFor(provider('anthropic'), keys).key, KEY);
+    assert.ok(!JSON.stringify(AI.status({ getMeta: meta().getMeta, keys })).includes(KEY), '狀態裡不能有 key 本身');
+  });
+
+  it('鑰匙圈沒有就用環境變數；兩個都有時鑰匙圈優先；空的變數等於沒設', () => {
+    const env = { ANTHROPIC_API_KEY: 'sk-from-env-99999999', OPENAI_API_KEY: '   ' };
+    assert.equal(AI.keyStatus(provider('anthropic'), keyStore(env)).source, 'env');
+    assert.equal(AI.keyStatus(provider('openai'), keyStore(env)).set, false);
+    const both = keyStore(env, { anthropic: KEY });
+    assert.equal(AI.keyFor(provider('anthropic'), both).key, KEY);
+  });
+
+  // The command the page shows. `-w` has to be last with no value: that is
+  // what makes `security` prompt, so the key is never typed onto a command line.
+  it('設定指令：每家一個帳號名稱，-w 在最後而且不帶值', () => {
+    for (const p of AI.PROVIDERS) {
+      const cmd = AI.setupCommand(p.key);
+      assert.match(cmd, new RegExp(`^security add-generic-password -U -s ${AI.KEYCHAIN_SERVICE} -a ${p.key} -w$`));
+    }
+  });
+
+  it('沒有鑰匙圈的電腦：只看環境變數，也不叫人去用鑰匙圈', () => {
+    const keys = { vault: AI.noVault(), env: { ANTHROPIC_API_KEY: KEY } };
+    const s = AI.keyStatus(provider('anthropic'), keys);
+    assert.deepEqual([s.set, s.source, s.keychain], [true, 'env', null]);
+    assert.equal(AI.keyStatus(provider('openai'), keys).set, false);
   });
 
   it('FINANCE_AI_VAULT 只認 memory；拼錯了不會掉到真的鑰匙圈去', () => {
@@ -303,79 +286,48 @@ describe('key 的存放', () => {
     assert.equal(AI.defaultVault({}, 'darwin').kind, 'keychain', '建出來而已，沒有呼叫 security');
     assert.equal(AI.defaultVault({}, 'linux').kind, 'none');
   });
+
+  it('沒有任何寫入 key 的路：模組不匯出、API 沒有這條 route', () => {
+    assert.equal(AI.saveKey, undefined);
+    assert.equal(AI.deleteKey, undefined);
+    const api = fs.readFileSync(path.join(__dirname, '..', 'server', 'api.js'), 'utf8');
+    assert.doesNotMatch(api, /\/api\/ai\/key/);
+  });
 });
 
-// keychainVault() over a stand-in for /usr/bin/security that keeps its items
-// in a Map: the real keychain is never touched. It answers the way the real
-// tool does — 44 for an item that is not there, and `-i` exiting 0 whether or
-// not its command worked.
-function fakeSecurity({ silentlyFails = false } = {}) {
-  const items = new Map();
-  const calls = [];
-  const run = (args, input) => {
-    calls.push({ args, input });
-    const id = () => `${args[args.indexOf('-s') + 1]}|${args[args.indexOf('-a') + 1]}`;
-    const missing = { status: 44, stdout: '', stderr: 'The specified item could not be found in the keychain.' };
-    if (args[0] === 'find-generic-password') {
-      return items.has(id()) ? { status: 0, stdout: `${items.get(id())}\n`, stderr: '' } : missing;
-    }
-    if (args[0] === 'delete-generic-password') {
-      return items.delete(id()) ? { status: 0, stdout: '', stderr: '' } : missing;
-    }
-    if (args[0] === '-i') {
-      const m = input.match(/^add-generic-password -U -s "([^"]+)" -a (\S+) -l "[^"]+" -w (\S+)\n$/);
-      if (m && !silentlyFails) items.set(`${m[1]}|${m[2]}`, m[3]);
-      return { status: 0, stdout: '', stderr: '' };
-    }
-    throw new Error(`unexpected security call: ${args.join(' ')}`);
-  };
-  return { run, calls, items };
-}
-
+// keychainVault() over a stand-in for /usr/bin/security: the real keychain is
+// never touched. It answers the way the real tool does — the key and a newline
+// on stdout, 44 for an item that is not there.
 describe('macOS 鑰匙圈（假的 security，不碰真的鑰匙圈）', () => {
-  const DIR = path.join(os.tmpdir(), 'some-book-dir');
+  const answering = (items) => {
+    const calls = [];
+    const run = (args) => {
+      calls.push(args);
+      const id = `${args[args.indexOf('-s') + 1]}|${args[args.indexOf('-a') + 1]}`;
+      return id in items
+        ? { status: 0, stdout: `${items[id]}\n`, stderr: '' }
+        : { status: 44, stdout: '', stderr: 'The specified item could not be found in the keychain.' };
+    };
+    return { run, calls };
+  };
 
-  it('寫進鑰匙圈，key 走 stdin，從來不在命令列參數上', () => {
-    const sec = fakeSecurity();
-    const keys = { vault: AI.keychainVault({ dir: DIR, run: sec.run }), env: {} };
-    const out = AI.saveKey('anthropic', KEY, keys);
-    assert.equal(out.key.source, 'stored');
-    assert.equal(out.key.store, 'keychain');
-    assert.match(out.key.where, /鑰匙圈/);
+  it('只讀：查 finance-hub / 供應商那一項，換行去掉', () => {
+    const sec = answering({ 'finance-hub|anthropic': KEY });
+    const keys = { vault: AI.keychainVault({ run: sec.run }), env: {} };
     assert.equal(AI.keyFor(provider('anthropic'), keys).key, KEY);
-    for (const c of sec.calls) assert.ok(!c.args.join(' ').includes(KEY), `命令列上出現了 key：${c.args.join(' ')}`);
-    assert.ok(sec.calls.some((c) => c.args[0] === '-i' && c.input.includes(KEY)), 'key 應該從 stdin 進去');
-    assert.deepEqual([...sec.items.keys()], [`${AI.KEYCHAIN_SERVICE}|${AI.keychainAccount('anthropic', DIR)}`]);
+    assert.deepEqual(sec.calls, [['find-generic-password', '-s', 'finance-hub', '-a', 'anthropic', '-w']]);
   });
 
-  // A throwaway FINANCE_DB lives in its own directory, so its account name is
-  // one nothing real was ever saved under.
-  it('項目以資料目錄區分：別的目錄看不到；名稱裡沒有路徑本身', () => {
-    const sec = fakeSecurity();
-    AI.keychainVault({ dir: DIR, run: sec.run }).set('anthropic', KEY);
-    assert.equal(AI.keychainVault({ dir: path.join(os.tmpdir(), 'scratch'), run: sec.run }).get('anthropic'), null);
-    assert.equal(AI.keychainVault({ dir: `${DIR}/`, run: sec.run }).get('anthropic'), KEY, '同一個目錄，寫法不同也一樣');
-    assert.ok(!AI.keychainAccount('anthropic', DIR).includes('some-book-dir'));
-  });
-
-  it('沒有這個項目是「沒設定」，刪不存在的是 0', () => {
-    const keys = { vault: AI.keychainVault({ dir: DIR, run: fakeSecurity().run }), env: {} };
+  it('沒有這一項是「沒設定」', () => {
+    const keys = { vault: AI.keychainVault({ run: answering({}).run }), env: {} };
     assert.equal(AI.keyStatus(provider('openai'), keys).set, false);
-    assert.deepEqual(AI.deleteKey('openai', keys), { deleted: 0 });
   });
 
-  it('security -i 回 0 但其實沒寫進去：讀回來比對，報錯而不是說存好了', () => {
-    const keys = { vault: AI.keychainVault({ dir: DIR, run: fakeSecurity({ silentlyFails: true }).run }), env: {} };
-    assert.throws(() => AI.saveKey('anthropic', KEY, keys),
-      (e) => e.status === 500 && /讀不回/.test(e.message) && !e.message.includes(KEY));
-  });
-
-  it('鑰匙圈鎖著或被拒絕：500，說 security 講了什麼，不印 key', () => {
+  it('鑰匙圈鎖著或被拒絕：500，說 security 講了什麼', () => {
     const run = () => ({ status: 36, stdout: '', stderr: 'User interaction is not allowed.' });
-    const keys = { vault: AI.keychainVault({ dir: DIR, run }), env: {} };
+    const keys = { vault: AI.keychainVault({ run }), env: {} };
     assert.throws(() => AI.keyStatus(provider('anthropic'), keys),
       (e) => e.status === 500 && /User interaction is not allowed/.test(e.message));
-    assert.throws(() => AI.saveKey('anthropic', KEY, keys), (e) => e.status === 500 && !e.message.includes(KEY));
   });
 });
 
@@ -391,8 +343,7 @@ describe('review（注入假的 sender，全程離線）', () => {
   };
 
   it('沒開就拒絕，而且什麼都沒送', async () => {
-    const keys = keyStore();
-    AI.saveKey('anthropic', KEY, keys);
+    const keys = keyStore({}, { anthropic: KEY });
     const { send, calls } = sender(anthropicReply('x'));
     await assert.rejects(ask(meta()).run({ keys, send }), (e) => e.status === 400 && /沒有開啟/.test(e.message));
     assert.equal(calls.length, 0);
@@ -406,8 +357,7 @@ describe('review（注入假的 sender，全程離線）', () => {
   });
 
   it('不認得的 mode 在送出前就拒絕', async () => {
-    const keys = keyStore();
-    AI.saveKey('anthropic', KEY, keys);
+    const keys = keyStore({}, { anthropic: KEY });
     const { send, calls } = sender(anthropicReply('x'));
     await assert.rejects(ask(on()).run({ mode: 'predict', keys, send }), (e) => e.status === 400);
     assert.equal(calls.length, 0);
@@ -416,9 +366,7 @@ describe('review（注入假的 sender，全程離線）', () => {
   // The promise the page makes, made mechanical: the server rebuilds the
   // document itself and sends it only if it hashes to what the page showed.
   it('看過之後帳本變了、設定變了，或沒附 digest：拒絕，什麼都沒送', async () => {
-    const keys = keyStore();
-    AI.saveKey('anthropic', KEY, keys);
-    AI.saveKey('openai', `${KEY}-openai`, keys);
+    const keys = keyStore({}, { anthropic: KEY, openai: `${KEY}-openai` });
     const m = on();
     const { send, calls } = sender(anthropicReply('x'));
     const { run } = ask(m);
@@ -439,8 +387,7 @@ describe('review（注入假的 sender，全程離線）', () => {
   });
 
   it('digest 對得上就送，送出去的就是預覽的那一份：同一段說明、同一份文件', async () => {
-    const keys = keyStore();
-    AI.saveKey('anthropic', KEY, keys);
+    const keys = keyStore({}, { anthropic: KEY });
     const { send, calls } = sender(anthropicReply('## 發現\n- 對帳差 **-3,250 TWD**'));
     const { shown, run } = ask(on(), 'advice');
     const out = await run({ keys, send });
@@ -471,8 +418,7 @@ describe('review（注入假的 sender，全程離線）', () => {
   });
 
   it('供應商回錯誤：說是哪家、幾號、它說了什麼，但不把 key 印出來', async () => {
-    const keys = keyStore();
-    AI.saveKey('openai', KEY, keys);
+    const keys = keyStore({}, { openai: KEY });
     const { send } = sender({
       status: 401,
       json: { error: { message: `Incorrect API key provided: ${KEY}`, type: 'invalid_request_error' } },
@@ -487,8 +433,7 @@ describe('review（注入假的 sender，全程離線）', () => {
   // Cut first, a key straddling the cut would survive as a prefix: a proxy's
   // HTML error page that echoes the request headers is the case.
   it('錯誤訊息先遮掉 key 再截短，所以截斷點上的 key 也不會留下一截', async () => {
-    const keys = keyStore();
-    AI.saveKey('anthropic', KEY, keys);
+    const keys = keyStore({}, { anthropic: KEY });
     const { send } = sender({ status: 502, json: null, text: `${'x'.repeat(190)}${KEY}y` });
     await assert.rejects(
       ask(on()).run({ keys, send }),
@@ -497,8 +442,7 @@ describe('review（注入假的 sender，全程離線）', () => {
   });
 
   it('逾時是 504，連不上是 502，回來的不是 JSON 也是 502', async () => {
-    const keys = keyStore();
-    AI.saveKey('anthropic', KEY, keys);
+    const keys = keyStore({}, { anthropic: KEY });
     const run = (reply) => ask(on()).run({ keys, send: sender(reply).send });
     await assert.rejects(run(new Error('timeout')), (e) => e.status === 504);
     await assert.rejects(run(new Error('getaddrinfo ENOTFOUND')), (e) => e.status === 502 && /ENOTFOUND/.test(e.message));

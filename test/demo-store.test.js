@@ -428,8 +428,6 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
 
     for (const [method, p, body] of [
       ['put', '/api/ai', { enabled: true }],
-      ['put', '/api/ai/key', { provider: 'anthropic', key: 'sk-0123456789' }],
-      ['del', '/api/ai/key?provider=anthropic'],
       ['get', '/api/ai/preview?mode=audit'],
       ['post', '/api/ai/review', { mode: 'audit' }],
     ]) {
