@@ -798,35 +798,22 @@ code {
 /* The caption under the filename, tight against it on purpose. */
 .dropzone .small { margin-top: var(--sp-4); }
 
-.step { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-12); }
-.step-no {
-  width: 22px; height: 22px; border-radius: 50%; background: var(--surface-2);
-  border: 1px solid var(--line-strong); color: var(--ink-3);
-  display: grid; place-items: center; font-size: var(--fs-2xs); font-family: var(--mono); flex: 0 0 auto;
-}
-.step.done .step-no { background: var(--brand-solid); border-color: var(--brand-solid); color: var(--brand-ink); }
-.step .step-label { font-size: var(--fs-sm); font-weight: 600; }
+/* What an import left out and why, one line each, under its result. */
+.import-facts { margin: 0 0 var(--sp-12); padding-left: var(--sp-16); color: var(--ink-3); font-size: var(--fs-xs); }
+.import-facts li + li { margin-top: var(--sp-4); }
 
 .grid-preview { font-family: var(--mono); font-size: var(--fs-2xs); }
 .grid-preview td { padding: var(--sp-4) var(--sp-8); white-space: nowrap; }
 .grid-preview tr.header-row { background: var(--brand-tint); }
 .grid-preview tr.header-row td { color: var(--brand); font-weight: 600; }
 
-/* A row's status is a leading bar plus its own ink, never a dimmed copy of the
-   row. `opacity: .45` dropped duplicate rows to ~3.6:1 — and reading the row
-   is exactly how you judge whether it really is the duplicate it claims. */
-tr.dup   td { color: var(--ink-3); }
-tr.dup   td:first-child { box-shadow: inset var(--marker) 0 0 var(--line-strong); }
+/* The rows an import issue is about. A row's status is a leading bar plus its
+   own ink, never a dimmed copy of the row: reading the row is exactly how you
+   judge whether the issue is real. */
 tr.err   td { background: var(--down-tint); }
 tr.err   td:first-child { box-shadow: inset var(--marker) 0 0 var(--down); }
 tr.fixed td { background: var(--warn-tint); }
 tr.fixed td:first-child { box-shadow: inset var(--marker) 0 0 var(--warn); }
-/* Skipped like a duplicate, so it reads back the same way — but an amber bar
-   instead of a neutral one, because a duplicate is finished business and this
-   one is a row to come back for. Not the full --warn-tint of a repair: that
-   is for a number this app changed, and nothing here was touched. */
-tr.pend  td { color: var(--ink-3); }
-tr.pend  td:first-child { box-shadow: inset var(--marker) 0 0 var(--warn); }
 
 /* ---------- modal & toast ---------- */
 
