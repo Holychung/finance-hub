@@ -482,7 +482,11 @@ function renderPreview() {
           <input id="c-savename" placeholder="例如：玉山銀行 活存"></label>
         <button class="primary shrink" id="c-commit" ${p.summary.new ? '' : 'disabled'}>匯入 ${p.summary.new} 筆</button>
       </div>
-      <div class="muted small spaced">匯入前會自動把整個資料庫存一份快照到 <code>data/backups/</code>，對應選錯了可以整個換回去。</div>
+      <div class="muted small spaced">${storage.name === 'demo'
+        // The demo has no file to copy, so the promise below would be the one
+        // sentence on this page that is not true there.
+        ? '示範資料沒有檔案可以寫，所以匯入前不會有快照；重新整理就回到原狀。'
+        : html`匯入前會自動把整個資料庫存一份快照到帳本旁邊的 <code>backups/</code>，對應選錯了可以整個換回去。`}</div>
     </section>
   `);
 
