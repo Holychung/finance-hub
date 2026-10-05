@@ -303,12 +303,47 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
   it('同一份對帳單，兩邊匯入後的帳本一致', async () => {
     const content_base64 = fs.readFileSync(path.join(FIXTURES, 'esun-savings.csv')).toString('base64');
     const pre = await demo.post('/api/import/preview', { account_id: 1, content_base64 });
-    const body = { account_id: 1, filename: 'esun-savings.csv', content_base64, mapping: pre.mapping };
+    // Account 1's opening balance is the script's, not the fixture's, so the
+    // statement's last balance does not agree with it — and both sides have
+    // to refuse until that is answered, in the same words.
+    assert.deepEqual(pre.issues.map((i) => i.code), ['balance_mismatch']);
+    const unanswered = { account_id: 1, filename: 'esun-savings.csv', content_base64, mapping: pre.mapping };
+    const [ra, rb] = await Promise.all([
+      demo.post('/api/import/commit', unanswered).catch((e) => e),
+      live.post('/api/import/commit', unanswered).catch((e) => e),
+    ]);
+    assert.equal(ra.status, 409);
+    assert.equal(rb.status, 409);
+    assert.equal(ra.message, rb.message);
 
+    const body = { ...unanswered, accept: ['balance_mismatch'] };
     const [a, b] = [await demo.post('/api/import/commit', body), await live.post('/api/import/commit', body)];
     assert.equal(a.imported, b.imported);
     assert.equal(a.skipped, b.skipped);
     assert.equal(a.transfer_candidates, b.transfer_candidates);
+    // What the page's result is drawn from.
+    assert.deepEqual(a.account, b.account);
+    assert.deepEqual(a.summary, b.summary);
+    assert.deepEqual(a.reconcile, b.reconcile);
+    assert.deepEqual(a.period, b.period);
+
+    // The period, answered afterwards: the same rule on both sides, refused
+    // in the same words, and taken back to the same span.
+    const declare = { period_from: '2026-07-01', period_to: '2026-08-31' };
+    assert.deepEqual(
+      await demo.put(`/api/imports/${a.import_id}`, declare),
+      { ...(await live.put(`/api/imports/${b.import_id}`, declare)), id: a.import_id }
+    );
+    const narrow = { period_from: '2026-07-05', period_to: '2026-08-31' };
+    const [na, nb] = await Promise.all([
+      demo.put(`/api/imports/${a.import_id}`, narrow).catch((e) => e),
+      live.put(`/api/imports/${b.import_id}`, narrow).catch((e) => e),
+    ]);
+    assert.equal(na.status, 400);
+    assert.equal(na.message, nb.message);
+    const back = [await demo.put(`/api/imports/${a.import_id}`, {}), await live.put(`/api/imports/${b.import_id}`, {})];
+    assert.deepEqual(back[0].period, back[1].period);
+    assert.equal(back[0].period.kind, 'derived');
     // The one place they are allowed to differ, and it is stated rather than
     // faked: a browser has no filesystem to snapshot to.
     assert.equal(a.backup, null, 'demo 沒有檔案系統，不能假造一個備份檔名');

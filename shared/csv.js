@@ -39,13 +39,16 @@
 //                    row that keeps one imports no matter what else is wrong.
 //                    Two things hold back a well-formed row: `pending`, the
 //                    bank has not finished writing it, and `internal`, a
-//                    plan's history says it moves no money in or out.
+//                    plan's history says it moves no money in or out. One
+//                    relabels a refused row without un-refusing it:
+//                    `summaryLine`, the statement's own total or balance line.
 //
 //   checkBalanceChain  Every cell of a `ragged` row came from a shifted
 //                    position, the balance included, so it may not anchor on
 //                    one. A row with no amount but an intact shape (an
 //                    opening-balance line) may. Warnings only: a file that
 //                    legitimately starts mid-history breaks at its first row.
+//                    A row it compared carries `chained`, agreeing or not.
 //
 // The invariant that ties them together, and the one both bugs broke: **a
 // bad row is local**. One row being wide, shifted or refused may change how
@@ -590,6 +593,30 @@
     return !!s && PENDING_WORDS.some((w) => s.includes(norm(w)));
   }
 
+  // A line the statement writes about itself rather than about money moving:
+  // 玉山's `合計` footer, Bank of America's `Beginning balance as of …`. Both
+  // parse as a refused row — the first has no date, the second no amount —
+  // and reported as 解析失敗 they made every clean import of either bank look
+  // like it had lost a row, which is the one thing that report must never cry
+  // wolf about.
+  //
+  // It only ever relabels a row that is already refused, so it cannot let
+  // anything import; the worst a wrong match does is call a broken row a
+  // summary. Even so it takes a word that positively says so — a total with
+  // no date, a balance with a date and no amount — and never a row whose
+  // shape was off, repaired or not, since every cell of a shifted row started
+  // out as somebody else's.
+  const TOTAL_LINE = /^(合計|總計|小計|總額|total|totals|subtotal|grand total)\s*[:：]?$/i;
+  const BALANCE_WORD = /\bbalance\b|餘額|結餘/i;
+
+  function isSummaryLine(r, { date, amount, balance, ragged, repaired, unreadableDirection }) {
+    if (ragged || repaired) return false;
+    const first = r.find((c) => String(c ?? '').trim());
+    if (!date && first !== undefined && TOTAL_LINE.test(String(first).trim())) return true;
+    return !!date && amount === null && unreadableDirection === null && balance !== null &&
+      r.some((c) => BALANCE_WORD.test(String(c ?? '')));
+  }
+
   // One cell of a row, by a column index out of the mapping. A mapping index
   // is `null` when the user picked nothing and `undefined` when the mapping was
   // saved before that column existed — a real case, because saved mappings
@@ -705,6 +732,9 @@
           : '收支別是空的，看不出這行是進還是出');
       } else if (amount === null) errors.push('金額無法解析或為零');
 
+      const summaryLine = errors.length > 0 &&
+        isSummaryLine(r, { date, amount, balance, ragged, repaired, unreadableDirection });
+
       out.push({
         lineNo,
         date,
@@ -720,6 +750,7 @@
         externalId,
         raw: r,
         errors,
+        summaryLine,
         fingerprint: errors.length ? null : fingerprint(accountId, date, amount, description),
       });
     });
@@ -767,6 +798,11 @@
       // re-anchors the chain rather than breaking it.
       if (row.amount === null || row.errors.length) { prev = row.balance; continue; }
       if (prev !== null) {
+        // Marked whether or not it agrees: `chained` says the row was checked
+        // at all. The first row of a chain has nothing above it, so its own
+        // balance confirms nothing — which matters for a repaired row, whose
+        // repair counts as confirmed only when a balance was compared.
+        row.chained = true;
         const drift = round2(row.balance - round2(prev + row.amount));
         if (Math.abs(drift) >= 0.005) row.balanceBreak = drift;
       }
@@ -782,7 +818,7 @@
   function markDuplicates(extracted, existingCounts) {
     const seen = new Map();
     for (const row of extracted) {
-      if (!row.fingerprint) { row.status = 'error'; continue; }
+      if (!row.fingerprint) { row.status = row.summaryLine ? 'summary_line' : 'error'; continue; }
       // Before the dedup, not after: a pending row never imports, so it must
       // not consume one of the duplicate slots either. Counted here, a file
       // carrying both the pending row and the posted one it became would mark

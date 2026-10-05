@@ -401,6 +401,34 @@ CREATE TABLE budgets (
 `);
     },
   },
+
+  {
+    version: 11,
+    name: 'imports file span',
+    // The extent of the file itself — its earliest and latest dated row,
+    // duplicates and refused rows included — kept beside the period it is
+    // credited with. `date_from` / `date_to` used to be both: the span when
+    // nobody declared a period, overwritten by the declaration when somebody
+    // did. That was enough while the period could only be declared before
+    // the commit, with the file in hand to check it against. Now it is
+    // answered afterwards, on the import's result, and a declaration has to
+    // contain every row of the file; without the span recorded there is
+    // nothing left to check it against, and nothing to go back to when the
+    // declaration is withdrawn.
+    //
+    // A derived period *is* the span, so those rows are filled from it. A
+    // declared one overwrote the span when it was written and the span is
+    // gone; those stay NULL, and an import with no span cannot have its
+    // period changed — the route says so rather than guessing one. UPDATE
+    // moves no rows, so the default count check is the right one.
+    up(db) {
+      db.exec(`
+ALTER TABLE imports ADD COLUMN span_from TEXT;
+ALTER TABLE imports ADD COLUMN span_to TEXT;
+UPDATE imports SET span_from = date_from, span_to = date_to WHERE period_kind = 'derived';
+`);
+    },
+  },
 ];
 
 const LATEST = MIGRATIONS[MIGRATIONS.length - 1].version;

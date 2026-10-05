@@ -35,12 +35,13 @@
   const SP = dep ? require('../shared/spending') : root;
   const X = dep ? require('../shared/export') : root;
   const O = dep ? require('../shared/overview') : root;
+  const I = dep ? require('../shared/import') : root;
 
   // The demo's shape is shipped with the code, so this is a statement about
   // the seed rather than a version anything migrates to. It has to be the
   // last step in server/migrations.js, because the seed carries every column
   // that step added; test/demo-store.test.js compares it with a fresh server.
-  const SCHEMA_VERSION = '10';
+  const SCHEMA_VERSION = '11';
 
   // ---------------------------------------------------------------------
   // The raw store
@@ -198,6 +199,7 @@
   const OPT = (v) => (v === undefined || v === '' ? null : v);
   const bad = (m) => { throw new DemoError(400, m); };
   const missing = (m) => { throw new DemoError(404, m); };
+  const conflict = (m) => { throw new DemoError(409, m); };
 
   const by = (...keys) => (a, b) => {
     for (const k of keys) {
@@ -893,10 +895,23 @@
       };
     }
 
-    const rowSpan = (rows) => {
-      const dates = rows.map((r) => r.date).filter(Boolean).sort();
-      return { from: dates[0] || null, to: dates[dates.length - 1] || null };
-    };
+    const balanceOf = (id, asOf) => accountsWithBalances(asOf).find((a) => a.id === id)?.balance ?? 0;
+
+    // server/api.js's analyseImport, over the Map.
+    function analyseImport(account, grid, mapping, skipLines) {
+      const { rows } = csv.extractRows(grid, mapping, account ? account.id : null);
+      csv.markDuplicates(rows, existingCounts(account ? account.id : null));
+      I.skipImportRows(rows, skipLines || []);
+      const st = I.statedBalance(rows);
+      const { summary, reconcile } = I.computeImportSummary({
+        rows, account,
+        before: account ? balanceOf(account.id) : null,
+        ledgerOn: account && st ? balanceOf(account.id, st.stated_on) : null,
+      });
+      return { rows, summary, reconcile, issues: I.importIssues({ summary, reconcile, rows, mapping }) };
+    }
+
+    const accountRef = (a) => ({ id: a.id, name: a.name, kind: a.kind, currency: a.currency });
 
     // Base64 in both environments: Node has Buffer, a browser has atob. The
     // views send `content_base64` because that is what survives a JSON body.
@@ -928,58 +943,21 @@
         ? { ...b.mapping, delimiter, encoding }
         : { ...csv.guessMapping(headers, grid.slice(headerRow)), delimiter, encoding, headerRow };
 
-      const { rows } = csv.extractRows(grid, mapping, accountId);
-      csv.markDuplicates(rows, existingCounts(accountId));
-
-      const summary = rows.reduce(
-        (acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; },
-        { new: 0, duplicate: 0, error: 0, pending: 0, internal: 0 }
-      );
-      const fresh = rows.filter((r) => r.status === 'new');
-      const net = M.round2(fresh.reduce((s, r) => s + r.amount, 0));
-
-      let reconcileInfo = null;
-      if (account) {
-        const before = accountsWithBalances().find((a) => a.id === account.id)?.balance ?? 0;
-        const after = M.round2(before + net);
-        const lastWithBalance = csv.inDateOrder(rows).filter((r) => r.balance !== null && !r.ragged).pop();
-        const stated = lastWithBalance ? lastWithBalance.balance : null;
-        reconcileInfo = {
-          before,
-          after,
-          stated,
-          stated_on: lastWithBalance ? lastWithBalance.date : null,
-          matches: stated === null ? null : Math.abs(after - stated) < 0.005,
-          drift: stated === null ? null : M.round2(after - stated),
-        };
-      }
+      const ref = account ? accountRef(account) : null;
+      const { rows, summary, reconcile, issues } = analyseImport(ref, grid, mapping, b.skip_lines);
 
       return {
         encoding, delimiter, headers, mapping,
-        account: account
-          ? { id: account.id, name: account.name, kind: account.kind, currency: account.currency }
-          : null,
+        account: ref,
         suggested_account: accountId
           ? null
           : csv.suggestAccount({ filename: S(b.filename), headers, rows, mapping }),
         grid_preview: grid.slice(0, Math.max(headerRow + 5, 8)),
         rows: rows.slice(0, 500),
         truncated: rows.length > 500,
-        summary: {
-          ...summary,
-          total: rows.length,
-          repaired: rows.filter((r) => r.repaired).length,
-          balance_breaks: rows.filter((r) => r.balanceBreak !== undefined).length,
-          sign_suspect:
-            M.LIABILITY_KINDS.has(S(account && account.kind)) &&
-            fresh.filter((r) => r.amount > 0).length > fresh.filter((r) => r.amount < 0).length,
-          net,
-          date_min: fresh.length ? fresh.reduce((a, r) => (r.date < a ? r.date : a), fresh[0].date) : null,
-          date_max: fresh.length ? fresh.reduce((a, r) => (r.date > a ? r.date : a), fresh[0].date) : null,
-          span_from: rowSpan(rows).from,
-          span_to: rowSpan(rows).to,
-        },
-        reconcile: reconcileInfo,
+        summary,
+        reconcile,
+        issues,
       };
     });
 
@@ -988,38 +966,40 @@
       if (!accountId) bad('請先選擇要匯入的帳戶');
       const buf = decodeBase64(S(b.content_base64));
       const mapping = b.mapping || bad('缺少欄位對應設定');
+      const stored = raw.get('accounts', accountId) || missing('帳戶不存在');
+      const account = accountRef(stored);
 
       const { text } = csv.decode(buf, mapping.encoding || 'auto');
       const grid = csv.parseCsv(text, mapping.delimiter || ',');
-      const { rows } = csv.extractRows(grid, mapping, accountId);
-      csv.markDuplicates(rows, existingCounts(accountId));
+      const { rows, summary, reconcile, issues } = analyseImport(account, grid, mapping, b.skip_lines);
 
-      const skipLines = new Set((b.skip_lines || []).map(Number));
-      const toInsert = rows.filter((r) => r.status === 'new' && !skipLines.has(r.lineNo));
+      const refusal = I.commitRefusal(issues, b.accept);
+      if (refusal) conflict(refusal);
 
-      const span = rowSpan(rows);
+      const toInsert = rows.filter((r) => r.status === 'new');
+
+      const span = I.fileSpan(rows);
       const declaredFrom = OPT(b.period_from) && S(b.period_from);
       const declaredTo = OPT(b.period_to) && S(b.period_to);
       const declared = !!(declaredFrom && declaredTo);
-      if (declared && declaredFrom > declaredTo) bad('期間的起日不能晚於迄日');
       if (declared) {
-        const outside = rows.filter((r) => r.date && (r.date < declaredFrom || r.date > declaredTo));
-        if (outside.length) {
-          bad(
-            `宣告的期間是 ${declaredFrom} 到 ${declaredTo}，但檔案裡有 ${outside.length} 行落在期間外` +
-              `（${outside[0].date} 等）。期間填錯了，或這份檔案不是你以為的那一份。`
-          );
-        }
+        const problem = I.periodProblem({ from: declaredFrom, to: declaredTo }, span);
+        if (problem) bad(problem);
       }
+      const period = declared
+        ? { from: declaredFrom, to: declaredTo, kind: 'declared' }
+        : { from: span.from, to: span.to, kind: 'derived' };
 
       const ruleList = listRules();
       const importId = raw.tx(() => {
         const imp = raw.insert('imports', {
           account_id: accountId, filename: S(b.filename, 'upload.csv'),
           mapping: JSON.stringify(mapping), imported: 0, skipped: 0, created_at: now(),
-          date_from: declared ? declaredFrom : span.from,
-          date_to: declared ? declaredTo : span.to,
-          period_kind: declared ? 'declared' : 'derived',
+          date_from: period.from,
+          date_to: period.to,
+          period_kind: period.kind,
+          span_from: span.from,
+          span_to: span.to,
         });
         for (const r of toInsert) {
           insertTxn({
@@ -1048,6 +1028,10 @@
         import_id: importId,
         imported: toInsert.length,
         skipped: rows.length - toInsert.length,
+        account,
+        summary,
+        reconcile,
+        period,
         transfer_candidates: transferCandidates().length,
         // No filesystem, so no snapshot. The import view already renders this
         // as "no backup" rather than inventing a filename.
@@ -1068,6 +1052,24 @@
         raw.remove('imports', (i) => i.id === id);
         return { reverted };
       });
+    });
+
+    on('PUT', '/api/imports/:id', (p, b) => {
+      const imp = raw.get('imports', N(p.id)) || missing('匯入紀錄不存在');
+      if (!imp.span_from || !imp.span_to) bad('這筆匯入沒有記下檔案的範圍（是舊版匯入的），涵蓋期間不能再改。');
+      const rawFrom = OPT(b.period_from);
+      const rawTo = OPT(b.period_to);
+      if (!!rawFrom !== !!rawTo) bad('期間要有起日和迄日');
+      const from = rawFrom && (csv.parseDate(rawFrom, 'ymd') || bad(`日期無法解析：${rawFrom}`));
+      const to = rawTo && (csv.parseDate(rawTo, 'ymd') || bad(`日期無法解析：${rawTo}`));
+      const span = { from: imp.span_from, to: imp.span_to };
+      if (from) {
+        const problem = I.periodProblem({ from, to }, span);
+        if (problem) bad(problem);
+      }
+      const period = from ? { from, to, kind: 'declared' } : { ...span, kind: 'derived' };
+      raw.update('imports', imp.id, { date_from: period.from, date_to: period.to, period_kind: period.kind });
+      return { id: imp.id, period };
     });
 
     // --- settings and export -------------------------------------------------
