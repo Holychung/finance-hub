@@ -72,7 +72,8 @@
   csv.js parses a statement identically in both, and money.js does the
   arithmetic. Order matters where one reads another off the global, because
   there is no require() to call: currency.js and kinds.js before money.js,
-  sha1.js before csv.js, money.js and spending.js before overview.js. All of
+  sha1.js before csv.js, csv.js before import.js, money.js and spending.js
+  before overview.js. All of
   them are self-contained IIFEs, so nothing here lands in the script scope the
   view files share.
 -->
@@ -81,6 +82,7 @@
 <script src="/shared/sha1.js"></script>
 <script src="/shared/money.js"></script>
 <script src="/shared/csv.js"></script>
+<script src="/shared/import.js"></script>
 <script src="/shared/rules.js"></script>
 <script src="/shared/spending.js"></script>
 <script src="/shared/export.js"></script>

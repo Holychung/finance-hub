@@ -870,6 +870,37 @@ describe('v10：預算', () => {
   });
 });
 
+describe('v11：匯入記下檔案自己的範圍', () => {
+  // Up to v10 a declared period overwrote the file's span; a derived one *is*
+  // the span. So the backfill can recover the second and must not invent the
+  // first — an import with no span simply cannot have its period changed
+  // afterwards, which the route says in words.
+  it('推算的期間就是檔案範圍，補得回來；宣告過的補不回來，留著 null', () => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db, 0);
+    runMigrations(db, { migrations: MIGRATIONS.filter((m) => m.version <= 10) });
+    const ins = db.prepare(
+      `INSERT INTO imports (account_id, filename, created_at, date_from, date_to, period_kind)
+       VALUES (1, ?, '2026-01-01', ?, ?, ?)`
+    );
+    ins.run('derived.csv', '2026-03-02', '2026-03-09', 'derived');
+    ins.run('declared.csv', '2026-03-01', '2026-03-31', 'declared');
+
+    runMigrations(db, {});
+
+    const got = db.prepare('SELECT filename, span_from, span_to FROM imports ORDER BY id').all().map((r) => ({ ...r }));
+    assert.deepEqual(got, [
+      { filename: 'derived.csv', span_from: '2026-03-02', span_to: '2026-03-09' },
+      { filename: 'declared.csv', span_from: null, span_to: null },
+    ]);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM imports').get().n, 2, '筆數一個都不動');
+
+    db.close();
+    s.rm();
+  });
+});
+
 describe('比程式新的帳本會讓 server 停下來', () => {
   // db.js prints and exits rather than throwing, for the same reason
   // index.js does it for a stranded data/finance.db: the person needs an

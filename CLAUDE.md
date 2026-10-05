@@ -70,6 +70,8 @@ shared/kinds.js   what kinds of account, transaction and market exist — the
                   only list
 shared/sha1.js    synchronous SHA-1, because the browser's is async
 shared/csv.js     decode, parse, map, dedup    (no DB access — pure functions)
+shared/import.js  what an import concludes, and which of it stops the file —
+                  the gate the commit enforces, and the period rule
 shared/money.js   the pure half: every `compute*`, plus round2 and the dates
 shared/rules.js   category rules: normalise, match, plan
 shared/spending.js  monthly in/out, category breakdown, recurring charges,
@@ -103,6 +105,8 @@ test/migrate.test.js the schema migration runner
 test/seed.test.js    what the demo seeder must produce to be worth running
 test/money.test.js   the pure half of money.js, over plain arrays
 test/budgets.test.js a budget's spent figure is the breakdown's, for its month
+test/import.test.js  the import gate over plain rows: what stops a file, and
+                     what is the file behaving normally
 test/prices.test.js  the close fetch, offline — injected getter, throwaway db
 test/currency.test.js  the scale follows the currency, and round2 is unchanged
 test/kinds.test.js   the kind list is complete, and the rules encoded in it
@@ -154,7 +158,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-597 tests across 96 suites cover Big5 decoding, ROC dates, two-digit years,
+657 tests across 103 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
@@ -163,7 +167,10 @@ balance and no total, a budget's spent figure being the breakdown's for its
 month, the
 price-history lookup (latest at or before a date, and nothing dragged back
 before the first observation) and the v6 backfill that seeds it,
-pre-import backup, balance reconciliation, import revert, CSV BOM, the three
+pre-import backup, balance reconciliation, import revert, the import gate (a
+clean file straight in, every issue refused at the commit until answered, a
+backfill reconciled on the statement's own day, the period answered
+afterwards), a statement's own total line never counting as a refusal, CSV BOM, the three
 request guards and the CSP, the malformed-statement handling below, the
 pipeline invariant over every bank fixture, pending rows and a retirement
 plan's exchanges never importing, a plan's history and its statement agreeing
@@ -654,13 +661,57 @@ Three rules hold that line, and none may be relaxed into a guess:
   the fingerprint, so a row with a fingerprint imports no matter what else is
   wrong with it.
 - **Overflow folds back into the description** (`repairRagged`), the one
-  free-text column a comma can escape from. The row is marked `repaired` and
-  shown on a yellow background; repair is never silent.
+  free-text column a comma can escape from. The row is marked `repaired`;
+  repair is never silent. A repair the balance chain confirms imports; one
+  nothing can confirm stops the import for a person to look at the amount; and
+  one the chain *disproves* is its own issue (`repair_contradicted`), never
+  described as unverifiable.
 - **A running-balance column checks every row** (`checkBalanceChain`):
   previous balance + amount must equal this balance. This is the only check
   that catches a row the file never contained, and the independent confirmation
-  that a repair produced the right number. It is a warning, not an error — a
-  file that legitimately starts mid-history breaks at its first row.
+  that a repair produced the right number. It refuses no row — a file that
+  legitimately starts mid-history breaks at its first row — but a break stops
+  the import until a person answers it. A row it compared carries `chained`.
+
+A statement's own total or balance line (玉山's `合計`, BoA's `Beginning
+balance as of …`) is still refused, and reported as `summary_line` rather than
+`error`. It relabels a row already refused and never un-refuses one, takes a
+word that positively says so, and never applies to a row whose shape was off,
+repaired or not. The balance case also needs the amount cells *empty*, not
+unreadable, and a cell that opens with the balance's name: a mangled real
+transaction described `MINIMUM BALANCE FEE` relabelled would vanish from the
+import, so it stays a refusal a person is asked about.
+
+## The import gate
+
+A file whose checks all agree is written without asking; `shared/import.js`
+decides what a person has to answer instead (`importIssues`), and **the commit
+enforces it, not the page**: `/api/import/commit` re-reads the bytes, recomputes
+the issues and answers 409 — writing nothing, taking no snapshot — while any
+is unanswered (`accept: [key, …]`). `unreadable` cannot be accepted at all.
+That is what makes the page's auto-import safe, so never add a path that writes
+imported rows around it, and never answer an issue on the person's behalf.
+
+- **An answer is given to an issue's `key`, not its code.** The key carries the
+  rows and the figure — a mismatch's stated balance and ledger, a sign
+  suspicion's counts — so "import anyway" covers exactly what was on screen.
+  Re-read with another mapping, skip a row, or let another import land, and a
+  0.50 gap that was waved through does not stand for a 50,000 one.
+- **Once the page has shown a file's issues it stops auto-importing it**
+  (`imp.hold`): 正負反過來 is asking to see the result, not to write it.
+- A commit with nothing new to write is refused (400) rather than recorded as
+  a zero-row batch with a snapshot of an unchanged book.
+
+- **The statement is reconciled on its own last day** (`reconcile.ledger`), not
+  against today's balance: a backfilled older statement never agrees with
+  today, and a check that is wrong on every backfill is clicked past.
+- **The period is asked after the import**, on its result (`PUT
+  /api/imports/:id`). The commit records the file's own span in
+  `imports.span_from` / `span_to` (v11) so a declaration can still be checked
+  against every row — `periodProblem` is the one rule for both moments.
+- The server and the demo each call the same `analyseImport` shape over
+  `shared/import.js`; `test/demo-store.test.js` holds the refusal, the result
+  and the period route equal on both.
 
 `detectHeaderRow` runs only when the client sends no `headerRow`, so the user's
 answer always wins. It requires a fully populated row naming both a date and a
