@@ -158,6 +158,7 @@ v4 的 backfill 一律是 `derived`，而且只能從留下來的交易反推，
 | `balance_checks` | 對帳用的實際餘額 |
 | `imports` | 匯入批次，可整批回復 |
 | `mappings` | 記住的 CSV 欄位對應 |
+| `budgets` | 每月預算：一個分類在一個幣別一個數字，由使用者填，不進任何淨值或餘額（見 [spending.md](spending.md#預算)） |
 
 `txns` 的 `source`（`manual` / `csv` / `api`）和 `external_id` 現在就留著，第二階段接券商
 API 時不用動結構。`holdings.price_date` 同理。

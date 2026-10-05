@@ -90,7 +90,8 @@ shared/sha1.js    synchronous SHA-1, because the browser's is async
 shared/csv.js     decode, parse, map, dedup    (no DB access — pure functions)
 shared/money.js   the pure half: every `compute*`, plus round2 and the dates
 shared/rules.js   category rules: normalise, match, plan
-shared/spending.js  monthly in/out, category breakdown, recurring charges
+shared/spending.js  monthly in/out, category breakdown, recurring charges,
+                  and how much of each budget a month has used
 shared/export.js  rows -> a CSV file, BOM and CRLF for Excel
 shared/overview.js  the whole book as one model, and the Markdown file that
                   匯出全覽 downloads
@@ -122,6 +123,7 @@ test/paths.test.js   ledger location, profiles, the data-dir migration script
 test/migrate.test.js the schema migration runner
 test/seed.test.js    what the demo seeder must produce to be worth running
 test/money.test.js   the pure half of money.js, over plain arrays
+test/budgets.test.js a budget's spent figure is the breakdown's, for its month
 test/prices.test.js  the close fetch, offline — injected getter, throwaway db
 test/ai.test.js      AI 健檢, offline — each provider's shapes, the key file,
                      review() over an injected sender, the answer's rendering
@@ -174,12 +176,13 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-615 tests across 100 suites cover Big5 decoding, ROC dates, two-digit years,
+641 tests across 104 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming
 off net worth and never off a balance, a change in market value moving a
-balance and no total, the
+balance and no total, a budget's spent figure being the breakdown's for its
+month, the
 price-history lookup (latest at or before a date, and nothing dragged back
 before the first observation) and the v6 backfill that seeds it,
 pre-import backup, balance reconciliation, import revert, CSV BOM, the three
@@ -384,6 +387,14 @@ thousand random Unicode strings.
   the recurring detector and transfer pairing; `NON_FLOW_KINDS` is derived
   from the flag and `test/kinds.test.js` pins that. Nothing computes a
   valuation: the statement states it, the way it states the balance.
+- **A budget is the user's number, and "spent" is the breakdown's.**
+  `computeBudgets` calls `computeSpending` over the month's window rather than
+  filtering rows itself, so transfers, valuations and refunds are treated
+  exactly as the category breakdown treats them — one set of filters, not two
+  that agree today. One standing amount per (category, currency), no history,
+  nothing converted; `''` / 未分類 is refused, because it is the ledger not
+  knowing yet. Nothing forecasts: the running month reports the days that have
+  passed beside the share used, and a past month reports neither.
 - Net worth series is **ledger only**. Holdings have no price history in phase 1,
   so folding today's market value into past points draws a line that never
   existed. Keep it that way until broker sync supplies real history.
@@ -1031,8 +1042,8 @@ the subject, in the same change as the code**:
   A new bank, a new column spelling or a change to any `csv.js` stage lands here.
 - `docs/money.md` — the amount conventions, the coverage grid's four states,
   and the table list. A schema change lands here.
-- `docs/spending.md` — the spending breakdown, the categorisation rules and the
-  recurring-charge detector. A change to `shared/rules.js` or
+- `docs/spending.md` — the spending breakdown, the categorisation rules, the
+  recurring-charge detector and budgets. A change to `shared/rules.js` or
   `shared/spending.js` lands here.
 - `docs/data.md` — where the ledger lives, profiles, backups, the overview
   export, keeping data out of version control. A change to

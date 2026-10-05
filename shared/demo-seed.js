@@ -170,6 +170,22 @@
     { pattern: 'BOUGHT', category: '投資', priority: 20 },
   ];
 
+  // Round figures somebody would type, over categories the card rows above
+  // actually carry, and sized against this book's own months: in the last
+  // complete month 食品雜貨, 交通 and Groceries run over while the rest stay
+  // under, so the budget card opens on both states rather than on a column of
+  // bars that are all fine. `test/seed.test.js` checks that it still does.
+  // Everything else — rent, the unpaired transfers, 電信 — stays unbudgeted,
+  // which the card reports as its own figure.
+  const BUDGETS = [
+    { category: '食品雜貨', currency: 'TWD', amount: 8000 },
+    { category: '外食', currency: 'TWD', amount: 3000 },
+    { category: '交通', currency: 'TWD', amount: 2000 },
+    { category: '購物', currency: 'TWD', amount: 1500 },
+    { category: 'Groceries', currency: 'USD', amount: 250 },
+    { category: 'Travel', currency: 'USD', amount: 100 },
+  ];
+
   // Two, not three: three is MIN_OCCURRENCES in the recurring detector, so a
   // tail of three unpaired card payments is long enough to be reported as a
   // monthly subscription. Which is correct — an unpaired transfer *is*
@@ -493,9 +509,10 @@
     ];
 
     const rules = RULES.map((r, n) => ({ id: n + 1, ...r, created_at: stamp }));
+    const budgets = BUDGETS.map((b, n) => ({ id: n + 1, ...b, created_at: stamp }));
 
     return {
-      institutions, accounts, txns, holdings, prices, imports, fx_rates, balance_checks, rules,
+      institutions, accounts, txns, holdings, prices, imports, fx_rates, balance_checks, rules, budgets,
       mappings: [],
       // No schema_version: the demo reports its own (SCHEMA_VERSION in
       // web/storage-demo.js). A second copy here was never read, and had
