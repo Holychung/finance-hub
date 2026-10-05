@@ -45,9 +45,7 @@ on('GET', '/api/overview', () => {
   const holdings = M.holdingsValued();
   const nw = M.netWorth(asOf);
   const checks = M.reconcile();
-  const firstTxn = db.prepare('SELECT MIN(date) AS d FROM txns').get().d;
-  const firstAcct = db.prepare('SELECT MIN(opening_date) AS d FROM accounts').get().d;
-  const from = firstTxn || firstAcct || asOf;
+  const from = M.seriesStart(asOf);
 
   return {
     net_worth: nw,
@@ -467,18 +465,10 @@ on('GET', '/api/coverage', (_p, _b, q) => {
 
 // --- spending --------------------------------------------------------------
 
-// One query serves both the breakdown and the recurring scan, and both want
-// the same columns over the same window, so they share a loader rather than
-// walking the table twice per page load.
-const spendingRows = (from, to) =>
-  db
-    .prepare(
-      `SELECT account_id, date, amount, description, category, kind, transfer_group
-         FROM txns WHERE date >= ? AND date <= ? ORDER BY date`
-    )
-    .all(from, to);
-
-const accountCurrencies = () => db.prepare('SELECT id, name, currency FROM accounts').all();
+// The two loaders the breakdown and the recurring scan share. They live in
+// server/money.js because the overview export reads the same rows, and are
+// bound here under the names every handler below already calls.
+const { spendingRows, accountCurrencies } = M;
 
 // The earliest and latest date any row in a parsed file carries. Shared by
 // the preview (to prefill the period box) and the commit (as the fallback
@@ -494,9 +484,7 @@ function rowSpan(rows) {
 function windowFrom(q) {
   const to = q.to ? S(q.to) : M.todayISO();
   if (q.from) return { from: S(q.from), to };
-  const d = new Date(`${to}T00:00:00Z`);
-  d.setUTCFullYear(d.getUTCFullYear() - N(q.years, 1));
-  return { from: d.toISOString().slice(0, 10), to };
+  return { from: SP.yearsBefore(to, N(q.years, 1)), to };
 }
 
 on('GET', '/api/spending', (_p, _b, q) => {

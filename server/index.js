@@ -11,6 +11,8 @@ const { db, DB_PATH } = require('./db');
 const M = require('./money');
 const PRICES = require('./prices');
 const { exportCsv: sharedExport } = require('../shared/export');
+const { overviewMarkdown } = require('../shared/overview');
+const { parseDate } = require('../shared/csv');
 
 const PORT = Number(process.env.PORT || 4321);
 const HOST = process.env.HOST || '127.0.0.1'; // never bind the world to a ledger
@@ -185,7 +187,7 @@ function notFound(res, file, pathname) {
   });
 }
 
-// --- CSV export (served here so it can stream a text/csv response) ---------
+// --- exports (served here, not by api.js: a file with a name, not JSON) -----
 
 // The formatting lives in shared/export.js so a browser with no server
 // behind it produces the same bytes. This end is the part that only a server
@@ -202,6 +204,13 @@ function exportCsv(type) {
     )
     .all();
   return sharedExport({ type: 'txns', txns });
+}
+
+// The overview as one Markdown file. What it says and how it is written are
+// shared/overview.js's, so the demo writes the same bytes from its Map; this
+// end loads the book and names the download after the day it describes.
+function exportOverview(asOf) {
+  return { name: `overview_${asOf}.md`, body: overviewMarkdown(M.overview(asOf)) };
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +242,21 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="${name}_${stamp}.csv"`,
+      });
+      res.end(body);
+      return;
+    }
+
+    // `to` pins the day, so a test can ask the server and the demo about the
+    // same one; left out, it is today.
+    if (pathname === '/api/export/overview') {
+      const to = url.searchParams.get('to');
+      const asOf = to ? parseDate(to, 'auto') : M.todayISO();
+      if (!asOf) { sendJson(res, 400, { error: `日期無法解析：${to}` }); return; }
+      const { name, body } = exportOverview(asOf);
+      res.writeHead(200, {
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${name}"`,
       });
       res.end(body);
       return;

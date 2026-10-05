@@ -227,6 +227,16 @@ describe('HTTP adapter 就是原本那段程式', () => {
     );
   });
 
+  // The overview's page head holds small controls — the segmented switch and
+  // 重新整理 — so its export link is the small size too, and nothing else about
+  // the markup changes.
+  it('exportLink 可以是小尺寸，給控制項都是小尺寸的頁首用', () => {
+    assert.equal(
+      vm.runInContext("String(exportLink('匯出全覽', '/api/export/overview', null, 'sm'))", ctx),
+      '<a class="btn sm" href="/api/export/overview">匯出全覽</a>'
+    );
+  });
+
   it('exportLink 的標籤照樣逃脫', () => {
     assert.equal(
       vm.runInContext("String(exportLink('<img src=x onerror=alert(1)>', '/api/export/json', 'a.json'))", ctx),
