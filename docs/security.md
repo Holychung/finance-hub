@@ -73,6 +73,51 @@ request handler 最上面設定一次，所以每個 response 都帶著，403 �
   把這頁包進 iframe。`server/csp.js` 直接把那一條從 meta 版拿掉，而不是送一個瀏覽器會丟掉
   的指令：一份宣稱了自己沒在做的保護的政策，比一份沒宣稱的更糟。
 
+### 它放在哪裡，以及上線後怎麼確認
+
+正式那份不是手動上傳的：這個 repo 接在 Cloudflare Workers Builds 上，merge 進 `main` 之後
+Cloudflare 自己 clone、跑 `node scripts/pack-demo.js`、再用 wrangler 把 `dist/` 部署成一個
+只有靜態資產的 Worker（`wrangler.jsonc`；沒有 `main`，edge 上不跑任何程式）。wrangler 只在
+Cloudflare 的機器上跑，所以這個 repo 還是沒有 `package.json`。網域在 dashboard 的 Worker
+Settings → Domains & Routes 綁，跟 personal-site 一樣；`wrangler.jsonc` 裡故意不寫，部署
+本身才不會動到任何 DNS 記錄。
+
+**Cloudflare 預設會改寫它代理的 HTML。** 免費方案的 zone 預設開著 Web Analytics，往每一頁
+注入一支 `static.cloudflareinsights.com` 的 beacon；Email Obfuscation 也預設開著。兩者都讓
+送出去的 HTML 不等於 commit 裡的 HTML，前者還會被 CSP 擋下、每次載入報一次違規。擋它分兩半：
+
+- **repo 裡的一半**：`_headers` 帶 `Cache-Control: … no-transform`，Cloudflare 文件寫明
+  proxy 不會改動帶著它的回應。
+- **dashboard 的一半**：一條 Configuration Rule，條件 `http.host eq "demo.harrychung.com"`，
+  設定 Disable RUM、Email Obfuscation 關、Rocket Loader 關、Automatic HTTPS Rewrites 關、
+  Disable Zaraz、Fonts 關。要在第一次部署之前建好，否則第一版就帶著 beacon 出去。
+
+**在 Cloudflare 上，`'self'` 就是 Cloudflare 的 edge**：它從同一個 hostname 的 `/cdn-cgi/`
+注入的 script 會通過 `script-src 'self'`。所以真正確認「送出去的就是 commit 裡的」的不是
+CSP，是逐檔比對 bytes。每次部署後，在同一個 commit 打出來的 `dist/` 裡：
+
+```
+# the header form of the policy, frame-ancestors included — the meta cannot carry it
+curl -sI https://demo.harrychung.com/ | grep -iE '^(content-security-policy|cache-control):'
+
+# a deep link is index.html with a 200, not a 404
+curl -s -o /dev/null -w '%{http_code}\n' https://demo.harrychung.com/account/5
+
+# served bytes = packed bytes, file by file
+for f in index.html $(find . -type f ! -name index.html ! -name _headers ! -name .finance-hub-pack | sed 's|^\./||'); do
+  p=$f; [ "$f" = index.html ] && p=
+  a=$(shasum -a 256 < "$f" | cut -c1-64)
+  b=$(curl -s -A 'Mozilla/5.0' -H 'Accept: text/html,*/*' "https://demo.harrychung.com/$p" | shasum -a 256 | cut -c1-64)
+  [ "$a" = "$b" ] && echo "same  $f" || echo "DIFF  $f"
+done
+```
+
+`-A` 和 `Accept` 是故意的：注入只對看起來像瀏覽器的請求生效，裸的 `curl` 會誤判成沒開。
+
+還有一樣東西 CSP 管不到：zone 開著 Network Error Logging 時，回應會帶 `NEL` 和 `Report-To`
+header，Chromium 系瀏覽器在連線出錯時會自己把報告送到 `a.nel.cloudflare.com`。那是整個
+zone 的開關，不能只對一個 hostname 關。
+
 ## 原始碼連結是義務，不是禮貌
 
 架起來的示範版是一個**改過**的版本——CSP 不一樣、多了 adapter 選擇、多了示範資料——而且是

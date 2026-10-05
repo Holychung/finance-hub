@@ -117,6 +117,11 @@ describe('打包出去的那份', () => {
     const headers = fs.readFileSync(path.join(out, '_headers'), 'utf8');
     assert.match(headers, /^\/\*$/m, '_headers 要有一條吃全部路徑的規則');
     assert.ok(headers.includes(`Content-Security-Policy: ${csp(HOSTED)}`), headers);
+    // The proxy half: Cloudflare documents that it will not modify a response
+    // carrying no-transform, which is what keeps its default-on analytics
+    // beacon out of the page. Without it the served HTML is not the committed
+    // HTML, whatever the CSP says.
+    assert.match(headers, /^  Cache-Control: public, max-age=0, must-revalidate, no-transform$/m);
 
     // The two forms differ in exactly one directive, and only because the
     // HTML parser throws that one away. Any other gap is a policy that says
@@ -194,5 +199,36 @@ describe('打包腳本會拒絕的事', () => {
     const r = spawnSync(process.execPath, [PACK, `--out=${ROOT}`, '--allow-dirty'], { encoding: 'utf8' });
     assert.notEqual(r.status, 0);
     assert.match(r.stderr, /根目錄/);
+  });
+});
+
+// wrangler.jsonc is read on Cloudflare's machine, never here, so nothing in
+// the app notices when it and the packer disagree — it just serves the wrong
+// directory, or a second hostname nobody checked the headers of.
+describe('部署設定跟打包出來的東西對得上', () => {
+  // JSONC, with every comment on its own line — stripping those is the parser.
+  const text = fs.readFileSync(path.join(ROOT, 'wrangler.jsonc'), 'utf8');
+  const cfg = JSON.parse(text.replace(/^\s*\/\/.*$/gm, ''));
+
+  it('服務的是 pack-demo.js 預設寫出去的那個目錄', () => {
+    assert.equal(path.resolve(ROOT, cfg.assets.directory), path.resolve(ROOT, 'dist'));
+  });
+
+  it('只有靜態檔：edge 上不跑任何程式', () => {
+    assert.equal(cfg.main, undefined);
+  });
+
+  it('深連結回 index.html，跟 server/index.js 對 APP_ROUTES 做的一樣', () => {
+    assert.equal(cfg.assets.not_found_handling, 'single-page-application');
+  });
+
+  it('只有一個 hostname：workers.dev 和 version URL 都關著', () => {
+    assert.equal(cfg.workers_dev, false);
+    assert.equal(cfg.preview_urls, false);
+  });
+
+  it('不留請求紀錄，也不送 wrangler 的使用數據', () => {
+    assert.equal(cfg.observability?.enabled, false);
+    assert.equal(cfg.send_metrics, false);
   });
 });
