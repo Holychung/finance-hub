@@ -34,12 +34,13 @@
   const R = dep ? require('../shared/rules') : root;
   const SP = dep ? require('../shared/spending') : root;
   const X = dep ? require('../shared/export') : root;
+  const O = dep ? require('../shared/overview') : root;
 
   // The demo's shape is shipped with the code, so this is a statement about
   // the seed rather than a version anything migrates to. It has to be the
   // last step in server/migrations.js, because the seed carries every column
   // that step added; test/demo-store.test.js compares it with a fresh server.
-  const SCHEMA_VERSION = '9';
+  const SCHEMA_VERSION = '10';
 
   // ---------------------------------------------------------------------
   // The raw store
@@ -60,6 +61,7 @@
     balance_checks: { key: 'id' },
     mappings: { key: 'id' },
     rules: { key: 'id' },
+    budgets: { key: 'id' },
     // The one table with no id: the schema's primary key is (date, pair).
     fx_rates: { key: (r) => `${r.date}|${r.pair}` },
     // Same shape, keyed by the security and the day — the SQLite PK.
@@ -289,6 +291,35 @@
       });
     };
 
+    // Where a line over the whole book starts, as server/money.js's
+    // seriesStart: the first transaction, else the earliest opening date.
+    const seriesStart = (asOf) => {
+      const dates = raw.all('txns').map((t) => t.date).sort();
+      const opens = raw.all('accounts').map((a) => a.opening_date).sort();
+      return dates[0] || opens[0] || asOf;
+    };
+
+    // The grid /api/coverage answers with, and the overview export states
+    // the gaps of. Its monthly totals are the SUM … GROUP BY the server runs.
+    const coverage = ({ to = today(), months = M.COVERAGE_MONTHS } = {}) => {
+      const activity = new Map();
+      for (const t of raw.all('txns').filter((x) => x.date <= to)) {
+        const k = `${t.account_id}|${t.date.slice(0, 7)}`;
+        const cur = activity.get(k) || { account_id: t.account_id, month: t.date.slice(0, 7), n: 0, net: 0 };
+        cur.n++;
+        cur.net += t.amount;
+        activity.set(k, cur);
+      }
+      return M.computeCoverage({
+        accounts: raw.all('accounts').sort(by('sort_order', 'id')),
+        activity: [...activity.values()],
+        checks: reconcile().map((c) => ({ account_id: c.account_id, date: c.date, ok: c.ok })),
+        imports: raw.all('imports').filter((i) => i.account_id && i.date_from && i.date_to),
+        to,
+        months,
+      });
+    };
+
     const listRules = () => R.sortRules(raw.all('rules'));
 
     const withAccount = (t, acct) => ({
@@ -304,9 +335,7 @@
       const accounts = accountsWithBalances(asOf);
       const holdings = holdingsValued();
       const checks = reconcile();
-      const dates = raw.all('txns').map((t) => t.date).sort();
-      const opens = raw.all('accounts').map((a) => a.opening_date).sort();
-      const from = dates[0] || opens[0] || asOf;
+      const from = seriesStart(asOf);
       const upTo = raw.all('txns').filter((t) => t.date <= asOf).sort(by('date'));
       const seriesOf = (access) => M.computeNetWorthSeries({
         accounts: raw.all('accounts'), txns: upTo, from, to: asOf, access,
@@ -700,35 +729,17 @@
       deleted: raw.remove('balance_checks', (c) => c.id === N(p.id)),
     }));
 
-    on('GET', '/api/coverage', (_p, _b, q) => {
-      const months = Math.min(Math.max(N(q.months, M.COVERAGE_MONTHS), 1), 120);
-      const to = q.to ? S(q.to) : today();
-      const activity = new Map();
-      for (const t of raw.all('txns').filter((x) => x.date <= to)) {
-        const k = `${t.account_id}|${t.date.slice(0, 7)}`;
-        const cur = activity.get(k) || { account_id: t.account_id, month: t.date.slice(0, 7), n: 0, net: 0 };
-        cur.n++;
-        cur.net += t.amount;
-        activity.set(k, cur);
-      }
-      return M.computeCoverage({
-        accounts: raw.all('accounts').sort(by('sort_order', 'id')),
-        activity: [...activity.values()],
-        checks: reconcile().map((c) => ({ account_id: c.account_id, date: c.date, ok: c.ok })),
-        imports: raw.all('imports').filter((i) => i.account_id && i.date_from && i.date_to),
-        to,
-        months,
-      });
-    });
+    on('GET', '/api/coverage', (_p, _b, q) => coverage({
+      months: Math.min(Math.max(N(q.months, M.COVERAGE_MONTHS), 1), 120),
+      to: q.to ? S(q.to) : today(),
+    }));
 
     // --- spending ----------------------------------------------------------
 
     const windowFrom = (q) => {
       const to = q.to ? S(q.to) : today();
       if (q.from) return { from: S(q.from), to };
-      const d = new Date(`${to}T00:00:00Z`);
-      d.setUTCFullYear(d.getUTCFullYear() - N(q.years, 1));
-      return { from: d.toISOString().slice(0, 10), to };
+      return { from: SP.yearsBefore(to, N(q.years, 1)), to };
     };
     const spendingRows = (from, to) => raw.all('txns')
       .filter((t) => t.date >= from && t.date <= to).sort(by('date'))
@@ -746,6 +757,73 @@
       const { from, to } = windowFrom({ ...q, years: q.years || 2 });
       return SP.computeRecurring({ txns: spendingRows(from, to), accounts: accountCurrencies(), to });
     });
+
+    // --- budgets --------------------------------------------------------------
+
+    // Every refusal exactly as server/api.js words it: the views show the
+    // message, and a demo that accepted what the server refuses would teach
+    // the wrong thing.
+    const monthOf = (v) => {
+      if (v === undefined || v === null || v === '') return today().slice(0, 7);
+      const m = S(v).trim();
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) bad(`月份要寫成 YYYY-MM：${m}`);
+      return m;
+    };
+    const budgetCategoryOf = (v) => {
+      const c = S(v).trim();
+      if (!c || c === SP.UNCATEGORISED_LABEL) bad(`預算要有分類，而且不能是「${SP.UNCATEGORISED_LABEL}」`);
+      return c;
+    };
+    const budgetCurrencyOf = (v) => {
+      const c = S(v).trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(c)) bad('幣別要是三個英文字母，例如 TWD');
+      return c;
+    };
+    const budgetAmountOf = (v) => {
+      const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
+      if (!Number.isFinite(n) || n <= 0) bad('預算金額要是大於 0 的數字');
+      return M.round2(n);
+    };
+    // UNIQUE (category, currency) in the schema.
+    const refuseDuplicateBudget = (category, currency, id) => {
+      if (raw.all('budgets').some((x) => x.category === category && x.currency === currency && x.id !== id)) {
+        bad(`「${category}」已經有 ${currency} 的預算了`);
+      }
+    };
+
+    on('GET', '/api/budgets', (_p, _b, q) => {
+      const month = monthOf(q.month);
+      return SP.computeBudgets({
+        budgets: raw.all('budgets').sort(by('id')),
+        txns: spendingRows(`${month}-01`, `${month}-31`),
+        accounts: accountCurrencies(),
+        month,
+        today: today(),
+      });
+    });
+
+    on('POST', '/api/budgets', (_p, b) => {
+      const category = budgetCategoryOf(b.category);
+      const currency = budgetCurrencyOf(b.currency);
+      const amount = budgetAmountOf(b.amount);
+      refuseDuplicateBudget(category, currency, 0);
+      return { id: raw.insert('budgets', { category, currency, amount, created_at: now() }).id };
+    });
+
+    on('PUT', '/api/budgets/:id', (p, b) => {
+      const cur = raw.get('budgets', N(p.id));
+      if (!cur) missing('預算不存在');
+      const category = b.category === undefined ? cur.category : budgetCategoryOf(b.category);
+      const currency = b.currency === undefined ? cur.currency : budgetCurrencyOf(b.currency);
+      const amount = b.amount === undefined ? cur.amount : budgetAmountOf(b.amount);
+      refuseDuplicateBudget(category, currency, cur.id);
+      raw.update('budgets', cur.id, { category, currency, amount });
+      return { ok: true };
+    });
+
+    on('DELETE', '/api/budgets/:id', (p) => ({
+      deleted: raw.remove('budgets', (x) => x.id === N(p.id)),
+    }));
 
     // --- rules --------------------------------------------------------------
 
@@ -1034,9 +1112,37 @@
       fx_rates: raw.all('fx_rates'),
       balance_checks: raw.all('balance_checks'),
       mappings: raw.all('mappings'),
+      budgets: raw.all('budgets'),
     });
 
     on('GET', '/api/export/json', () => exportJson());
+
+    // server/money.js's overview(), piece for piece, from the Map: the same
+    // loaders over the same windows, and shared/overview.js doing the rest.
+    const overview = (to) => {
+      const accounts = accountsWithBalances(to);
+      const holdings = holdingsValued(to);
+      const currencies = accountCurrencies();
+      const spendFrom = SP.yearsBefore(to, 1);
+      const recurFrom = SP.yearsBefore(to, 2);
+      return O.computeOverview({
+        asOf: to,
+        netWorth: M.computeNetWorth({ accounts, holdings, asOf: to }),
+        accounts,
+        holdings,
+        series: M.computeNetWorthSeries({
+          accounts: raw.all('accounts'),
+          txns: raw.all('txns').filter((t) => t.date <= to).sort(by('date')),
+          from: seriesStart(to),
+          to,
+        }),
+        spending: SP.computeSpending({ txns: spendingRows(spendFrom, to), accounts: currencies, from: spendFrom, to }),
+        recurring: SP.computeRecurring({ txns: spendingRows(recurFrom, to), accounts: currencies, to }),
+        coverage: coverage({ to }),
+        reconcile: reconcile(),
+        transferCandidates: transferCandidates(),
+      });
+    };
 
     // --- dispatch --------------------------------------------------------------
 
@@ -1079,6 +1185,11 @@
       if (pathname === '/api/export/json') {
         return { name: 'finance_backup.json', type: 'application/json', body: JSON.stringify(exportJson(), null, 2) };
       }
+      if (pathname === '/api/export/overview') {
+        const asOf = query.to ? csv.parseDate(query.to, 'auto') : today();
+        if (!asOf) bad(`日期無法解析：${query.to}`);
+        return { name: `overview_${asOf}.md`, type: 'text/markdown;charset=utf-8', body: O.overviewMarkdown(overview(asOf)) };
+      }
       const type = query.type || 'txns';
       const acct = accountsById();
       const { name, body } = X.exportCsv({
@@ -1090,16 +1201,20 @@
       return { name: `${name}_${today()}.csv`, type: 'text/csv;charset=utf-8', body };
     }
 
-    // Revoked on the next call rather than left to the page's lifetime: a
-    // settings view re-rendered fifty times would otherwise hold fifty copies
-    // of the ledger alive.
-    let lastUrl = null;
+    // One live URL per export, revoked when that export's link is built again.
+    // Revoking whichever URL came last — what this did at first — stopped a
+    // settings view re-rendered fifty times from holding fifty copies of the
+    // ledger alive, but a page builds all its links in one render, so every
+    // link except the newest pointed at a revoked blob: settings' 完整 JSON
+    // 備份 and its first CSVs downloaded nothing. Per path keeps both halves.
+    const liveUrls = new Map();
     function exportHref(path) {
       if (typeof URL.createObjectURL !== 'function') return path;
-      if (lastUrl) URL.revokeObjectURL(lastUrl);
+      if (liveUrls.has(path)) URL.revokeObjectURL(liveUrls.get(path));
       const { body, type } = exportFile(path);
-      lastUrl = URL.createObjectURL(new Blob([body], { type }));
-      return lastUrl;
+      const url = URL.createObjectURL(new Blob([body], { type }));
+      liveUrls.set(path, url);
+      return url;
     }
 
     return {
