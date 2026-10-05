@@ -252,9 +252,9 @@
 
     // --- the transactions, still keyed by account name ---------------------
 
-    const draft = [];
+    const written = [];
     const add = (account, date, amount, description, extra = {}) =>
-      draft.push({ account, date, amount: round2(amount), description, category: '', kind: 'other', ...extra });
+      written.push({ account, date, amount: round2(amount), description, category: '', kind: 'other', ...extra });
     const plan = planMonths(months, ACCOUNTS.find((a) => a.key === 'k401').opening);
     const transfer = (pair, out, into) => {
       add(out.account, out.date, out.amount, out.description, { pair });
@@ -348,6 +348,17 @@
         add('firstrade', dayIn(m, 20), -wobble(1400, 0.25), pick(['BOUGHT VTI', 'BOUGHT AAPL']), { kind: 'trade' });
       }
     }
+
+    // A book built to today stops at today. Every month above is written in
+    // full, so the running month would otherwise hold its mortgage, its card
+    // spend and its brokerage buys for days that have not happened yet — on
+    // the 5th the hosted demo showed the 25th's mortgage. Dropped here rather
+    // than skipped in the loop, so the jitter draws the same numbers whatever
+    // day `to` is and a past month never changes with it. Both legs of a
+    // transfer share a date, so a pair goes or stays whole, and the opening
+    // balances below are derived from what is left, so no balance moves.
+    const draft = written.filter((t) => t.date <= to);
+    const notAfterTo = (d) => (d < to ? d : to);
 
     // --- resolve it into table rows ----------------------------------------
 
@@ -464,16 +475,18 @@
     // Firstrade, the cards and the mortgage deliberately have no import
     // record at all, so the grid shows both halves of what it is for: an
     // account whose quiet months are confirmed, and one whose quiet months
-    // are simply unknown.
+    // are simply unknown. No statement covers a day that has not happened, so
+    // the ones reaching into the running month end at `to` at the latest.
     const mid = Math.floor(months.length / 2);
     const cathayOpenMonth = months[ACCOUNTS.find((a) => a.key === 'cathay').openAt];
+    const last = months[months.length - 1];
     const spans = [
       { account: 'esun', from: `${months[0]}-01`, to: lastDayOf(months[mid - 2]) },
       // Ends on the 14th, so its final month is only half covered.
-      { account: 'esun', from: `${months[mid + 1]}-01`, to: dayIn(months[months.length - 1], 14) },
-      { account: 'chase', from: `${months[0]}-01`, to: lastDayOf(months[months.length - 1]) },
-      { account: 'cathay', from: `${cathayOpenMonth}-01`, to: lastDayOf(months[months.length - 1]) },
-      { account: 'sinopac', from: `${months[0]}-01`, to: lastDayOf(months[months.length - 1]) },
+      { account: 'esun', from: `${months[mid + 1]}-01`, to: notAfterTo(dayIn(last, 14)) },
+      { account: 'chase', from: `${months[0]}-01`, to: notAfterTo(lastDayOf(last)) },
+      { account: 'cathay', from: `${cathayOpenMonth}-01`, to: notAfterTo(lastDayOf(last)) },
+      { account: 'sinopac', from: `${months[0]}-01`, to: notAfterTo(lastDayOf(last)) },
     ];
     const imports = spans.map((s, n) => {
       // The file's own extent is its first and last row, which a declared
