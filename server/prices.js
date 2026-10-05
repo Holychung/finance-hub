@@ -1,11 +1,11 @@
 'use strict';
 
-// The one place this app reaches the network, and it does so only when the
-// user has turned it on.
+// One of the two places this app reaches the network — the other is
+// server/ai.js — and like it, only when the user has turned it on.
 //
 // Everything else in the ledger is offline by construction — `default-src
-// 'none'` in the browser, no outbound call in Node. This file is the single,
-// deliberate exception: an opt-in daily fetch of each holding's previous
+// 'none'` in the browser, no outbound call in Node. This file is one of two
+// deliberate exceptions: an opt-in daily fetch of each holding's previous
 // close, off by default, run server-side so the *page* still never connects
 // out. `test/deps.test.js` allows the Yahoo host in this file and nowhere else.
 //
@@ -29,7 +29,7 @@ const { marketInfo } = require('../shared/kinds');
 // check below and be stored as the coin's price. Coins stay priced by hand.
 const FETCHABLE = new Set(['TW', 'US']);
 
-// The only external address in the app. Kept as a base so the deps-test
+// This file's one external address. Kept as a base so the deps-test
 // exception can be anchored to this file.
 const YAHOO_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 

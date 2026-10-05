@@ -10,9 +10,9 @@ place is your own machine.*
 伺服器只綁 `127.0.0.1`。
 
 這幾句不是自我宣告，是擋得住的：頁面帶著 `default-src 'none'` 的 CSP，瀏覽器會拒絕任何往外
-的請求；測試會掃過所有會跑到的程式碼，出現外部網址就失敗（唯一放行的是預設關閉的收盤價抓取，
-而且只准出現在 `server/prices.js` 一個檔）；這個專案沒有 `package.json`，也有測試和 git hook
-確保它不會長出來。你可以自己讀完全部的原始碼，約五千行，沒有編譯步驟、沒有 `node_modules`。
+的請求；測試會掃過所有會跑到的程式碼，出現外部網址就失敗（放行的只有兩個預設關閉的功能：
+收盤價抓取只准出現在 `server/prices.js`，AI 健檢的三家供應商只准出現在 `server/ai.js`）；
+這個專案沒有 `package.json`，也有測試和 git hook 確保它不會長出來。你可以自己讀完全部的原始碼，約五千行，沒有編譯步驟、沒有 `node_modules`。
 
 ## 這是什麼，不是什麼
 
@@ -32,9 +32,11 @@ place is your own machine.*
   匯進來的交易補上分類，預算只把你填的數字跟那個月實際花掉的並排。它記錄發生過什麼，不預測、
   也不告訴你該怎麼花錢。
 - **預設不會自己去抓股價。** 持股現價自己填；要自動更新，到設定打開「自動更新收盤價」。那是
-  這個 app 唯一會對外連線的功能：預設關閉、在後端抓（Yahoo），網頁本身仍然不外連，但持股的
-  代號會送到 Yahoo。細節在 [`docs/security.md`](docs/security.md)。
-- **沒有 AI 功能。** 產品決定，不是還沒做。
+  這個 app 兩個會對外連線的功能之一（另一個是下面的 AI 健檢）：預設關閉、在後端抓（Yahoo），
+  網頁本身仍然不外連，但持股的代號會送到 Yahoo。細節在 [`docs/security.md`](docs/security.md)。
+- **AI 只有一個，而且預設關閉。** AI 健檢會在你按下送出時，把資產全覽送到你自己選的 Claude、
+  OpenAI 或 Gemini（用你自己的 key），請它審計帳本或給建議。不打開就一個字都不送；送出前頁面上
+  看得到要送的全文。細節在 [`docs/ai.md`](docs/ai.md)。
 - **不給你一個跨幣別的單一總淨值**——設了匯率也一樣不會加總。USD 和 TWD 湊成一個數字只是
   估計值，而且會在你改匯率時默默變動。理由在 [`docs/money.md`](docs/money.md)。
 - **不是產品。** 一個人維護的個人專案，沒有保固、沒有支援、沒有相容性承諾——AGPL 第 15、
@@ -113,6 +115,7 @@ python3 -m http.server -d dist 8000    # 想先自己看一眼
 | [`docs/spending.md`](docs/spending.md) | 消費分析、分類規則、固定扣款怎麼認出來的 |
 | [`docs/data.md`](docs/data.md) | 帳本放在哪、profile、備份、不讓資料跑進版控 |
 | [`docs/security.md`](docs/security.md) | 為什麼只綁 `127.0.0.1` 還不夠，四道防線各擋什麼 |
+| [`docs/ai.md`](docs/ai.md) | AI 健檢送出什麼、送到哪裡、什麼時候送、key 放在哪 |
 
 `CLAUDE.md` 是給改這份程式碼的人（或 agent）看的，比上面幾份細。
 

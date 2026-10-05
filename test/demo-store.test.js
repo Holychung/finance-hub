@@ -162,7 +162,13 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     // BACKUP_DIR from the database's directory.
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-hub-demo-'));
     child = spawn(process.execPath, [SERVER], {
-      env: { ...process.env, FINANCE_DB: path.join(tmpDir, 'finance.db'), PORT: String(port) },
+      // Blanked, and the vault in memory, for the reason test/api.test.js
+      // gives: server/ai.js falls back to them for a key, and this server is a
+      // real one.
+      env: {
+        ...process.env, FINANCE_DB: path.join(tmpDir, 'finance.db'), PORT: String(port),
+        ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', GEMINI_API_KEY: '', FINANCE_AI_VAULT: 'memory',
+      },
       stdio: 'ignore',
     });
     child.on('error', (e) => { throw e; });
@@ -407,6 +413,26 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     const [a, b] = [await demo.post('/api/prices/refresh', {}), await live.post('/api/prices/refresh', {})];
     assert.deepEqual(a, { enabled: false, updated: [], failed: [] });
     assert.deepEqual(b, { enabled: false, updated: [], failed: [] });
+  });
+
+  // The third deliberate difference. The hosted demo has no server to make the
+  // call and a CSP that forbids the page one, so it says it cannot, and every
+  // route that would configure or send is refused in that same sentence rather
+  // than answered with something that looks like it worked.
+  it('AI 健檢：真伺服器有，示範版明說沒有，而且什麼都不收', async () => {
+    const [a, b] = [await demo.get('/api/ai'), await live.get('/api/ai')];
+    assert.equal(a.available, false);
+    assert.match(a.reason, /示範版不能用 AI 健檢/);
+    assert.equal(b.available, true);
+    assert.equal(b.enabled, false);
+
+    for (const [method, p, body] of [
+      ['put', '/api/ai', { enabled: true }],
+      ['get', '/api/ai/preview?mode=audit'],
+      ['post', '/api/ai/review', { mode: 'audit' }],
+    ]) {
+      await assert.rejects(() => demo[method](p, body), (e) => e.status === 400 && e.message === a.reason, `${method} ${p}`);
+    }
   });
 
   it('沒有這條 route 時兩邊都是 404', async () => {
