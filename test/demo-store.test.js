@@ -150,7 +150,12 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     // BACKUP_DIR from the database's directory.
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-hub-demo-'));
     child = spawn(process.execPath, [SERVER], {
-      env: { ...process.env, FINANCE_DB: path.join(tmpDir, 'finance.db'), PORT: String(port) },
+      // Blanked for the reason test/api.test.js gives: server/ai.js falls back
+      // to them for a key, and this server is a real one.
+      env: {
+        ...process.env, FINANCE_DB: path.join(tmpDir, 'finance.db'), PORT: String(port),
+        ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', GEMINI_API_KEY: '',
+      },
       stdio: 'ignore',
     });
     child.on('error', (e) => { throw e; });
