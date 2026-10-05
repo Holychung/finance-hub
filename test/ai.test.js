@@ -251,7 +251,7 @@ describe('key 從哪裡來', () => {
     const keys = keyStore({}, { anthropic: KEY });
     const s = AI.keyStatus(provider('anthropic'), keys);
     assert.deepEqual([s.set, s.source, s.hint], [true, 'keychain', `…${KEY.slice(-4)}`]);
-    assert.equal(s.keychain, 'security add-generic-password -U -s finance-hub -a anthropic -w');
+    assert.equal(s.setup, 'node scripts/ai-key.js set anthropic');
     assert.equal(AI.keyFor(provider('anthropic'), keys).key, KEY);
     assert.ok(!JSON.stringify(AI.status({ getMeta: meta().getMeta, keys })).includes(KEY), '狀態裡不能有 key 本身');
   });
@@ -264,19 +264,16 @@ describe('key 從哪裡來', () => {
     assert.equal(AI.keyFor(provider('anthropic'), both).key, KEY);
   });
 
-  // The command the page shows. `-w` has to be last with no value: that is
-  // what makes `security` prompt, so the key is never typed onto a command line.
-  it('設定指令：每家一個帳號名稱，-w 在最後而且不帶值', () => {
-    for (const p of AI.PROVIDERS) {
-      const cmd = AI.setupCommand(p.key);
-      assert.match(cmd, new RegExp(`^security add-generic-password -U -s ${AI.KEYCHAIN_SERVICE} -a ${p.key} -w$`));
-    }
+  // The command the page shows is the script, never the key: it takes the
+  // provider and asks for the key itself.
+  it('設定指令：每家都是同一個腳本，命令列上只有供應商', () => {
+    for (const p of AI.PROVIDERS) assert.equal(AI.setupCommand(p.key), `node scripts/ai-key.js set ${p.key}`);
   });
 
   it('沒有鑰匙圈的電腦：只看環境變數，也不叫人去用鑰匙圈', () => {
     const keys = { vault: AI.noVault(), env: { ANTHROPIC_API_KEY: KEY } };
     const s = AI.keyStatus(provider('anthropic'), keys);
-    assert.deepEqual([s.set, s.source, s.keychain], [true, 'env', null]);
+    assert.deepEqual([s.set, s.source, s.setup], [true, 'env', null]);
     assert.equal(AI.keyStatus(provider('openai'), keys).set, false);
   });
 

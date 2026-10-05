@@ -339,13 +339,13 @@ function saveSettings(b, { getMeta, setMeta }) {
 // ---------------------------------------------------------------------------
 //
 // The key is set on the machine, by its owner, outside the app: the page has
-// no field for it and the API no route that writes one. The server only reads,
-// from one of three vaults chosen once at load, then from the provider's usual
-// environment variable:
+// no field for it and the API no route that writes one. The owner runs
+// `scripts/ai-key.js` — the only thing in the repo that writes a key — and the
+// server only reads, from one of three vaults chosen once at load, then from
+// the provider's usual environment variable:
 //
-//   keychainVault  macOS: an item the owner added with `security` (the command
-//                  is `setupCommand()`, and the page shows it).
-//   noVault        anywhere else: no keychain, so the variable is the way.
+//   keychainVault  macOS: the item scripts/ai-key.js writes.
+//   noVault        anywhere else, for now: the variable is the way.
 //   memoryVault    FINANCE_AI_VAULT=memory: a Map, empty unless a test seeds
 //                  it. What every test server runs, so the suite never reads
 //                  anybody's keychain.
@@ -353,9 +353,8 @@ function saveSettings(b, { getMeta, setMeta }) {
 const KEYCHAIN_SERVICE = 'finance-hub';
 const SECURITY = '/usr/bin/security';
 
-// `-w` last with no value makes `security` prompt for the key, so it lands in
-// neither the command line nor the shell's history. `-U` replaces an old one.
-const setupCommand = (providerKey) => `security add-generic-password -U -s ${KEYCHAIN_SERVICE} -a ${providerKey} -w`;
+// The one command the page and the docs give, whatever the machine.
+const setupCommand = (providerKey) => `node scripts/ai-key.js set ${providerKey}`;
 
 function runSecurity(args) {
   const r = spawnSync(SECURITY, args, { encoding: 'utf8', timeout: 10000 });
@@ -402,8 +401,8 @@ function keyFor(provider, { vault, env } = KEYS) {
   return fromEnv ? { key: fromEnv, source: 'env' } : null;
 }
 
-// Whether a key is set, its last four characters, and how to set one here.
-// Never the key itself.
+// Whether a key is set, its last four characters, and how to set one here —
+// null where scripts/ai-key.js has nowhere to put it. Never the key itself.
 function keyStatus(provider, keys = KEYS) {
   const found = keyFor(provider, keys);
   return {
@@ -412,7 +411,7 @@ function keyStatus(provider, keys = KEYS) {
     hint: found ? `…${found.key.slice(-4)}` : null,
     env: provider.env,
     store: keys.vault.kind,
-    keychain: keys.vault.kind === 'none' ? null : setupCommand(provider.key),
+    setup: keys.vault.kind === 'none' ? null : setupCommand(provider.key),
   };
 }
 

@@ -700,7 +700,7 @@ describe('AI 健檢', () => {
     assert.equal((await call('PUT', '/api/ai', { key })).status, 200, '設定 route 不認得 key 欄位，照樣只存設定');
     const s = await GET('/api/ai');
     assert.equal(s.key.set, false);
-    assert.equal(s.key.keychain, 'security add-generic-password -U -s finance-hub -a anthropic -w');
+    assert.equal(s.key.setup, 'node scripts/ai-key.js set anthropic');
     for (const f of fs.readdirSync(tmpDir, { recursive: true })) {
       const full = path.join(tmpDir, f);
       if (fs.statSync(full).isFile()) assert.ok(!fs.readFileSync(full).includes(key), `${f} 裡有 key`);

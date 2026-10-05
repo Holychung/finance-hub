@@ -99,22 +99,23 @@ views.ai = async () => {
 
 // The key is set on this machine, never through this page: there is no field
 // for it. The page says whether one is set and how to set one, and the command
-// comes from the server (`k.keychain`), so a machine with no keychain is never
-// told to use one.
+// comes from the server (`k.setup`), so a machine where scripts/ai-key.js has
+// nowhere to put a key is never told to run it.
 function keySection(k) {
-  const cmd = k.keychain && html`<pre class="ai-text">${k.keychain}</pre>`;
+  const cmd = k.setup && html`<pre class="ai-text">${k.setup}</pre>`;
   if (k.source === 'keychain') {
     return html`<div class="muted small">已設定（${k.hint}），從這台
-      Mac 的鑰匙圈讀取：加密保存，不在帳本裡，不會進備份或匯出。要換一把，在終端機再跑一次同一行：</div>${cmd}`;
+      Mac 的鑰匙圈讀取：加密保存，不在帳本裡，不會進備份或匯出。要換一把，在 Finance Hub 的資料夾裡再跑一次同一行；要刪除，把
+      <code>set</code> 換成 <code>delete</code>：</div>${cmd}`;
   }
   if (k.source === 'env') {
-    return html`<div class="muted small">用的是環境變數 <code>${k.env}</code>（${k.hint}）。${k.keychain
+    return html`<div class="muted small">用的是環境變數 <code>${k.env}</code>（${k.hint}）。${k.setup
       ? '存進鑰匙圈會優先用鑰匙圈的，而且不是明文：' : ''}</div>${cmd || ''}`;
   }
-  if (!k.keychain) {
+  if (!k.setup) {
     return html`<div class="muted small">還沒有設定。請在啟動伺服器前設定環境變數 <code>${k.env}</code>。</div>`;
   }
-  return html`<div class="muted small">還沒有設定。在終端機跑下面這一行，照提示貼上
+  return html`<div class="muted small">還沒有設定。在 Finance Hub 的資料夾裡用終端機跑下面這一行，照提示貼上
     key（畫面不會顯示），它就存進這台 Mac 的鑰匙圈，不必重新啟動。也可以在啟動前設定環境變數
     <code>${k.env}</code>，但那是明文。</div>${cmd}`;
 }
