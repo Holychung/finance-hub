@@ -838,6 +838,38 @@ describe('v9：稅務性質與未歸屬', () => {
   });
 });
 
+describe('v10：預算', () => {
+  // A new table: an upgraded book gains it empty, with every other figure
+  // exactly where it was, and nobody's budget is invented on the way.
+  it('既有的帳本升級後多一張空的 budgets，其他筆數一個都不動', () => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db, 4);
+
+    runMigrations(db, {});
+
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budgets').get().n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM txns').get().n, 4);
+    db.close();
+    s.rm();
+  });
+
+  // The API refuses a duplicate in words of its own before it gets here; the
+  // constraint is what holds if anything else ever writes the table.
+  it('同一個分類同一個幣別只能有一條，換一個幣別就是另一條', () => {
+    const s = scratch();
+    const db = s.open();
+    runMigrations(db, {});
+    const ins = db.prepare("INSERT INTO budgets (category, currency, amount, created_at) VALUES (?, ?, ?, '2026-09-25')");
+    ins.run('外食', 'TWD', 3000);
+    ins.run('外食', 'USD', 100);
+    assert.throws(() => ins.run('外食', 'TWD', 4000), /UNIQUE/);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budgets').get().n, 2);
+    db.close();
+    s.rm();
+  });
+});
+
 describe('比程式新的帳本會讓 server 停下來', () => {
   // db.js prints and exits rather than throwing, for the same reason
   // index.js does it for a stranded data/finance.db: the person needs an
