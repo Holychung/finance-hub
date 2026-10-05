@@ -39,7 +39,7 @@
   // the seed rather than a version anything migrates to. It has to be the
   // last step in server/migrations.js, because the seed carries every column
   // that step added; test/demo-store.test.js compares it with a fresh server.
-  const SCHEMA_VERSION = '9';
+  const SCHEMA_VERSION = '10';
 
   // ---------------------------------------------------------------------
   // The raw store
@@ -60,6 +60,7 @@
     balance_checks: { key: 'id' },
     mappings: { key: 'id' },
     rules: { key: 'id' },
+    budgets: { key: 'id' },
     // The one table with no id: the schema's primary key is (date, pair).
     fx_rates: { key: (r) => `${r.date}|${r.pair}` },
     // Same shape, keyed by the security and the day — the SQLite PK.
@@ -747,6 +748,73 @@
       return SP.computeRecurring({ txns: spendingRows(from, to), accounts: accountCurrencies(), to });
     });
 
+    // --- budgets --------------------------------------------------------------
+
+    // Every refusal exactly as server/api.js words it: the views show the
+    // message, and a demo that accepted what the server refuses would teach
+    // the wrong thing.
+    const monthOf = (v) => {
+      if (v === undefined || v === null || v === '') return today().slice(0, 7);
+      const m = S(v).trim();
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) bad(`月份要寫成 YYYY-MM：${m}`);
+      return m;
+    };
+    const budgetCategoryOf = (v) => {
+      const c = S(v).trim();
+      if (!c || c === SP.UNCATEGORISED_LABEL) bad(`預算要有分類，而且不能是「${SP.UNCATEGORISED_LABEL}」`);
+      return c;
+    };
+    const budgetCurrencyOf = (v) => {
+      const c = S(v).trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(c)) bad('幣別要是三個英文字母，例如 TWD');
+      return c;
+    };
+    const budgetAmountOf = (v) => {
+      const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
+      if (!Number.isFinite(n) || n <= 0) bad('預算金額要是大於 0 的數字');
+      return M.round2(n);
+    };
+    // UNIQUE (category, currency) in the schema.
+    const refuseDuplicateBudget = (category, currency, id) => {
+      if (raw.all('budgets').some((x) => x.category === category && x.currency === currency && x.id !== id)) {
+        bad(`「${category}」已經有 ${currency} 的預算了`);
+      }
+    };
+
+    on('GET', '/api/budgets', (_p, _b, q) => {
+      const month = monthOf(q.month);
+      return SP.computeBudgets({
+        budgets: raw.all('budgets').sort(by('id')),
+        txns: spendingRows(`${month}-01`, `${month}-31`),
+        accounts: accountCurrencies(),
+        month,
+        today: today(),
+      });
+    });
+
+    on('POST', '/api/budgets', (_p, b) => {
+      const category = budgetCategoryOf(b.category);
+      const currency = budgetCurrencyOf(b.currency);
+      const amount = budgetAmountOf(b.amount);
+      refuseDuplicateBudget(category, currency, 0);
+      return { id: raw.insert('budgets', { category, currency, amount, created_at: now() }).id };
+    });
+
+    on('PUT', '/api/budgets/:id', (p, b) => {
+      const cur = raw.get('budgets', N(p.id));
+      if (!cur) missing('預算不存在');
+      const category = b.category === undefined ? cur.category : budgetCategoryOf(b.category);
+      const currency = b.currency === undefined ? cur.currency : budgetCurrencyOf(b.currency);
+      const amount = b.amount === undefined ? cur.amount : budgetAmountOf(b.amount);
+      refuseDuplicateBudget(category, currency, cur.id);
+      raw.update('budgets', cur.id, { category, currency, amount });
+      return { ok: true };
+    });
+
+    on('DELETE', '/api/budgets/:id', (p) => ({
+      deleted: raw.remove('budgets', (x) => x.id === N(p.id)),
+    }));
+
     // --- rules --------------------------------------------------------------
 
     on('GET', '/api/rules', () => listRules());
@@ -1034,6 +1102,7 @@
       fx_rates: raw.all('fx_rates'),
       balance_checks: raw.all('balance_checks'),
       mappings: raw.all('mappings'),
+      budgets: raw.all('budgets'),
     });
 
     on('GET', '/api/export/json', () => exportJson());

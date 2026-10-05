@@ -108,6 +108,18 @@ const SCRIPT = async (s) => {
   await s.post('/api/balance-checks', { account_id: 1, date: '2026-03-31', stated: 155349.5 });
   await s.post('/api/rules', { pattern: 'UBER EATS', category: '食', priority: 10 });
 
+  // Budgets, so both sides are asked what each one spent and what went
+  // unbudgeted: 食 is February's PX MART row, and the UBER EATS rows carry no
+  // category (a rule only applies on import), so they are unbudgeted. The
+  // lower-case currency and the string amount are normalised on both sides.
+  // The delete takes a budget that is not the newest, so the next id is the
+  // same on both — SQLite would hand a deleted newest id back, the demo not.
+  await s.post('/api/budgets', { category: '食', currency: 'TWD', amount: 1000 });
+  await s.post('/api/budgets', { category: '交通', currency: 'twd', amount: '1500' });
+  const travel = await s.post('/api/budgets', { category: 'Travel', currency: 'USD', amount: 80 });
+  await s.put(`/api/budgets/${travel.id}`, { amount: 120.5 });
+  await s.del('/api/budgets/2');
+
   // A write that reads back what it wrote, and the edit path.
   const extra = await s.post('/api/txns', { account_id: 1, date: '2026-05-01', amount: -10, description: 'TO BE EDITED' });
   await s.put(`/api/txns/${extra.id}`, { amount: -25.5, description: 'EDITED' });
@@ -195,6 +207,10 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/coverage?months=6&to=2026-09-30',
     '/api/spending?from=2026-01-01&to=2026-09-30',
     '/api/recurring?from=2025-01-01&to=2026-09-30',
+    // Past months on both clocks, so neither side cuts the window at its own
+    // today; the running month is the one read that cannot be pinned.
+    '/api/budgets?month=2026-02',
+    '/api/budgets?month=2026-04',
     '/api/export/json',
     '/api/accounts/1/series?to=2026-09-30',
     '/api/accounts/5/series?to=2026-09-30',
@@ -351,9 +367,30 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       ['/api/prices', { symbol: 'ETH', market: 'eth-chain', date: '2026-01-01', price: 1 }],
       ['/api/accounts', { name: 'IRA', kind: 'retirement', tax_status: 'ira' }],
       ['/api/accounts', { name: 'IRA', kind: 'retirement', unvested: -1 }],
+      ['/api/budgets', { category: '', currency: 'TWD', amount: 100 }],
+      ['/api/budgets', { category: '未分類', currency: 'TWD', amount: 100 }],
+      ['/api/budgets', { category: '居住', currency: 'NT', amount: 100 }],
+      ['/api/budgets', { category: '居住', currency: 'TWD', amount: 0 }],
+      ['/api/budgets', { category: '居住', currency: 'TWD', amount: 'abc' }],
+      ['/api/budgets', { category: '食', currency: 'twd', amount: 100 }],
     ]) {
       const of = async (s) => { try { await s.post(p, body); return null; } catch (e) { return [e.status, e.message]; } };
       assert.deepEqual(await of(demo), await of(live), `${p} ${JSON.stringify(body)}`);
+    }
+  });
+
+  // The budget refusals that are not a POST: a month that is not one, a
+  // budget that does not exist, and a rename onto a budget that does.
+  it('預算：壞月份、不存在的預算、改名撞到另一條，兩邊回同一個錯', async () => {
+    const of = async (call) => { try { await call(); return null; } catch (e) { return [e.status, e.message]; } };
+    for (const [what, call] of [
+      ['壞月份', (s) => s.get('/api/budgets?month=2026-13')],
+      ['不存在', (s) => s.put('/api/budgets/999', { amount: 1 })],
+      ['撞名', (s) => s.put('/api/budgets/1', { category: 'Travel', currency: 'usd' })],
+    ]) {
+      const [a, b] = [await of(() => call(demo)), await of(() => call(live))];
+      assert.ok(b, `${what}：伺服器應該拒絕`);
+      assert.deepEqual(a, b, what);
     }
   });
 

@@ -2323,6 +2323,143 @@ describe('分類規則', () => {
   });
 });
 
+// A budget is a number the user types. What the server owes it is the month's
+// spent figure, computed the way the breakdown computes it, and a refusal for
+// every value that would make the bar meaningless. EUR, because no other suite
+// here spends in it, so every figure below is this suite's own.
+describe('預算', () => {
+  const MONTH = '2026-03';
+  const refused = async (method, p, body) => {
+    const res = await raw(p, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, error: (await res.json()).error };
+  };
+  const eur = async (month = MONTH) => (await GET(`/api/budgets?month=${month}`)).currencies.EUR;
+
+  before(async () => {
+    const cash = (await POST('/api/accounts', {
+      name: '預算測試活存', kind: 'cash', currency: 'EUR', opening_balance: 5000, opening_date: '2026-01-01',
+    })).id;
+    const card = (await POST('/api/accounts', {
+      name: '預算測試卡', kind: 'card', currency: 'EUR', opening_balance: 0, opening_date: '2026-01-01',
+    })).id;
+    const rows = [
+      // March's dining, and a row either side of the month that must not count.
+      { account_id: card, date: '2026-02-28', amount: -90, description: 'BGT BISTRO', category: 'Dining' },
+      { account_id: card, date: '2026-03-01', amount: -42.5, description: 'BGT BISTRO', category: 'Dining' },
+      { account_id: card, date: '2026-03-31', amount: -57.5, description: 'BGT CAFE', category: 'Dining' },
+      { account_id: card, date: '2026-04-01', amount: -60, description: 'BGT CAFE', category: 'Dining' },
+      // A refund is an inflow, not a smaller expense.
+      { account_id: card, date: '2026-03-12', amount: 20, description: 'BGT BISTRO REFUND', category: 'Dining', kind: 'income' },
+      { account_id: card, date: '2026-03-05', amount: -310, description: 'BGT MARKET', category: 'Groceries' },
+      // Neither leaves the budget's figure: a transfer leg and a change in value.
+      { account_id: cash, date: '2026-03-15', amount: -800, description: 'BGT TO SAVINGS', category: 'Dining', kind: 'transfer' },
+      { account_id: cash, date: '2026-03-31', amount: -120, description: 'BGT REVALUE', category: 'Dining', kind: 'valuation' },
+      // Nothing budgets these: rent with no category, and a category of its own.
+      { account_id: cash, date: '2026-03-02', amount: -950, description: 'BGT RENT' },
+      { account_id: card, date: '2026-03-20', amount: -35, description: 'BGT PHONE', category: 'Phone' },
+    ];
+    await POST('/api/txns', { rows });
+  });
+
+  it('新增、讀回、改、刪', async () => {
+    const { id } = await POST('/api/budgets', { category: 'Dining', currency: 'eur', amount: 80 });
+    const dining = (await eur()).items.find((i) => i.category === 'Dining');
+    assert.deepEqual(
+      { id: dining.id, currency: dining.currency, amount: dining.amount, spent: dining.spent, count: dining.count },
+      { id, currency: 'EUR', amount: 80, spent: 100, count: 2 },
+      '幣別轉成大寫；三月 42.5 + 57.5，前一天、後一天、退款、轉帳、市值變動都不算'
+    );
+    assert.equal(dining.remaining, -20, '超支是負的');
+    assert.equal(dining.used_pct, 125, '不會被壓在 100');
+
+    await req('PUT', `/api/budgets/${id}`, { amount: '150.555' });
+    const edited = (await eur()).items.find((i) => i.id === id);
+    assert.equal(edited.amount, 150.56, '寫入時一樣過 round2');
+    assert.equal(edited.remaining, 50.56);
+
+    assert.equal((await DEL(`/api/budgets/${id}`)).deleted, 1);
+    assert.deepEqual((await eur()).items, []);
+  });
+
+  it('已花跟同一個月的分類明細一模一樣，沒編預算的另外算', async () => {
+    await POST('/api/budgets', { category: 'Dining', currency: 'EUR', amount: 150 });
+    await POST('/api/budgets', { category: 'Groceries', currency: 'EUR', amount: 400 });
+    const c = await eur();
+    const sp = (await GET(`/api/spending?from=${MONTH}-01&to=${MONTH}-31`)).currencies.EUR;
+    for (const i of c.items) {
+      const want = sp.categories.find((x) => x.category === i.category);
+      assert.equal(i.spent, want.total, i.category);
+      assert.equal(i.count, want.count, `${i.category} 的筆數`);
+    }
+    assert.deepEqual(c.items.map((i) => i.category), ['Groceries', 'Dining'], '大的預算排前面');
+    assert.equal(c.budgeted, 550);
+    assert.equal(c.spent, 410);
+    assert.deepEqual(c.unbudgeted, { total: 985, count: 2 }, '房租 950（未分類）＋電話 35');
+  });
+
+  it('過完的月份沒有刻度；沒給月份就是這個月，而且有', async () => {
+    const past = await GET(`/api/budgets?month=${MONTH}`);
+    assert.equal(past.running, false);
+    assert.equal(past.days_elapsed, null);
+    assert.equal(past.days_in_month, 31);
+    const now = await GET('/api/budgets');
+    assert.equal(now.month, new Date().toISOString().slice(0, 7));
+    assert.equal(now.running, true);
+    assert.equal(now.days_elapsed, Number(new Date().toISOString().slice(8, 10)));
+  });
+
+  it('每一種不該收的都拒絕，而且說得出為什麼', async () => {
+    const cases = [
+      [{ category: '', currency: 'EUR', amount: 10 }, /預算要有分類/],
+      [{ category: '   ', currency: 'EUR', amount: 10 }, /預算要有分類/],
+      [{ category: '未分類', currency: 'EUR', amount: 10 }, /不能是「未分類」/],
+      [{ category: 'Travel', currency: 'EURO', amount: 10 }, /三個英文字母/],
+      [{ category: 'Travel', currency: '', amount: 10 }, /三個英文字母/],
+      [{ category: 'Travel', currency: 'EUR', amount: 0 }, /大於 0/],
+      [{ category: 'Travel', currency: 'EUR', amount: -5 }, /大於 0/],
+      [{ category: 'Travel', currency: 'EUR', amount: 'abc' }, /大於 0/],
+      [{ category: 'Travel', currency: 'EUR', amount: '' }, /大於 0/],
+      [{ category: 'Travel', currency: 'EUR' }, /大於 0/],
+      [{ category: 'Travel', currency: 'EUR', amount: true }, /大於 0/],
+      [{ category: 'Dining', currency: 'eur', amount: 10 }, /「Dining」已經有 EUR 的預算了/],
+    ];
+    for (const [body, message] of cases) {
+      const r = await refused('POST', '/api/budgets', body);
+      assert.equal(r.status, 400, JSON.stringify(body));
+      assert.match(r.error, message, JSON.stringify(body));
+    }
+    assert.equal((await eur()).items.length, 2, '被拒絕的一筆都沒有寫進去');
+
+    const groceries = (await eur()).items.find((i) => i.category === 'Groceries');
+    const clash = await refused('PUT', `/api/budgets/${groceries.id}`, { category: 'Dining' });
+    assert.equal(clash.status, 400);
+    assert.match(clash.error, /已經有 EUR 的預算了/, '改名撞到另一條也一樣');
+    assert.equal((await refused('PUT', '/api/budgets/99999', { amount: 1 })).status, 404);
+
+    for (const month of ['2026-13', '2026-3', 'march', '2026-00']) {
+      const r = await refused('GET', `/api/budgets?month=${month}`);
+      assert.equal(r.status, 400, month);
+      assert.match(r.error, /YYYY-MM/, month);
+    }
+  });
+
+  it('同一個分類換一個幣別是另一條預算', async () => {
+    const { id } = await POST('/api/budgets', { category: 'Dining', currency: 'GBP', amount: 50 });
+    assert.ok(id);
+    await DEL(`/api/budgets/${id}`);
+  });
+
+  it('JSON 備份帶著預算', async () => {
+    const j = await GET('/api/export/json');
+    assert.ok(Array.isArray(j.budgets));
+    assert.ok(j.budgets.some((b) => b.category === 'Groceries' && b.currency === 'EUR' && b.amount === 400));
+  });
+});
+
 // A statement that spans a month and carries nothing for it is the bank
 // saying "nothing happened", which is the same answer as a row — and before
 // imports recorded their span the grid could not tell it from "nobody

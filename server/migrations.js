@@ -371,6 +371,36 @@ ALTER TABLE accounts ADD COLUMN unvested REAL NOT NULL DEFAULT 0;
 `);
     },
   },
+
+  {
+    version: 10,
+    name: 'budgets',
+    // A monthly budget per category: a number the user states, so the
+    // spending page can say how much of it a month has used. It is the one
+    // thing in the book that is planned rather than recorded, which is why it
+    // is a table of its own — nothing about a transaction changes when a
+    // budget does, and nothing here is derived from a statement.
+    //
+    // One standing row per (category, currency): the same figure every month,
+    // with no history of its own. Nothing converts, so a category spent in two
+    // currencies is two budgets — the same reason there is no single net
+    // worth. `category` is compared with `txns.category` exactly and is never
+    // '', because 未分類 is the ledger not knowing yet rather than somewhere
+    // money was meant to go; the API refuses it. A new table moves no rows, so
+    // the default count check is the right one.
+    up(db) {
+      db.exec(`
+CREATE TABLE budgets (
+  id         INTEGER PRIMARY KEY,
+  category   TEXT NOT NULL,          -- matches txns.category exactly; never ''
+  currency   TEXT NOT NULL,          -- whose accounts' spending it counts
+  amount     REAL NOT NULL,          -- a month's budget, native currency, > 0
+  created_at TEXT NOT NULL,
+  UNIQUE (category, currency)
+);
+`);
+    },
+  },
 ];
 
 const LATEST = MIGRATIONS[MIGRATIONS.length - 1].version;
