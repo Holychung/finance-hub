@@ -68,13 +68,19 @@ unless its owner turns on one of the two opt-in exceptions below and, for AI
   with a 409, so what is sent is what was shown or nothing. It reads nothing but that
   document and writes nothing to the ledger. **The key is set on the machine,
   never through the app**: there is no field for it and no route that takes
-  one. The server only reads — the macOS keychain item `finance-hub` /
-  `<provider>`, which the owner adds with the `security` command the page
-  shows, then the provider's usual environment variable. The app never writes
-  the key anywhere: not the database, because every snapshot is a copy of the
-  database, and not a file. No response carries it back. Every test server
-  runs with `FINANCE_AI_VAULT=memory`, and anything else in that variable is
-  refused, so the suite cannot read a real keychain by a typo. The answer is text from
+  one. The owner runs `node scripts/ai-key.js set <provider>` — the one
+  command the page and the docs give on every machine, and the only thing in
+  the repo that writes a key — which asks for it with echo off and puts it in
+  the OS's own store: the macOS keychain item `finance-hub` / `<provider>`,
+  and nowhere else yet. Where that script has no store that is not plain
+  text it refuses, and the provider's environment variable is the way. A new
+  platform is a store in `defaultStore()`, never a plain-text fallback. The
+  server only reads, keychain first, then the variable. The key is never in
+  the database, because every snapshot is a copy of the database, and never
+  on a command line. No response carries it back. Every test server and the
+  script's own tests run with `FINANCE_AI_VAULT=memory`, and anything else in
+  that variable is refused, so the suite cannot touch a real keychain by a
+  typo. The answer is text from
   somewhere this app does not control, so `view-ai.js` rebuilds its few
   Markdown shapes as elements and never turns a link into one. The hosted demo
   refuses every AI route. Nothing else in the app may call a model.
@@ -137,6 +143,9 @@ test/prices.test.js  the close fetch, offline — injected getter, throwaway db
 test/ai.test.js      AI 健檢, offline — each provider's shapes, the keychain
                      vault over a stand-in for /usr/bin/security,
                      review() over an injected sender, the answer's rendering
+test/ai-key.test.js  scripts/ai-key.js — the keystrokes, the keychain store
+                     over a stand-in for security, the commands, the real
+                     script run under FINANCE_AI_VAULT=memory
 test/currency.test.js  the scale follows the currency, and round2 is unchanged
 test/kinds.test.js   the kind list is complete, and the rules encoded in it
 test/sha1.test.js    SHA-1 against node:crypto, and shared/ loaded both ways
@@ -152,6 +161,8 @@ scripts/seed-demo.js          invented data for a demo profile; refuses the
                               personal ledger outright
 scripts/pack-demo.js          copies web/ + shared/ into dist/ for a static
                               host; adds a CSP and a commit stamp, nothing else
+scripts/ai-key.js             sets, shows and deletes AI 健檢's key in the OS's
+                              own store; the only thing that writes a key
 wrangler.jsonc                the hosted demo's deploy config — read on
                               Cloudflare's build machine, by nothing here
 scripts/fixtures/             builds the invented Fidelity statement PDF, its
@@ -188,7 +199,7 @@ deletes the whole directory out from under the others. It also keeps teardown
 honest — the directory it removes is one this process created. Anything else
 that later derives a path from `DB_PATH` inherits the same requirement.
 
-709 tests across 113 suites cover Big5 decoding, ROC dates, two-digit years,
+726 tests across 117 suites cover Big5 decoding, ROC dates, two-digit years,
 two-column debit/credit, unsigned amounts with a direction column,
 overlapping-range dedup, cross-currency transfer pairing, net worth, a coin's
 eight places and its market's case surviving every endpoint, unvested coming

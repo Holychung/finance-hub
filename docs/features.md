@@ -59,6 +59,6 @@ Fidelity 401(k)，其他銀行手動對應欄位也能匯。
 
 ### 6. AI 健檢（預設關閉）
 
-1. 在自己的電腦上設定 Claude、OpenAI 或 Gemini 的 API key（Mac 存進鑰匙圈，頁面上有指令），再到「AI 健檢」頁打開開關
+1. 在終端機跑 `node scripts/ai-key.js set anthropic`（或 `openai`、`gemini`），貼上你自己的 API key，再到「AI 健檢」頁打開開關
 2. 選「審計」找帳本裡會讓數字出錯的地方，或選「建議」看一般性的觀察
 3. 送出前看得到要送的全文；按下送出才連線，而且只送到你選的那一家

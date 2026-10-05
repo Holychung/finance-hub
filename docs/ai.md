@@ -59,22 +59,27 @@
 key 在你自己的電腦上設定，**不經過這個 app**：頁面沒有輸入框，API 也沒有任何收 key 的 route。
 伺服器只讀，先看鑰匙圈，再看環境變數。
 
-**macOS 鑰匙圈（建議）。** 在終端機跑這一行（換成 `openai` 或 `gemini` 就是那家的），照提示貼上
-key，畫面不會顯示：
+**一個指令（建議）。** 在 Finance Hub 的資料夾裡跑（換成 `openai` 或 `gemini` 就是那家的）：
 
 ```
-security add-generic-password -U -s finance-hub -a anthropic -w
+node scripts/ai-key.js set anthropic      # 照提示貼上 key，按 Enter；畫面不會顯示
+node scripts/ai-key.js status             # 每家有沒有設定、從哪裡讀、最後四碼
+node scripts/ai-key.js delete anthropic
 ```
 
-`-w` 放在最後、不帶值，`security` 才會用提示的方式問你，key 就不會出現在指令、shell 歷史或 `ps`
-裡。存好之後不必重新啟動，下一次讀就讀得到。要換一把就再跑一次（`-U` 是覆蓋），要刪：
+它把 key 存進作業系統自己的安全存放處，key 不會出現在指令、shell 歷史或 `ps` 裡。存好之後不必
+重新啟動伺服器，下一次讀就讀得到；要換一把就再 `set` 一次。
 
-```
-security delete-generic-password -s finance-hub -a anthropic
-```
+| 系統 | 存在哪 |
+| --- | --- |
+| macOS | 登入鑰匙圈，項目 `finance-hub` / `anthropic`（「鑰匙圈存取」裡也看得到） |
+| 其他 | 目前還不支援，`set` 會拒絕，**不會**退而寫成明文檔——請用下面的環境變數 |
+
+想直接用 macOS 的 `security` 也可以，存的是同一個項目：
+`security add-generic-password -U -s finance-hub -a anthropic -w`（`-w` 放最後、不帶值，它才會用提示問你）。
 
 **環境變數。** `ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`GEMINI_API_KEY`，在啟動伺服器前設定。寫在
-`.zshrc` 之類的檔案裡就是明文，所以兩個都有時，鑰匙圈的優先。不是 Mac 的電腦沒有鑰匙圈，只能用這個。
+shell 設定檔裡就是明文，所以兩個都有時，鑰匙圈的優先。還不支援的系統只能用這個。
 
 - **不在帳本資料庫裡。** 快照是整個資料庫的複本，key 放進去就會跟著進每一份備份、每一份拿去給人
   看的檔案；它也不在 JSON 匯出裡。app 不會把它寫到任何地方。
