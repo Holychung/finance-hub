@@ -136,15 +136,17 @@ server/prices.js  outbound call one — opt-in daily close fetch, off by
 server/ai.js      outbound call two — AI 健檢: providers, the instruction, the
                   keychain vault, the one request; deps-test allows the three
                   providers' endpoints only here
-server/api.js     the routes not yet shared, and the ones only a server can
-                  answer, registered via on(method, pattern, fn)
-server/index.js   HTTP server, request guards, routing, static files; loads what
-                  the CSV and overview exports write, and names the download
+server/api.js     the eight routes only a server can answer (price refresh, AI
+                  健檢, backups, settings), and the shared ones registered over
+                  server/ledger.js, via on(method, pattern, fn)
+server/index.js   HTTP server, request guards, routing, static files; sends the
+                  CSV and overview exports shared/handlers.js writes, and names
+                  the download
 web/index.html    the shell, and the <script> list that *is* the dependency graph
 web/html.js       the escaping html`` tag and mount() — the only way to the DOM
 web/storage-http.js  the only fetch() in the frontend, and the export URLs
-web/storage-demo.js  the same routes answered from a Map, for the hosted demo,
-                  and the demo's `L` for the shared ones
+web/storage-demo.js  the hosted demo's store: the Map, its `L` for the shared
+                  routes, and its own answers to the eight server-only ones
 web/storage.js    picks one at load, by origin, and never falls back
 web/core.js       DOM helpers, toast, modal, exportLink, captureUi, `views = {}`
 web/charts.js     lineChart + barBreakdown, hand-built SVG, no colour of its own
@@ -901,10 +903,12 @@ the browser; the server's only job is to answer when someone refreshes on one.
   the ledger port: `server/ledger.js` answers in SQL, the demo's `ledger` in
   `createDemoStorage` from its Map. Two copies of every handler is how a
   refusal came to be worded differently on each side and `GET /api/transfers`
-  to return two different shapes with nothing noticing. The routes move over a
-  group at a time; one still written in both `server/api.js` and
-  `storage-demo.js` simply has not moved yet, and the parity test above is
-  what holds it meanwhile. The rules for a shared one:
+  to return two different shapes with nothing noticing. Every route is here
+  but eight, which only a server can answer — the price refresh and AI 健檢
+  reach the network, the backups are files beside the book, the settings name
+  which file is open — and each side writes those for itself. A new route goes
+  here, once; the parity test above still runs both sides, because the ports
+  can drift where the handlers cannot. The rules for a shared one:
   - **Reads are named for what a handler needs** (`spendingRows`,
     `auditRows`, …), so the server keeps its SQL and its indexes. A generic
     "load the table, filter in JS" interface was measured at 50× slower on the
@@ -922,13 +926,20 @@ the browser; the server's only job is to answer when someone refreshes on one.
     used to let the second replace the first, so a route moved here and left
     behind there would have answered instead. `test/handlers.test.js` also
     scans the three files: a shared route appears in neither of the others,
-    and both sides answer the same set.
+    both sides answer the same set, and what each writes for itself is
+    exactly the eight.
+  - **Two side effects are handed in, not branched on**: `snapshot(label)`,
+    the pre-import copy (a filename on the server, null in the demo, taken
+    before the commit's transaction because SQLite copies a book only outside
+    one), and `decodeBase64` (Buffer, or atob in a browser). The file exports
+    come back from `defineLedgerRoutes` as `exportFile`, and each side sends
+    the file its own way.
 - **The overview export is one Markdown file, written in `shared/`.**
   `shared/overview.js` composes what the other `compute*` already returned —
   nothing is re-derived, so the file cannot disagree with the screen — and
-  writes it down. `server/index.js` serves it at `/api/export/overview`, the
-  demo's `exportFile` writes the same bytes, and `test/demo-store.test.js`
-  compares them. Three rules hold it: per currency and never summed; **no
+  writes it down. The shared `exportFile` loads it for both sides,
+  `server/index.js` serves it at `/api/export/overview`, the demo's adapter
+  hands the same bytes to a Blob, and `test/demo-store.test.js` compares them. Three rules hold it: per currency and never summed; **no
   `$` anywhere**, because a viewer that reads `$…$` as LaTeX turns a line with
   two `NT$` amounts into a formula, so amounts go through `figure()` and the
   currency is named by the row, the section or the code after the number; and

@@ -1,5 +1,12 @@
 'use strict';
 
+// The routes, registered for server/index.js. Nearly all of them are written
+// once in shared/handlers.js, which the hosted demo runs too, and answered
+// here from SQLite through server/ledger.js. The ones below are the routes
+// only a server can answer: the price refresh and AI 健檢 reach the network,
+// the backups are files beside the book, and the settings say which file is
+// open.
+
 const crypto = require('node:crypto');
 const path = require('node:path');
 const paths = require('./paths');
@@ -8,7 +15,6 @@ const csv = require('../shared/csv');
 const M = require('./money');
 const PRICES = require('./prices');
 const AI = require('./ai');
-const { ACCESS_KEYS } = require('../shared/kinds');
 
 const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
 const now = () => new Date().toISOString();
@@ -32,46 +38,6 @@ const on = (method, pattern, handler) => {
   routes[key] = handler;
 };
 
-// --- overview --------------------------------------------------------------
-
-on('GET', '/api/overview', () => {
-  const asOf = M.todayISO();
-  const accounts = M.accountsWithBalances(asOf);
-  const holdings = M.holdingsValued();
-  const nw = M.netWorth(asOf);
-  const checks = M.reconcile();
-  const from = M.seriesStart(asOf);
-
-  return {
-    net_worth: nw,
-    accounts,
-    holdings,
-    series: M.netWorthSeries(from, asOf),
-    // The same line for each half of the book, so the chart can follow the
-    // overview's 可動用／受限制 switch instead of drawing the whole under it.
-    series_by_access: Object.fromEntries(ACCESS_KEYS.map((k) => [k, M.netWorthSeries(from, asOf, k)])),
-    reconcile: {
-      total: checks.length,
-      off: checks.filter((c) => !c.ok).length,
-      // Checks, not accounts: three bad checks against one account are three
-      // here and one book to go and fix, and only the second number is worth
-      // putting in a sentence. `latest` is capped, so the client cannot count
-      // the accounts itself without undercounting.
-      off_accounts: new Set(checks.filter((c) => !c.ok).map((c) => c.account_id)).size,
-      latest: checks.slice(0, 8),
-    },
-    counts: {
-      txns: db.prepare('SELECT COUNT(*) AS n FROM txns').get().n,
-      unpaired_candidates: M.findTransferCandidates().length,
-    },
-    // A card or loan sitting in credit is usually a sign flipped somewhere.
-    // It belongs on the overview rather than in a dismissible notice, because
-    // the number it produces looks perfectly reasonable on its own.
-    liabilities_in_credit: M.liabilitiesInCredit(accounts),
-    fx_latest: db.prepare("SELECT date, rate FROM fx_rates WHERE pair='USDTWD' ORDER BY date DESC LIMIT 1").get() || null,
-  };
-});
-
 // --- prices refresh ---------------------------------------------------------
 
 // Opt-in daily fetch of each holding's previous close (server/prices.js). Off
@@ -87,8 +53,9 @@ on('POST', '/api/prices/refresh', async () => {
 // --- the shared routes -----------------------------------------------------
 
 // Written once in shared/handlers.js and answered here from SQLite through
-// server/ledger.js; the demo registers the same handlers over its Map.
-defineLedgerRoutes(on, {
+// server/ledger.js; the demo registers the same handlers over its Map. What
+// comes back is the two file exports, which server/index.js sends.
+const { exportFile } = defineLedgerRoutes(on, {
   L: ledger,
   now,
   today: M.todayISO,
@@ -106,7 +73,7 @@ defineLedgerRoutes(on, {
 // The pre-import snapshots beside the book: files, so a server's alone.
 on('GET', '/api/backups', () => listBackups());
 
-// --- settings & backup -----------------------------------------------------
+// --- settings ----------------------------------------------------------------
 
 on('GET', '/api/settings', () => ({
   base_currency: getMeta('base_currency', 'TWD'),
@@ -172,18 +139,4 @@ on('POST', '/api/ai/review', viaAi((_p, b) => {
   return AI.review({ mode: S(b.mode), asOf, digest: S(b.digest), getMeta });
 }));
 
-on('GET', '/api/export/json', () => ({
-  exported_at: now(),
-  base_currency: getMeta('base_currency', 'TWD'),
-  institutions: db.prepare('SELECT * FROM institutions').all(),
-  accounts: db.prepare('SELECT * FROM accounts').all(),
-  txns: db.prepare('SELECT * FROM txns').all(),
-  holdings: db.prepare('SELECT * FROM holdings').all(),
-  prices: db.prepare('SELECT * FROM prices').all(),
-  fx_rates: db.prepare('SELECT * FROM fx_rates').all(),
-  balance_checks: db.prepare('SELECT * FROM balance_checks').all(),
-  mappings: db.prepare('SELECT * FROM mappings').all(),
-  budgets: db.prepare('SELECT * FROM budgets').all(),
-}));
-
-module.exports = { routes, HttpError };
+module.exports = { routes, HttpError, exportFile };

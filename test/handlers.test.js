@@ -31,11 +31,26 @@ const SHARED = routesIn(HANDLERS);
 const SERVER = routesIn(read('server/api.js'));
 const DEMO = routesIn(read('web/storage-demo.js'));
 
+// What each side still writes for itself: the routes only a server can
+// answer — the price refresh and AI 健檢 reach the network, the backups are
+// files beside the book, the settings name which file is open — and the
+// demo's own answer to each of the same eight. Anything else belongs in
+// shared/handlers.js, and a ninth here is a decision somebody made.
+const OWN = [
+  'GET /api/backups', 'GET /api/settings', 'PUT /api/settings', 'POST /api/prices/refresh',
+  'GET /api/ai', 'PUT /api/ai', 'GET /api/ai/preview', 'POST /api/ai/review',
+].sort();
+
 describe('共用的路由', () => {
   it('寫在 shared/handlers.js 的，server 和示範版都不再自己寫一份', () => {
-    assert.ok(SHARED.size >= 9, `shared/handlers.js 只讀到 ${SHARED.size} 條`);
+    assert.ok(SHARED.size >= 50, `shared/handlers.js 只讀到 ${SHARED.size} 條`);
     assert.deepEqual([...SHARED].filter((r) => SERVER.has(r)), [], 'server/api.js 還留著');
     assert.deepEqual([...SHARED].filter((r) => DEMO.has(r)), [], 'web/storage-demo.js 還留著');
+  });
+
+  it('server 和示範版自己寫的，只剩只有 server 答得出的那八條', () => {
+    assert.deepEqual([...SERVER].sort(), OWN, 'server/api.js');
+    assert.deepEqual([...DEMO].sort(), OWN, 'web/storage-demo.js');
   });
 
   // Both sides answer the same vocabulary, shared or not: a route only one of
