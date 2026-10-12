@@ -35,6 +35,9 @@
 (function (root) {
   const NODE = typeof module !== 'undefined' && module.exports;
   const { round2 } = NODE ? require('./currency') : root;
+  const { COVERAGE_MONTHS } = NODE ? require('./money') : root;
+  const { parseDate } = NODE ? require('./csv') : root;
+  const R = NODE ? require('./rules') : root;
   const SP = NODE ? require('./spending') : root;
   const AUDIT = NODE ? require('./audit') : root;
 
@@ -198,6 +201,86 @@
       L.setMeta('audit_cancelled', JSON.stringify(r.value));
       return { ok: true };
     });
+
+    // --- categorisation rules ------------------------------------------------
+
+    on('GET', '/api/rules', () => R.sortRules(L.all('rules')));
+
+    on('POST', '/api/rules', (_p, b) => {
+      const pattern = S(b.pattern).trim();
+      const category = S(b.category).trim();
+      if (!pattern) bad('比對字串必填');
+      if (!category) bad('分類必填');
+      // A pattern that normalises to nothing — punctuation only — would match
+      // every description or none, depending on which way the loop reads.
+      // Neither is a rule anybody meant to write.
+      if (!R.normalise(pattern)) bad('比對字串至少要有一個文字或數字');
+      return { id: L.insert('rules', checked({ pattern, category, priority: N(b.priority), created_at: now() })) };
+    });
+
+    on('PUT', '/api/rules/:id', (p, b) => {
+      const cur = L.get('rules', N(p.id)) || missing('規則不存在');
+      const pattern = b.pattern === undefined ? cur.pattern : S(b.pattern).trim();
+      if (!R.normalise(pattern)) bad('比對字串至少要有一個文字或數字');
+      L.update('rules', cur.id, checked({
+        pattern,
+        category: b.category === undefined ? cur.category : S(b.category).trim(),
+        priority: b.priority === undefined ? cur.priority : N(b.priority),
+      }));
+      return { ok: true };
+    });
+
+    on('DELETE', '/api/rules/:id', (p) => ({ deleted: L.remove('rules', N(p.id)) }));
+
+    // Preview and apply run the same `plan()` over the same rows, so what the
+    // user is shown and what actually happens cannot drift apart. `dry` is the
+    // default: a sweep over every transaction in the ledger is not something
+    // to discover after the fact.
+    on('POST', '/api/rules/apply', (_p, b) => {
+      const changes = R.plan(L.txnDescriptions(), R.sortRules(L.all('rules')), { overwrite: !!b.overwrite });
+      if (b.dry !== false) return { dry: true, changes: changes.slice(0, 200), total: changes.length };
+      L.tx(() => { for (const c of changes) L.update('txns', c.id, checked({ category: c.to })); });
+      return { dry: false, applied: changes.length };
+    });
+
+    // --- balance checks, reconciliation, coverage ----------------------------
+
+    on('GET', '/api/reconcile', () => L.reconcile());
+
+    on('POST', '/api/balance-checks', (_p, b) => {
+      const d = parseDate(b.date, 'auto');
+      if (!d) bad(`日期無法解析：${b.date}`);
+      return {
+        id: L.insert('balance_checks', checked({ account_id: N(b.account_id), date: d, stated: N(b.stated), note: S(b.note) })),
+      };
+    });
+
+    on('DELETE', '/api/balance-checks/:id', (p) => ({ deleted: L.remove('balance_checks', N(p.id)) }));
+
+    // Clamped rather than validated: a silly `months` is a URL someone typed,
+    // not an error worth refusing, and an unbounded one would build a grid per
+    // month per account for no reader.
+    on('GET', '/api/coverage', (_p, _b, q) => L.coverage({
+      months: Math.min(Math.max(N(q.months, COVERAGE_MONTHS), 1), 120),
+      to: q.to ? S(q.to) : today(),
+    }));
+
+    // --- column mappings -----------------------------------------------------
+
+    on('GET', '/api/mappings', () => L.mappings().map((m) => ({ ...m, config: JSON.parse(m.config) })));
+
+    // Saved under a name, and saving the same name again replaces its config.
+    on('POST', '/api/mappings', (_p, b) => {
+      const name = S(b.name).trim();
+      if (!name) bad('對應名稱必填');
+      const config = JSON.stringify(b.config || {});
+      const cur = L.all('mappings').find((m) => m.name === name);
+      if (cur) L.update('mappings', cur.id, checked({ config }));
+      else L.insert('mappings', checked({ name, config, created_at: now(), used_at: null }));
+      return { ok: true, name };
+    });
+
+    on('DELETE', '/api/mappings/:id', (p) => ({ deleted: L.remove('mappings', N(p.id)) }));
   }
 
   const api = { defineLedgerRoutes, ApiError };

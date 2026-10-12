@@ -57,12 +57,31 @@ function makeLedger({ db, getMeta, setMeta, M }) {
 
     remove: (table, id) => db.prepare(`DELETE FROM ${tableOf(table)} WHERE id = ?`).run(id).changes,
 
+    // All or nothing. node:sqlite refuses a BEGIN inside a BEGIN, as the
+    // demo's store refuses a nested tx.
+    tx(fn) {
+      db.exec('BEGIN');
+      try {
+        const out = fn();
+        db.exec('COMMIT');
+        return out;
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+    },
+
     getMeta,
     setMeta,
 
     spendingRows: M.spendingRows,
     accountCurrencies: M.accountCurrencies,
     transferCandidates: () => M.findTransferCandidates(),
+    reconcile: () => M.reconcile(),
+    coverage: (opts) => M.coverage(opts),
+
+    // What the rules sweep reads: every row, only the three columns it needs.
+    txnDescriptions: () => db.prepare('SELECT id, description, category FROM txns ORDER BY id').all(),
+
+    // The last used first, never-used last, then by name.
+    mappings: () => db.prepare('SELECT * FROM mappings ORDER BY used_at DESC NULLS LAST, name').all(),
 
     // 月度審計's rows: with their ids, because a finding names the rows it is
     // about, and two years back from `to`, which is what the recurring scan

@@ -460,117 +460,15 @@ on('DELETE', '/api/fx/:date', (p, _b, q) => ({
     .run(String(p.date), S(q.pair, 'USDTWD')).changes,
 }));
 
-// --- balance checks / reconciliation ---------------------------------------
-
-on('GET', '/api/reconcile', () => M.reconcile());
-
-// Clamped rather than validated: a silly `months` is a URL someone typed, not
-// an error worth refusing, and an unbounded one would build a grid per month
-// per account for no reader.
-on('GET', '/api/coverage', (_p, _b, q) => {
-  const months = Math.min(Math.max(N(q.months, M.COVERAGE_MONTHS), 1), 120);
-  return M.coverage({ months, to: q.to ? S(q.to) : M.todayISO() });
-});
-
 // --- the shared routes -----------------------------------------------------
 
-// Spending, recurring, budgets and 月度審計, written once in shared/handlers.js
-// and answered here from SQLite through server/ledger.js. The demo registers
-// the same handlers over its Map.
+// Written once in shared/handlers.js and answered here from SQLite through
+// server/ledger.js; the demo registers the same handlers over its Map.
 defineLedgerRoutes(on, { L: ledger, now, today: M.todayISO });
 
-// --- categorisation rules --------------------------------------------------
-
+// What the import commit categorises each new row by: the rules the shared
+// routes above keep.
 const listRules = () => R.sortRules(db.prepare('SELECT * FROM rules').all());
-
-on('GET', '/api/rules', () => listRules());
-
-on('POST', '/api/rules', (_p, b) => {
-  const pattern = S(b.pattern).trim();
-  const category = S(b.category).trim();
-  if (!pattern) bad('比對字串必填');
-  if (!category) bad('分類必填');
-  // A pattern that normalises to nothing — punctuation only — would match
-  // every description or none, depending on which way the loop reads. Neither
-  // is a rule anybody meant to write.
-  if (!R.normalise(pattern)) bad('比對字串至少要有一個文字或數字');
-  const r = db
-    .prepare('INSERT INTO rules (pattern, category, priority, created_at) VALUES (?, ?, ?, ?)')
-    .run(pattern, category, N(b.priority), now());
-  return { id: Number(r.lastInsertRowid) };
-});
-
-on('PUT', '/api/rules/:id', (p, b) => {
-  const cur = db.prepare('SELECT * FROM rules WHERE id = ?').get(N(p.id)) || missing('規則不存在');
-  const pattern = b.pattern === undefined ? cur.pattern : S(b.pattern).trim();
-  if (!R.normalise(pattern)) bad('比對字串至少要有一個文字或數字');
-  db.prepare('UPDATE rules SET pattern = ?, category = ?, priority = ? WHERE id = ?').run(
-    pattern,
-    b.category === undefined ? cur.category : S(b.category).trim(),
-    b.priority === undefined ? cur.priority : N(b.priority),
-    cur.id
-  );
-  return { ok: true };
-});
-
-on('DELETE', '/api/rules/:id', (p) => ({
-  deleted: db.prepare('DELETE FROM rules WHERE id = ?').run(N(p.id)).changes,
-}));
-
-// Preview and apply run the same `plan()` over the same rows, so what the user
-// is shown and what actually happens cannot drift apart. `dry` is the default:
-// a sweep over every transaction in the ledger is not something to discover
-// after the fact.
-on('POST', '/api/rules/apply', (_p, b) => {
-  const overwrite = !!b.overwrite;
-  const txns = db.prepare('SELECT id, description, category FROM txns').all();
-  const changes = R.plan(txns, listRules(), { overwrite });
-
-  if (b.dry !== false) return { dry: true, changes: changes.slice(0, 200), total: changes.length };
-
-  const upd = db.prepare('UPDATE txns SET category = ? WHERE id = ?');
-  db.exec('BEGIN');
-  try {
-    for (const c of changes) upd.run(c.to, c.id);
-    db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { dry: false, applied: changes.length };
-});
-
-on('POST', '/api/balance-checks', (_p, b) => {
-  const d = csv.parseDate(b.date, 'auto');
-  if (!d) bad(`日期無法解析：${b.date}`);
-  const r = db
-    .prepare('INSERT INTO balance_checks (account_id, date, stated, note) VALUES (?, ?, ?, ?)')
-    .run(N(b.account_id), d, N(b.stated), S(b.note));
-  return { id: Number(r.lastInsertRowid) };
-});
-
-on('DELETE', '/api/balance-checks/:id', (p) => ({
-  deleted: db.prepare('DELETE FROM balance_checks WHERE id = ?').run(N(p.id)).changes,
-}));
-
-// --- mappings --------------------------------------------------------------
-
-on('GET', '/api/mappings', () =>
-  db.prepare('SELECT * FROM mappings ORDER BY used_at DESC NULLS LAST, name').all()
-    .map((m) => ({ ...m, config: JSON.parse(m.config) }))
-);
-
-on('POST', '/api/mappings', (_p, b) => {
-  const name = S(b.name).trim();
-  if (!name) bad('對應名稱必填');
-  const cfg = JSON.stringify(b.config || {});
-  db.prepare(
-    `INSERT INTO mappings (name, config, created_at) VALUES (?, ?, ?)
-     ON CONFLICT(name) DO UPDATE SET config = excluded.config`
-  ).run(name, cfg, now());
-  return { ok: true, name };
-});
-
-on('DELETE', '/api/mappings/:id', (p) => ({
-  deleted: db.prepare('DELETE FROM mappings WHERE id = ?').run(N(p.id)).changes,
-}));
 
 // --- import ----------------------------------------------------------------
 
