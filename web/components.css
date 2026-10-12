@@ -1,0 +1,365 @@
+/* The pieces every view is built from: cards and the space between blocks,
+   tables, buttons and fields, pills, the four notices, the 待辦 rows, the
+   modal and the toast. See tokens.css for how the files fit together. */
+
+@layer app {
+
+  /* ---------- cards ---------- */
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-2);
+    padding: var(--sp-16);
+  }
+  /* --- who owns the space between blocks -------------------------------
+     Every one of these replaced a `style="margin-…"` repeated at each call
+     site: 13 notices each remembering their own 12px, four tables their own
+     16px. A block that is followed by something knows it needs air after it;
+     `:last-child` takes it back so a card does not end in a gap. Adjacent
+     margins collapse, so a heading's 12 below and a table's 16 above make 16
+     rather than 28. --------------------------------------------------------- */
+  .note, .grid, .table-wrap { margin-bottom: var(--sp-16); }
+  .note { margin-bottom: var(--sp-12); }
+  .note:last-child, .grid:last-child, .table-wrap:last-child { margin-bottom: 0; }
+  .table-wrap:not(:first-child) { margin-top: var(--sp-16); }
+  .toolbar:not(:first-child) { margin-top: var(--sp-12); }
+  /* A notice that carries its own action, rather than a row of its own. */
+  .note > button { margin-left: var(--sp-8); }
+
+  /* The one spacing utility: a block needing air above it that has no component
+     of its own to put it in — an aside under a table, the commit row under a
+     preview. One step, deliberately. A second size is how a stylesheet grows
+     back to the 23 different spacings this set replaced. */
+  .spaced { margin-top: var(--sp-12); }
+  /* A form control the width of a wide screen is not easier to fill in. */
+  .constrained { max-width: 420px; }
+
+  /* A checkbox and its label on one line — settings toggles. */
+  .check { display: flex; align-items: center; gap: var(--sp-8); margin-top: var(--sp-12); cursor: pointer; }
+  .check input { accent-color: var(--brand); }
+
+  /* The "prices last updated · refresh" line at the foot of the holdings page —
+     a proper page footer: separated from the last card, a hairline above it, and
+     room to breathe rather than a cramped line hugging the table. */
+  .prices-foot {
+    display: flex; align-items: center; justify-content: center; gap: var(--sp-8);
+    margin-top: var(--sp-24);
+    padding: var(--sp-24) 0 var(--sp-16);
+    border-top: 1px solid var(--line);
+  }
+
+  .grid { display: grid; gap: var(--sp-12); }
+  .g2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .g3 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  .g4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+
+  .kpi .label { font-size: var(--fs-xs); color: var(--ink-3); margin-bottom: var(--sp-6); }
+  .kpi .value {
+    font-size: var(--fs-xl); font-weight: 700; font-family: var(--mono);
+    letter-spacing: -.5px; line-height: var(--lh-tight);
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi .meta { font-size: var(--fs-xs); color: var(--ink-3); margin-top: var(--sp-4); font-family: var(--mono); }
+
+  /* ---------- tables ---------- */
+
+  table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+  thead th {
+    text-align: left; font-weight: 600; font-size: var(--fs-2xs);
+    letter-spacing: var(--track-label);
+    color: var(--ink-3); padding: var(--sp-8);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  thead th:first-child { border-top-left-radius: var(--r-1); }
+  thead th:last-child  { border-top-right-radius: var(--r-1); }
+  /* `.table-wrap` is the scroll container, so this only engages where one
+     actually scrolls vertically — the 500-row import preview, the FX list. The
+     header needs its own background for this, which it now has. */
+  thead th { position: sticky; top: 0; z-index: 1; }
+  tbody td { padding: var(--sp-8); border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-3); }
+  .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* Money, and only money. */
+  .pos { color: var(--up); }
+  .neg { color: var(--down); }
+
+  .dim { color: var(--ink-3); }
+  .nowrap { white-space: nowrap; }
+  .truncate { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The second line inside a table cell: an account's currency under its name, a
+     merchant's account under the merchant. Its own class rather than borrowing
+     the small-text one, because that class is toggled with `hidden` elsewhere
+     and any `display` on it would outrank the UA's [hidden] rule — the guard in
+     test/html.test.js checks exactly that. */
+  .sub-line { display: block; font-size: var(--fs-2xs); color: var(--ink-3); }
+
+  .table-wrap { overflow-x: auto; }
+  /* A list long enough to need its own scroll — the 500-row import preview, the
+     FX history. One height for both, where it was 460px in one place and 320 in
+     the other for no reason either could state. */
+  .table-wrap.scroll { max-height: var(--h-scroll); overflow-y: auto; }
+  /* The checkbox column in a table that selects rows. */
+  .col-check { width: 28px; }
+  .empty {
+    display: flex; flex-direction: column; align-items: center; gap: var(--sp-8);
+    color: var(--ink-3); padding: var(--sp-24) var(--sp-4);
+    text-align: center; font-size: var(--fs-sm);
+  }
+  /* Icon-only, so each one carries a title and an aria-label. Editing and
+     deleting are the two every table repeats on every row; a rarer action
+     (對帳, 回復) keeps its word, because a picture of it would be a guess. */
+  .row-actions button + button { margin-left: var(--sp-4); }
+
+  /* ---------- controls ---------- */
+
+  button, .btn {
+    font: inherit; font-size: var(--fs-sm); font-weight: 500;
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-8);
+    min-height: var(--h-control); padding: 0 var(--sp-12);
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line-strong); border-radius: var(--r-1);
+    cursor: pointer; text-decoration: none; white-space: nowrap;
+    transition: background var(--dur), border-color var(--dur), color var(--dur);
+  }
+  button:hover, .btn:hover { background: var(--surface-3); border-color: var(--ink-3); }
+  button:disabled {
+    opacity: .45; cursor: not-allowed;
+    &:hover { background: var(--surface-2); border-color: var(--line-strong); }
+  }
+
+  button.primary {
+    background: var(--brand-solid); border-color: var(--brand-solid);
+    color: var(--brand-ink); font-weight: 600;
+    &:hover:not(:disabled) { background: var(--brand); border-color: var(--brand); color: var(--bg); }
+  }
+
+  /* Neutral at rest. Red is what a negative amount looks like, so a delete
+     button that is red while idle competes with every number beside it. */
+  button.danger {
+    color: var(--ink-2);
+    &:hover { background: var(--down-tint); border-color: var(--down); color: var(--down); }
+  }
+
+  button.sm, .btn.sm { min-height: var(--h-control-sm); padding: 0 var(--sp-8); font-size: var(--fs-xs); }
+
+  /* A segmented control: a few mutually exclusive views as one control — one
+     border round the group, a hairline between options, the chosen one filled
+     with the brand tint. The overview's 可動用／受限制／全部 and coverage's
+     month range. It sizes to its content even inside `.row`, whose `> *` rule
+     stretched each option into its own full-width button when these were
+     written as a row of loose buttons. */
+  .seg {
+    display: inline-flex; align-items: stretch;
+    border: 1px solid var(--line-strong); border-radius: var(--r-1);
+    background: var(--surface-2);
+
+    & > button {
+      min-height: var(--h-control-sm); padding: 0 var(--sp-12); font-size: var(--fs-xs);
+      border: 0; border-radius: 0; background: transparent; color: var(--ink-2);
+
+      & + button { border-left: 1px solid var(--line-strong); }
+      &:first-child { border-radius: var(--r-1) 0 0 var(--r-1); }
+      &:last-child { border-radius: 0 var(--r-1) var(--r-1) 0; }
+      /* The divider keeps its colour: the global button hover would brighten
+         it on one side of the option under the pointer. */
+      &:hover { background: var(--surface-3); border-color: var(--line-strong); color: var(--ink); }
+      /* Brand, because it is a control; the numbers beside it own green and red. */
+      &[aria-pressed="true"] { background: var(--brand-tint); color: var(--brand); }
+    }
+  }
+  .row > .seg { flex: 0 0 auto; }
+  .icon-btn {
+    background: none; border-color: transparent; color: var(--ink-3);
+    min-height: var(--h-control-sm); padding: 0 var(--sp-6);
+    &:hover { background: var(--surface-3); border-color: transparent; color: var(--ink); }
+  }
+
+  input, select, textarea {
+    font: inherit; font-size: var(--fs-sm);
+    background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line-strong); border-radius: var(--r-1);
+    padding: var(--sp-8); width: 100%;
+    transition: border-color var(--dur);
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--brand); }
+  input[type=checkbox] { width: auto; accent-color: var(--brand); }
+  input::placeholder, textarea::placeholder { color: var(--ink-3); }
+
+  label.field { display: block; margin-bottom: var(--sp-12); }
+  label.field > span {
+    display: block; font-size: var(--fs-xs); font-weight: 500;
+    color: var(--ink-2); margin-bottom: var(--sp-4);
+  }
+  .row { display: flex; gap: var(--sp-8); flex-wrap: wrap; align-items: flex-end; }
+  .row > * { flex: 1 1 150px; min-width: 0; }
+  .row > .shrink { flex: 0 0 auto; }
+  /* The row's own gap is the spacing; a field keeping its stacked margin as
+     well was `style="margin:0"` at four call sites. */
+  .row label.field { margin-bottom: 0; }
+
+  /* A modal's buttons, which every form in the app ends with. Was
+     `class="row shrink" style="justify-content:flex-end;gap:8px"` seven times —
+     and inside `.row` those buttons were being stretched by `.row > *` rather
+     than sitting at the end as intended. */
+  .modal-foot { display: flex; justify-content: flex-end; gap: var(--sp-8); margin-top: var(--sp-16); }
+
+  .toolbar { display: flex; gap: var(--sp-8); flex-wrap: wrap; align-items: center; margin-bottom: var(--sp-12); }
+  /* A filter bar reads as a row of equals, so its controls share one width
+     instead of four hand-picked ones, and whichever field is the search grows
+     into what is left. */
+  .toolbar > select, .toolbar > input { flex: 0 1 160px; width: auto; min-width: 0; }
+  .toolbar > .grow { flex: 1 1 200px; }
+  .toolbar.pager { justify-content: center; margin: var(--sp-16) 0 0; }
+
+  /* **A pill is a status, and a status is a thing that is not normally true.**
+     停用, 轉帳, 已修復欄位, 重複, 錯誤 — each says something happened to this
+     row. An account's kind and its currency are not statuses: they are the value
+     of the column they sit in, and the header already names it, so a chip around
+     them is the same word said twice in a louder voice. `source` was the worst
+     of them, a chip reading `csv` on every row of a ledger imported from CSV. */
+  .pill {
+    display: inline-block; padding: var(--sp-4) var(--sp-8); border-radius: var(--r-full);
+    font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; line-height: var(--lh-tight);
+    background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line);
+
+    &.green  { color: var(--up);   border-color: var(--up-line);   background: var(--up-tint); }
+    &.amber  { color: var(--warn); border-color: var(--warn-line); background: var(--warn-tint); }
+    &.rose   { color: var(--down); border-color: var(--down-line); background: var(--down-tint); }
+    /* Ink only, so it reads lighter than a filled one: 跨幣 qualifies the match
+       beside it rather than announcing itself. */
+    &.blue   { color: var(--brand); }
+    /* Filled, the heaviest a pill gets: 轉帳 changes what the row means. */
+    &.violet { color: var(--brand); border-color: var(--brand-line); background: var(--brand-tint); }
+  }
+
+  /* A currency code is a code, not prose. Mono so TWD and USD occupy the same
+     width down a column, and neutral because the amount beside it already shows
+     `NT$` or `$` — colouring it here would be the third telling. */
+  .cur { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink-2); }
+
+  .muted { color: var(--ink-3); }
+  .small { font-size: var(--fs-xs); }
+  code {
+    font-family: var(--mono); font-size: .92em;
+    background: var(--surface-2); padding: var(--sp-2) var(--sp-4); border-radius: var(--r-1);
+  }
+
+  /* Four severities, told apart by their icon and wording as well as their tint:
+     .note explains, .warn proceeds but wants a look, .err is blocked or refused,
+     .ok succeeded. `.err` and `.ok` land with the import and 待辦 work. */
+  /* No leading bar here: the icon is already sitting at the left edge saying
+     which severity this is, in the severity's own colour, and a coloured stripe
+     immediately beside it says it a second time without adding a signal. */
+  .note {
+    position: relative;
+    background: var(--brand-tint); border: 1px solid var(--brand-line);
+    padding: var(--sp-12); padding-left: calc(var(--sp-12) + 16px + var(--sp-8));
+    border-radius: var(--r-1);
+    font-size: var(--fs-xs); line-height: var(--lh); color: var(--ink-2);
+    --icon: var(--icon-info);
+    --icon-tint: var(--brand);
+
+    &.warn { background: var(--warn-tint); border-color: var(--warn-line); --icon: var(--icon-warn); --icon-tint: var(--warn); }
+    &.err  { background: var(--down-tint); border-color: var(--down-line); --icon: var(--icon-err);  --icon-tint: var(--down); }
+    &.ok   { background: var(--up-tint);   border-color: var(--up-line);   --icon: var(--icon-ok);   --icon-tint: var(--up); }
+  }
+
+  /* Absolutely positioned rather than a flex child: a notice's content is
+     whatever the call site wrote — bare text, a <b>, sometimes a button — and
+     making the container a flex row would lay those out side by side. This way
+     every line of a notice stays indented past the icon and nothing else about
+     the content changes. */
+  .note::before, .todo-item::before {
+    content: ''; position: absolute; width: 16px; height: 16px;
+    background: var(--icon-tint);
+    mask: var(--icon) center / contain no-repeat;
+    -webkit-mask: var(--icon) center / contain no-repeat;
+  }
+  .note::before { left: var(--sp-12); top: calc(var(--sp-12) + 2px); }
+
+  /* ---------- todo ---------- */
+
+  /* The overview's warnings used to be one amber block of `⚠︎` lines: a card
+     whose sign is silently doubling net worth and a pairing that could wait a
+     week read at exactly the same weight, and neither said where to go. One row
+     per item — icon, label, sentence, and the link that resolves it.
+     The icon is what carries severity for a reader who cannot separate the two
+     tints, which is why it is not decoration. */
+  /* `overflow: hidden` because the rows run edge to edge and their dividers
+     would otherwise cross the card's rounded corners. */
+  .card.todo { padding: 0; overflow: hidden; }
+  .todo-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: var(--sp-12) var(--sp-16); border-bottom: 1px solid var(--line);
+    & h2 { margin: 0; font-size: var(--fs-md); font-weight: 700; }
+  }
+  .todo-item {
+    position: relative;
+    display: flex; align-items: center; gap: var(--sp-12);
+    padding: var(--sp-12) var(--sp-16); padding-left: calc(var(--sp-16) + 16px + var(--sp-12));
+    border-bottom: 1px solid var(--line);
+
+    &:last-child { border-bottom: none; }
+    &::before { left: var(--sp-16); top: 50%; transform: translateY(-50%); }
+    & > .btn, & > button { flex: 0 0 auto; }
+
+    /* Icon only, same as `.note`: it sits at the left edge in the severity's
+       own colour, and a bar three pixels to its left repeats it rather than
+       adding anything. Severity still survives losing colour, because the
+       glyph differs. */
+    &.err  { --icon: var(--icon-err);  --icon-tint: var(--down); & .todo-label { color: var(--down); } }
+    &.warn { --icon: var(--icon-warn); --icon-tint: var(--warn); & .todo-label { color: var(--warn); } }
+    /* 月度審計 lists its findings in these rows too: `info` is one worth a
+       look, in the info notice's own icon and tint, and `ok` one somebody has
+       answered — dimmed, with the tick, because it stays listed and must read
+       as settled. */
+    &.info { --icon: var(--icon-info); --icon-tint: var(--brand); }
+    &.ok   {
+      --icon: var(--icon-ok); --icon-tint: var(--ink-3);
+      & .todo-label, & .todo-text { color: var(--ink-3); }
+    }
+  }
+  .todo-body { flex: 1 1 auto; min-width: 0; }
+  .todo-label { font-size: var(--fs-xs); font-weight: 700; letter-spacing: var(--track-label); }
+  .todo-text { margin-top: var(--sp-2); font-size: var(--fs-sm); line-height: var(--lh); }
+  .todo-rows { margin-top: var(--sp-4); font-size: var(--fs-xs); color: var(--ink-3); }
+
+
+  /* ---------- modal & toast ---------- */
+
+  .modal {
+    position: fixed; inset: 0; background: rgb(0 0 0 / .66);
+    display: grid; place-items: center; z-index: 50; padding: var(--sp-24);
+  }
+  /* An author `display` beats the UA sheet's `[hidden] { display: none }`, so
+     without this the overlay sits over the whole app from first paint. Any
+     element that sets display and is toggled with `hidden` needs the same. */
+  .modal[hidden], .toast[hidden], .mode-switch[hidden], .mode-bar[hidden] { display: none; }
+  .modal-card {
+    background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-2);
+    width: min(560px, 100%); max-height: 86vh; overflow: auto; padding: var(--sp-24);
+    box-shadow: var(--shadow-2);
+  }
+  .modal-head {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-16);
+    & h3 { margin: 0; font-size: var(--fs-lg); font-weight: 700; }
+  }
+
+  .toast {
+    position: fixed; bottom: var(--sp-24); left: 50%; transform: translateX(-50%);
+    background: var(--surface-2); border: 1px solid var(--line-strong);
+    padding: var(--sp-12) var(--sp-16); border-radius: var(--r-1);
+    font-size: var(--fs-sm); z-index: 60;
+    box-shadow: var(--shadow-1);
+
+    /* One border in the outcome's colour, plus the text in it. A toast is two
+       seconds long and four words wide; a stripe on one edge of that is noise. */
+    &.ok  { border-color: var(--up);   color: var(--up); }
+    &.err { border-color: var(--down); color: var(--down); }
+  }
+
+}

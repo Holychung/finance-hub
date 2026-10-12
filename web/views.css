@@ -1,0 +1,169 @@
+/* What one view alone uses: AI 健檢's text, the budget card, the import
+   flow, the coverage grid. A rule moves to components.css when a second view
+   needs it, the way a helper moves to core.js. See tokens.css for how the
+   files fit together. */
+
+@layer app {
+
+  /* What AI 健檢 sends, shown before it is sent: the instruction and the
+     document, as the plain text they are. */
+  .ai-text {
+    margin: 0 0 var(--sp-12); max-height: var(--h-scroll); overflow: auto;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-2);
+    background: var(--surface-2); border-radius: var(--r-1); padding: var(--sp-12);
+  }
+  /* The model's answer, as the few elements view-ai.js rebuilds from it. */
+  .ai-answer { font-size: var(--fs-sm); }
+  .ai-answer h4 { font-size: var(--fs-md); margin: var(--sp-16) 0 var(--sp-8); }
+  .ai-answer h4:first-child { margin-top: 0; }
+  .ai-answer p, .ai-answer ul, .ai-answer ol { margin: 0 0 var(--sp-8); }
+  .ai-answer ul, .ai-answer ol { padding-left: var(--sp-24); }
+
+  /* ---------- budgets ---------- */
+
+  /* The card's heading carries its own month switch on the same line, so the
+     heading's bottom margin moves to the row that holds both. */
+  .budget-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--sp-12); margin-bottom: var(--sp-12);
+  }
+  .budget-head > h2.sec { margin: 0; }
+  .budget-sum { font-size: var(--fs-xs); color: var(--ink-2); margin-bottom: var(--sp-12); }
+
+  /* One budget per row: what it is for, how much of it the month has used, the
+     same in words, and the row's own actions. The rows share one set of columns
+     (a subgrid) because the figures differ in width from row to row: as a flex
+     row each bar ended somewhere else, and the month-so-far tick — the same day
+     in every row — landed in a different place on each. */
+  .budget-list {
+    display: grid; grid-template-columns: var(--bar-label) minmax(80px, 1fr) auto auto;
+    column-gap: var(--sp-12);
+    /* On a phone the name, figures and actions leave the bar no room beside
+       them, so it takes a line of its own underneath (.budget-track), still
+       the same width in every row. */
+    @media (max-width: 720px) { grid-template-columns: 1fr auto auto; }
+  }
+  .budget-row {
+    display: grid; grid-template-columns: subgrid; grid-column: 1 / -1;
+    align-items: center; row-gap: var(--sp-8);
+    padding: var(--sp-8) 0; border-bottom: 1px solid var(--line);
+  }
+  .budget-row:last-child { border-bottom: none; }
+  .budget-name { min-width: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+  /* Not `.bar-track`: that one clips its children, and the month-so-far tick
+     deliberately stands proud of the track, so it still reads where it crosses
+     the fill. */
+  .budget-track {
+    position: relative;
+    height: var(--sp-8); background: var(--surface-2); border-radius: var(--r-1);
+    @media (max-width: 720px) { grid-column: 1 / -1; grid-row: 2; }
+  }
+  /* A share of a number the user set, not an amount, so the neutral ramp and
+     never green. Over budget the bar is full and turns to money's red, beside
+     the word 超支 that says the same thing without colour. */
+  .budget-fill { display: block; height: 100%; border-radius: var(--r-1); background: var(--chart-2); }
+  .budget-fill.over { background: var(--down); }
+  /* How much of the running month has passed: a second fact beside the bar, not
+     a forecast drawn from the two. `left` is the datum, set where it is known. */
+  .budget-tick {
+    position: absolute; top: calc(var(--sp-4) * -1); bottom: calc(var(--sp-4) * -1);
+    width: var(--sp-2); background: var(--ink-2); border-radius: var(--r-1);
+    transform: translateX(-50%);
+  }
+  .budget-fig {
+    text-align: right;
+    font-family: var(--mono); font-size: var(--fs-xs); font-variant-numeric: tabular-nums;
+  }
+  /* Money past the line, so money's colour — next to the word that says it. */
+  .budget-fig .over { color: var(--down); }
+
+  /* ---------- import ---------- */
+
+  .dropzone {
+    border: 1.5px dashed var(--line-strong); border-radius: var(--r-2);
+    padding: var(--sp-32); text-align: center; color: var(--ink-3);
+    cursor: pointer; transition: border-color var(--dur), background var(--dur);
+  }
+  .dropzone:hover, .dropzone.over { border-color: var(--brand); background: var(--brand-tint); }
+  /* The caption under the filename, tight against it on purpose. */
+  .dropzone .small { margin-top: var(--sp-4); }
+
+  /* What an import left out and why, one line each, under its result. */
+  .import-facts { margin: 0 0 var(--sp-12); padding-left: var(--sp-16); color: var(--ink-3); font-size: var(--fs-xs); }
+  .import-facts li + li { margin-top: var(--sp-4); }
+
+  .grid-preview { font-family: var(--mono); font-size: var(--fs-2xs); }
+  .grid-preview td { padding: var(--sp-4) var(--sp-8); white-space: nowrap; }
+  .grid-preview tr.header-row { background: var(--brand-tint); }
+  .grid-preview tr.header-row td { color: var(--brand); font-weight: 600; }
+
+  /* The rows an import issue is about. A row's status is a leading bar plus its
+     own ink, never a dimmed copy of the row: reading the row is exactly how you
+     judge whether the issue is real. */
+  tr.err   td { background: var(--down-tint); }
+  tr.err   td:first-child { box-shadow: inset var(--marker) 0 0 var(--down); }
+  tr.fixed td { background: var(--warn-tint); }
+  tr.fixed td:first-child { box-shadow: inset var(--marker) 0 0 var(--warn); }
+
+  /* ---------- coverage grid ---------- */
+
+  /* One cell per account-month, and the cell states which of four things it is
+     *in text*: the transaction count, `–` for a month with no rows but a balance
+     check standing in it, `?` for a month the ledger knows nothing about, blank
+     for a month the account did not exist in. Colour only makes it scannable —
+     in greyscale the table still reads, which is the rule for every status in
+     this app. Amber, not red: a gap is "look at this", not a failure. Red is
+     reserved for the leading bar on a month whose balance check disagreed, which
+     is the same marker a rejected import row wears.
+     Ratios are against the surface each cell actually sits on. */
+  .cov-table th, .cov-table td { padding: var(--sp-4) var(--sp-6); }
+  .cov-year { text-align: center; }
+  .cov-mon { text-align: center; font-family: var(--mono); }
+
+  /* The grid is wider than the card, so the name travels with the scroll.
+     It needs its own background or the cells slide under transparent text. */
+  .cov-name { position: sticky; left: 0; z-index: 1; background: var(--surface); white-space: nowrap; }
+  thead .cov-name { background: var(--surface-2); z-index: 2; }
+  tbody tr:hover .cov-name { background: var(--surface-3); }
+  .cov-name a { color: var(--ink); text-decoration: none; }
+  .cov-name a:hover { color: var(--brand); }
+  .cov {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: var(--fs-2xs);
+    font-variant-numeric: tabular-nums;
+    min-width: 26px;
+  }
+  .cov-data    { background: var(--surface-3); color: var(--ink-2); }   /* 7.2:1 */
+  .cov-quiet   { background: var(--surface-2); color: var(--ink-3); }   /* 4.9:1 */
+  .cov-gap     { background: var(--warn-tint); color: var(--warn); }    /* 7.7:1 */
+  /* Half known. Amber like a gap because it is the same kind of news, but on
+     the plain surface rather than the tint: less of the month is in doubt, so
+     it should read as quieter than a gap, not equal to it. */
+  .cov-partial { color: var(--warn); }                                  /* 8.9:1 on --surface */
+  .cov-outside { color: var(--ink-3); }
+  .cov.off { box-shadow: inset var(--marker) 0 0 var(--down); }
+
+  /* The gap cells are the actionable ones, so only they are buttons — a tab stop
+     on all two-hundred-odd cells would make the keyboard route through the grid
+     useless. Fills its cell so the whole square is the target. */
+  .cov-btn {
+    display: block; width: 100%; padding: 0;
+    background: none; border: 0; border-radius: 0;
+    color: inherit; font: inherit; cursor: pointer;
+  }
+  .cov-btn:hover { color: var(--ink); }
+
+  .cov-legend {
+    display: flex; flex-wrap: wrap; gap: var(--sp-8) var(--sp-16);
+    margin-top: var(--sp-12);
+    font-size: var(--fs-xs); color: var(--ink-3);
+  }
+  .cov-legend i {
+    display: inline-block; min-width: 20px; padding: 0 var(--sp-4);
+    margin-right: var(--sp-6); border-radius: var(--r-1);
+    font-style: normal; text-align: center;
+  }
+
+}

@@ -32,7 +32,7 @@ request handler 最上面設定一次，所以每個 response 都帶著，403 �
 
 ## 沒有對外連線，而且是擋得住的
 
-`test/deps.test.js` 會掃 `web/`、`shared/`、`server/`、`scripts/` 找外部網址，掃 `style.css` 找外部的
+`test/deps.test.js` 會掃 `web/`、`shared/`、`server/`、`scripts/` 找外部網址，掃 `web/` 裡每一個樣式表找外部的
 `url()` 與 `@import`。字型的 `@import` 是這件事的安靜版本——它會在每次開頁時告訴陌生人的伺
 服器，這台機器剛打開了帳本。
 

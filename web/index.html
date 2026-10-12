@@ -8,10 +8,21 @@
      favicon renders as a different picture on every OS and sits oddly on a
      dark-only app; this is the one drawing, at two sizes. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2374b4e8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 21h18'/%3E%3Cpath d='M5 21V10l7-5 7 5v11'/%3E%3Cpath d='M9 21v-6h6v6'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/style.css">
-<!-- Every rule in modes.css is scoped under :root[data-mode], which app.js
-     sets only when the `modes` flag (flags.js) is on; off, it applies nothing. -->
+<!-- The stylesheets, in cascade order; tokens.css says what each holds and
+     declares the three layers, so this order cannot change who wins. The last
+     four are the AI modes: every rule in them is nested under
+     :root[data-mode], which app.js sets only while the `modes` flag
+     (flags.js) is on, so off they apply nothing. -->
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/base.css">
+<link rel="stylesheet" href="/chrome.css">
+<link rel="stylesheet" href="/components.css">
+<link rel="stylesheet" href="/charts.css">
+<link rel="stylesheet" href="/views.css">
 <link rel="stylesheet" href="/modes.css">
+<link rel="stylesheet" href="/theme-none.css">
+<link rel="stylesheet" href="/theme-local.css">
+<link rel="stylesheet" href="/theme-cloud.css">
 </head>
 <body>
 

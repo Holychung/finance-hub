@@ -1,0 +1,42 @@
+/* 月夜 — AI on this machine: deep navy, a crescent and stars.
+
+   Behind the `modes` flag, like modes.css, and the same rule holds:
+   everything here is nested under this theme's own :root[data-mode], so it
+   applies only while the mode is drawn. The block redefines tokens.css's
+   names and adds this theme's drawing and motion; nothing else. Ratios are
+   the worst case across --bg … --surface-3. */
+
+@layer modes {
+
+  /* 月夜 · 深藍 */
+  :root[data-mode="local"] {
+    color-scheme: dark;
+    --bg: #0a1426;
+    --surface: #0f1c33;
+    --surface-2: #15243f;
+    --surface-3: #1a2b4a;
+    --line: #223558;
+    --line-strong: #6580aa;  /* 3.5:1 */
+    --ink: #e6eefb;  /* 12.1:1 */
+    --ink-2: #a9bad6;  /* 7.2:1 */
+    --ink-3: #8aa0c2;  /* 5.3:1 */
+    --brand: #8ec5ff;  /* 7.8:1 */
+    --brand-solid: #8ec5ff;
+    --brand-ink: #0a1426;
+    --brand-tint: #16304f;
+    --brand-line: #2b4f7d;
+    --chart-1: #c2dfff;
+    --chart-2: #8ec5ff;
+    --chart-3: #6aa9ef;
+    --chart-4: #4f8fdb;
+    --deco: #f3e6a8;
+    --up: #5fd991;  /* 7.9:1 */
+    --down: #f4837e;  /* 5.6:1 */
+    --warn: #e3b155;  /* 7.2:1 */
+    --deco-shape: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27120%27%20height%3D%27120%27%3E%3Cg%20fill%3D%27black%27%3E%3Cpath%20opacity%3D%27.7%27%20d%3D%27M102%2034a14%2014%200%201%201-15-20%2011%2011%200%200%200%2015%2020z%27%2F%3E%3Ccircle%20cx%3D%2762%27%20cy%3D%2718%27%20r%3D%271.4%27%20opacity%3D%27.7%27%2F%3E%3Ccircle%20cx%3D%2774%27%20cy%3D%2748%27%20r%3D%271%27%20opacity%3D%27.5%27%2F%3E%3Ccircle%20cx%3D%27110%27%20cy%3D%2758%27%20r%3D%271.2%27%20opacity%3D%27.6%27%2F%3E%3Ccircle%20cx%3D%2748%27%20cy%3D%2740%27%20r%3D%27.9%27%20opacity%3D%27.45%27%2F%3E%3Ccircle%20cx%3D%2790%27%20cy%3D%2770%27%20r%3D%27.8%27%20opacity%3D%27.4%27%2F%3E%3Cpath%20opacity%3D%27.6%27%20d%3D%27M30%2022l1.2%203%203%201.2-3%201.2-1.2%203-1.2-3-3-1.2%203-1.2z%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+
+    & .sidebar::before { animation: moon-in .8s cubic-bezier(.2, .8, .2, 1) both; }
+  }
+
+
+}

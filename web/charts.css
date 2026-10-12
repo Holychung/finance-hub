@@ -1,0 +1,117 @@
+/* The hand-built charts: the line chart and its hover layer, the disclosure
+   under a chart (which AI 健檢's preview shares), and the bar rows. No colour
+   is written in JS; this is where a series takes its colour. See tokens.css
+   for how the files fit together. */
+
+@layer app {
+
+  /* ---------- chart ---------- */
+
+  /* The y labels sit in the gutter, so the plot is inset by their width and the
+     x labels line up under it. Everything but the two paths is HTML: inside a
+     `preserveAspectRatio="none"` SVG the two axes scale differently, and text,
+     round dots and stroke widths all come out wrong. */
+  .chart { --chart-gutter: 46px; }
+  .chart-plot { position: relative; height: 150px; margin-left: var(--chart-gutter); }
+  .chart-plot > svg { width: 100%; height: 100%; display: block; }
+  /* Nothing to draw keeps the chart's room: the same plot box, holding the same
+     empty state every other list in the app shows, so a card with no data still
+     lines up with the one beside it and reads as empty rather than as missing. */
+  .chart-plot.chart-empty { display: flex; align-items: center; justify-content: center; }
+  /* The area's fill is not here: each chart generates its own gradient id, so
+     the reference has to be written where the id is. */
+  .chart .line { fill: none; stroke: var(--brand); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  /* lineChart() writes the gradient stops with no colour of their own, so this
+     is where the series takes its colour and the palette stays in one file. */
+  .chart stop { stop-color: var(--brand); }
+
+  .chart-grid {
+    position: absolute; left: 0; right: 0; height: 0;
+    border-top: 1px solid var(--line); pointer-events: none;
+  }
+  .chart-y, .chart-x span {
+    font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink-3);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .chart-y {
+    position: absolute; right: 100%; margin-right: var(--sp-8);
+    transform: translateY(-50%);
+  }
+  /* The series ends at the right edge, so half the dot would hang outside the
+     plot; nudging it in keeps it whole without moving the line it marks. It
+     steps aside while the cursor is on the chart so there is only ever one. */
+  .chart-dot {
+    position: absolute; left: 100%; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--brand); box-shadow: 0 0 0 2px var(--surface);
+    transform: translate(-100%, -50%);
+    transition: opacity var(--dur);
+  }
+  .chart-plot.hovering .chart-dot { opacity: 0; }
+
+  /* The hover layer. A chart with twelve points and no way to ask what any of
+     them is, is a picture of a trend rather than a reading of it. Positions
+     come from JS, so they transition rather than jump between months — and the
+     reduced-motion rule in base.css cancels that for anyone who
+     asked it to. */
+  .chart-cursor, .chart-tip {
+    opacity: 0; pointer-events: none;
+    transition: left var(--dur) ease-out, top var(--dur) ease-out, opacity var(--dur);
+  }
+  .chart-plot.hovering .chart-cursor,
+  .chart-plot.hovering .chart-tip { opacity: 1; }
+  .chart-cursor {
+    position: absolute; top: 0; bottom: 0; width: 0;
+    border-left: 1px solid var(--line-strong);
+  }
+  .chart-cursor-dot {
+    position: absolute; left: 0; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--brand); box-shadow: 0 0 0 2px var(--surface);
+    transform: translate(-50%, -50%);
+    transition: top var(--dur) ease-out;
+  }
+  .chart-tip {
+    position: absolute; z-index: 2; white-space: nowrap;
+    padding: var(--sp-4) var(--sp-8); border-radius: var(--r-1);
+    background: var(--surface-2); border: 1px solid var(--line-strong);
+    box-shadow: var(--shadow-1);
+    font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    transform: translate(-50%, calc(-100% - 12px));
+  }
+  .chart-tip.at-start { transform: translate(0, calc(-100% - 12px)); }
+  .chart-tip.at-end   { transform: translate(-100%, calc(-100% - 12px)); }
+  .chart-x {
+    display: flex; justify-content: space-between;
+    margin: var(--sp-4) 0 0 var(--chart-gutter);
+  }
+
+  /* The keyboard's way in. Closed it is one line; open it is every figure the
+     hover can show. AI 健檢's preview of what it sends is the same kind of
+     disclosure — one line until somebody wants the whole text — so it is the
+     same rule. */
+  .chart-data, .ai-preview { margin-top: var(--sp-12); }
+  .chart-data > summary, .ai-preview > summary {
+    cursor: pointer; width: fit-content;
+    font-size: var(--fs-xs); color: var(--ink-3);
+    padding: var(--sp-4) var(--sp-6); margin-left: calc(var(--sp-6) * -1);
+    border-radius: var(--r-1);
+  }
+  .chart-data > summary:hover, .ai-preview > summary:hover { color: var(--ink); background: var(--surface-3); }
+  .chart-data[open] > summary, .ai-preview[open] > summary { margin-bottom: var(--sp-8); }
+
+
+  .bar-row { display: flex; align-items: center; gap: var(--sp-8); margin-bottom: var(--sp-8); font-size: var(--fs-xs); }
+  .bar-row .name { flex: 0 0 var(--bar-label); color: var(--ink-2); }
+  .bar-track { flex: 1; height: var(--sp-8); background: var(--surface-2); border-radius: var(--r-1); overflow: hidden; }
+  /* `display` is load-bearing, not cosmetic: .bar-fill is a <span> and
+     .bar-track is a flex *item*, not a flex container, so nothing blockifies
+     the child. Left inline it ignores both the width app.js sets and the height
+     here, and paints its background over a 0×0 box — which is why this bar has
+     never actually appeared. */
+  .bar-fill { display: block; height: 100%; border-radius: var(--r-1); }
+  .bar-row .val { flex: 0 0 auto; font-family: var(--mono); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+  /* A lone entry has no track to sit in, so the name takes the space the bar
+     would have occupied instead of leaving the numbers stranded at the left. */
+  .bar-row.solo .name { flex: 1 1 auto; }
+
+}

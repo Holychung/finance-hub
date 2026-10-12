@@ -137,15 +137,23 @@ describe('不對外連線', () => {
   // A stylesheet reaches the network through url() and @import, which read as
   // styling rather than as a request. A single @font-face is enough to tell a
   // font host, on every page load, that this machine opened its ledger.
+  // Every stylesheet in web/, not one by name: the styling is ten files now,
+  // and a scan that kept reading the one it was written for would pass while
+  // a font import sat in any of the others.
   it('樣式表沒有外部 url() 或 @import', () => {
-    const css = fs.readFileSync(path.join(ROOT, 'web', 'style.css'), 'utf8');
-    // Both spellings: `@import "x"` and `@import url("x")`, plus bare `url()`.
-    const external = [...css.matchAll(/(?:@import\s+(?:url\()?|url\()\s*['"]?([^'")\s]+)/g)]
-      .map((m) => m[1])
-      // `url(#nwgrad)` points at a gradient in the same document, and a data:
-      // URI is the bytes themselves — neither is a request.
-      .filter((ref) => !ref.startsWith('#') && !ref.startsWith('data:'));
+    const files = fs.readdirSync(path.join(ROOT, 'web')).filter((f) => f.endsWith('.css'));
+    assert.ok(files.length > 5, `只找到 ${files.length} 個樣式表`);
+    const external = files.flatMap((f) => {
+      const css = fs.readFileSync(path.join(ROOT, 'web', f), 'utf8');
+      // Both spellings: `@import "x"` and `@import url("x")`, plus bare `url()`.
+      return [...css.matchAll(/(?:@import\s+(?:url\()?|url\()\s*['"]?([^'")\s]+)/g)]
+        .map((m) => m[1])
+        // `url(#nwgrad)` points at a gradient in the same document, and a data:
+        // URI is the bytes themselves — neither is a request.
+        .filter((ref) => !ref.startsWith('#') && !ref.startsWith('data:'))
+        .map((ref) => `${f}：${ref}`);
+    });
     assert.deepEqual(external, [],
-      `style.css 參照了外部資源：${external.join('、')}`);
+      `樣式表參照了外部資源：${external.join('、')}`);
   });
 });

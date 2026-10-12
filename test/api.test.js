@@ -971,7 +971,7 @@ describe('乾淨網址（沒有 #）', () => {
     // index.html, and the browser got HTML where it asked for CSS and for
     // JS — no styles, no scripts, every account page opened directly or
     // refreshed a blank shell stuck on 載入中, and nothing in the console.
-    // index.html now asks for `/style.css` so it never happens by accident,
+    // index.html now asks for `/tokens.css` and the rest by absolute path, so it never happens by accident,
     // but a typo in a relative path must still fail loudly.
     for (const p of ['/account/style.css', '/account/app.js', '/import/nope.png']) {
       const r = await body(p);

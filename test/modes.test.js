@@ -1,8 +1,9 @@
 'use strict';
 
 // The AI modes behind the `modes` flag: that the flag is wired before the
-// first render, that with it off web/modes.css applies nothing, and that
-// every mode's tokens clear the same contrast bar style.css's do.
+// first render, that with it off modes.css and the theme files apply nothing,
+// and that every mode's tokens — and tokens.css's own — clear the same
+// contrast bar.
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
@@ -17,31 +18,16 @@ const { REACH } = require('../server/ai');
 const ROOT = path.join(__dirname, '..');
 const FLAGS_JS = fs.readFileSync(path.join(ROOT, 'web', 'flags.js'), 'utf8');
 const APP_JS = fs.readFileSync(path.join(ROOT, 'web', 'app.js'), 'utf8');
-const CSS = fs.readFileSync(path.join(ROOT, 'web', 'modes.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 const INDEX = fs.readFileSync(path.join(ROOT, 'web', 'index.html'), 'utf8');
+const { parse, rules } = require('./css-tree');
 
-// Every rule in the file as [selector, body], @media unwrapped, @keyframes
-// left out — a keyframe's selectors are percentages, not elements.
-function rules(text) {
-  const out = [];
-  let i = 0;
-  while (i < text.length) {
-    const open = text.indexOf('{', i);
-    if (open < 0) break;
-    const prelude = text.slice(i, open).trim();
-    let depth = 1;
-    let j = open + 1;
-    for (; j < text.length && depth; j++) {
-      if (text[j] === '{') depth++;
-      else if (text[j] === '}') depth--;
-    }
-    const body = text.slice(open + 1, j - 1);
-    if (prelude.startsWith('@media')) out.push(...rules(body));
-    else if (!prelude.startsWith('@keyframes')) out.push([prelude, body]);
-    i = j;
-  }
-  return out;
-}
+// The modes chrome and one file per theme: every stylesheet in the modes layer.
+const MODE_FILES = fs.readdirSync(path.join(ROOT, 'web'))
+  .filter((f) => f === 'modes.css' || /^theme-\w+\.css$/.test(f)).sort();
+const read = (f) => fs.readFileSync(path.join(ROOT, 'web', f), 'utf8');
+const CSS = MODE_FILES.map(read).join('\n');
+const MODE_RULES = MODE_FILES.flatMap((f) => [...rules(parse(read(f)))].map((r) => ({ ...r, file: f })));
+const TOKEN_RULES = [...rules(parse(read('tokens.css')))];
 
 const lum = (hex) => {
   const c = hex.replace('#', '').match(/../g).map((h) => parseInt(h, 16) / 255)
@@ -84,15 +70,26 @@ describe('模式就是 server 的 reach', () => {
   });
 });
 
-describe('modes.css 只在旗標開啟時生效', () => {
-  const all = rules(CSS);
+describe('modes.css 和主題檔只在旗標開啟時生效', () => {
+  it('四個檔案都在：modes.css 加上每個 reach 一個主題檔', () => {
+    assert.deepEqual(MODE_FILES, ['modes.css', ...REACH.map((r) => `theme-${r}.css`).sort()]);
+  });
 
-  it('每一條規則都掛在 :root[data-mode] 底下', () => {
-    assert.ok(all.length > 10, 'parser 讀到的規則太少，大概讀錯了');
-    for (const [selector] of all) {
-      for (const one of selector.split(',').map((s) => s.trim())) {
-        assert.ok(one.startsWith(':root[data-mode'), `沒有 scope 的規則：${one}`);
+  // Selectors as they apply once nesting is resolved, so a nested rule that
+  // escaped its :root[data-mode] parent would show up here bare.
+  it('每一條規則（巢狀展開之後）都掛在 :root[data-mode] 底下', () => {
+    assert.ok(MODE_RULES.length > 20, 'parser 讀到的規則太少，大概讀錯了');
+    for (const r of MODE_RULES) {
+      for (const one of r.selector.split(',').map((s) => s.trim())) {
+        assert.ok(one.startsWith(':root[data-mode'), `${r.file} 沒有 scope 的規則：${one}`);
       }
+    }
+  });
+
+  it('每個主題檔只畫自己那個模式', () => {
+    for (const r of MODE_RULES.filter((x) => x.file.startsWith('theme-'))) {
+      const mode = r.file.match(/^theme-(\w+)\.css$/)[1];
+      assert.ok(r.selector.startsWith(`:root[data-mode="${mode}"]`), `${r.file}：${r.selector}`);
     }
   });
 
@@ -102,24 +99,43 @@ describe('modes.css 只在旗標開啟時生效', () => {
   });
 });
 
-describe('每個模式的對比度', () => {
-  const blocks = rules(CSS)
-    .filter(([sel, body]) => /^:root\[data-mode="\w+"\]$/.test(sel) && body.includes('--bg:'))
-    .map(([sel, body]) => [sel.match(/"(\w+)"/)[1],
-      Object.fromEntries([...body.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]))]);
+describe('每一組 token 的對比度', () => {
+  const tokensOf = (r) => Object.fromEntries(r.decls
+    .map((d) => d.match(/^--([\w-]+):\s*(#[0-9a-f]{6})\b/i)).filter(Boolean).map((m) => [m[1], m[2]]));
+  // Each theme's block, and the default palette every view starts from — its
+  // ratios were only ever comments beside the values until this checked them.
+  const blocks = [
+    ['default', tokensOf(TOKEN_RULES.find((r) => r.selector === ':root'))],
+    ...MODE_RULES
+      .filter((r) => /^:root\[data-mode="\w+"\]$/.test(r.selector) && r.decls.some((d) => d.startsWith('--bg:')))
+      .map((r) => [r.selector.match(/"(\w+)"/)[1], tokensOf(r)]),
+  ];
 
-  it('三個模式都有自己的一組 token', () => {
-    assert.deepEqual(blocks.map(([m]) => m).sort(), ['cloud', 'local', 'none']);
+  it('預設一組，三個模式各一組', () => {
+    assert.deepEqual(blocks.map(([m]) => m).sort(), ['cloud', 'default', 'local', 'none']);
   });
+
+  // Gaps that exist and are known, by name, so they are a decision rather
+  // than a surprise. The default --line-strong is 3.39:1 on --surface, which
+  // its comment states, but 2.95:1 on --surface-3, the row hover: a bordered
+  // button inside a hovered row is just under the 3:1 a control border needs.
+  // Fixing it changes the default look, so it was left out of the stylesheet
+  // split that found it. The day the token clears the bar, this fails, and
+  // the entry goes.
+  const KNOWN_GAPS = { default: { 'line-strong': ['surface-3'] } };
 
   for (const [mode, t] of blocks) {
     it(`${mode}：文字 ≥ 4.5:1、邊框和圖表 ≥ 3:1`, () => {
-      const surfaces = ['bg', 'surface', 'surface-2', 'surface-3'].map((k) => t[k]);
-      const worst = (fg) => Math.min(...surfaces.map((s) => ratio(fg, s)));
+      const surfaces = ['bg', 'surface', 'surface-2', 'surface-3'];
+      const gaps = (k) => (KNOWN_GAPS[mode] || {})[k] || [];
+      const worst = (k) => Math.min(...surfaces.filter((s) => !gaps(k).includes(s)).map((s) => ratio(t[k], t[s])));
       for (const k of ['ink', 'ink-2', 'ink-3', 'brand', 'up', 'down', 'warn']) {
-        assert.ok(worst(t[k]) >= 4.5, `--${k} ${worst(t[k]).toFixed(2)}:1`);
+        assert.ok(worst(k) >= 4.5, `--${k} ${worst(k).toFixed(2)}:1`);
       }
-      assert.ok(worst(t['line-strong']) >= 3, `--line-strong ${worst(t['line-strong']).toFixed(2)}:1`);
+      assert.ok(worst('line-strong') >= 3, `--line-strong ${worst('line-strong').toFixed(2)}:1`);
+      for (const s of gaps('line-strong')) {
+        assert.ok(ratio(t['line-strong'], t[s]) < 3, `--line-strong 在 --${s} 上已經過了 3:1，把 KNOWN_GAPS 那一條拿掉`);
+      }
       assert.ok(ratio(t.brand, t['brand-tint']) >= 4.5, '--brand on --brand-tint');
       assert.ok(ratio(t['brand-ink'], t['brand-solid']) >= 4.5, '--brand-ink on --brand-solid');
       assert.ok(ratio(t['chart-4'], t['surface-2']) >= 3, '--chart-4 on --surface-2');

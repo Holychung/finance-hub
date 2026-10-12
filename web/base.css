@@ -1,0 +1,40 @@
+/* The page itself: sizing, the background and type every view starts from,
+   the one focus rule, and the reduced-motion override. See tokens.css for how
+   the files fit together. */
+
+@layer app {
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font: var(--fs-md) / var(--lh) var(--sans);
+  }
+
+  /* The sidebar beside the view; on a phone, a strip above it. */
+  body {
+    display: flex;
+    @media (max-width: 720px) { flex-direction: column; }
+  }
+
+  /* One focus rule for the whole app. Nothing below may write `outline: none`
+     without a replacement in the same declaration — buttons and links used to
+     have no focus style at all, which made keyboard use invisible. */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+  }
+
+}
