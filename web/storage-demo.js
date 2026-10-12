@@ -374,27 +374,6 @@
       };
     });
 
-    // --- institutions ----------------------------------------------------
-
-    on('GET', '/api/institutions', () => raw.all('institutions').sort(by('country', 'name')));
-
-    on('POST', '/api/institutions', (_p, b) => {
-      const name = S(b.name).trim();
-      if (!name) bad('機構名稱必填');
-      // name is UNIQUE in the schema, so the insert would fail rather than
-      // make a second one.
-      if (raw.all('institutions').some((i) => i.name === name)) bad(`機構「${name}」已經存在`);
-      return { id: raw.insert('institutions', { name, kind: S(b.kind, 'bank'), country: S(b.country, 'TW') }).id };
-    });
-
-    on('DELETE', '/api/institutions/:id', (p) => {
-      const id = N(p.id);
-      // ON DELETE SET NULL on accounts.institution_id.
-      raw.all('accounts').filter((a) => a.institution_id === id)
-        .forEach((a) => raw.update('accounts', a.id, { institution_id: null }));
-      return { deleted: raw.remove('institutions', (i) => i.id === id) };
-    });
-
     // --- accounts --------------------------------------------------------
 
     on('GET', '/api/accounts', () => accountsWithBalances());
@@ -420,22 +399,6 @@
       const n = Number(v);
       if (!Number.isFinite(n) || n < 0) bad('unvested 要是 0 或正數');
       return M.round2(n);
-    };
-
-    // The market and the quantity's scale, normalised and refused exactly as
-    // server/api.js does. A market stored in a different case from its price
-    // series is a price history that silently never applies.
-    const marketOf = (v, fallback) => {
-      if (v === undefined || v === null || v === '') return fallback;
-      const m = S(v).trim().toUpperCase();
-      if (!MARKET_KEYS.includes(m)) bad(`market 只能是 ${MARKET_KEYS.join('、')}`);
-      return m;
-    };
-    const placesOf = (v, fallback) => {
-      if (v === undefined || v === null || v === '') return fallback;
-      const n = Number(v);
-      if (!Number.isInteger(n) || n < 0 || n > MAX_DECIMALS) bad(`decimals 要是 0 到 ${MAX_DECIMALS} 的整數`);
-      return n;
     };
 
     on('POST', '/api/accounts', (_p, b) => {
@@ -610,118 +573,6 @@
       return { unlinked: n };
     });
 
-    // --- holdings --------------------------------------------------------
-
-    on('GET', '/api/holdings', () => holdingsValued());
-
-    on('POST', '/api/holdings', (_p, b) => {
-      if (!S(b.symbol).trim()) bad('代號必填');
-      const market = marketOf(b.market, DEFAULT_MARKET);
-      const info = marketInfo(market);
-      return {
-        id: raw.insert('holdings', {
-          account_id: N(b.account_id), symbol: S(b.symbol).trim().toUpperCase(),
-          name: S(b.name), market, shares: N(b.shares),
-          avg_cost: N(b.avg_cost), last_price: N(b.last_price),
-          price_date: OPT(b.price_date), currency: S(b.currency, info.currency), note: S(b.note),
-          decimals: placesOf(b.decimals, info.decimals),
-        }).id,
-      };
-    });
-
-    on('PUT', '/api/holdings/:id', (p, b) => {
-      const cur = raw.get('holdings', N(p.id));
-      if (!cur) missing('持股不存在');
-      raw.update('holdings', cur.id, {
-        account_id: b.account_id === undefined ? cur.account_id : N(b.account_id),
-        symbol: S(b.symbol, cur.symbol).trim().toUpperCase(),
-        name: S(b.name, cur.name), market: marketOf(b.market, cur.market),
-        shares: b.shares === undefined ? cur.shares : N(b.shares),
-        avg_cost: b.avg_cost === undefined ? cur.avg_cost : N(b.avg_cost),
-        last_price: b.last_price === undefined ? cur.last_price : N(b.last_price),
-        price_date: b.price_date === undefined ? cur.price_date : OPT(b.price_date),
-        currency: S(b.currency, cur.currency), note: S(b.note, cur.note),
-        decimals: placesOf(b.decimals, cur.decimals),
-      });
-      return { ok: true };
-    });
-
-    on('DELETE', '/api/holdings/:id', (p) => ({
-      deleted: raw.remove('holdings', (h) => h.id === N(p.id)),
-    }));
-
-    // --- fx ---------------------------------------------------------------
-
-    on('GET', '/api/fx', () => raw.all('fx_rates').sort(by('-date')).slice(0, 400));
-
-    on('POST', '/api/fx', (_p, b) => {
-      const list = Array.isArray(b.rows) ? b.rows : [b];
-      return {
-        saved: raw.tx(() => {
-          let n = 0;
-          for (const r of list) {
-            const d = csv.parseDate(r.date, 'auto');
-            if (!d) bad(`日期無法解析：${r.date}`);
-            const rate = N(r.rate);
-            if (rate <= 0) bad('匯率必須大於 0');
-            raw.put('fx_rates', { date: d, pair: S(r.pair, 'USDTWD').toUpperCase(), rate });
-            n++;
-          }
-          return n;
-        }),
-      };
-    });
-
-    on('DELETE', '/api/fx/:date', (p, _b, q) => ({
-      deleted: raw.remove('fx_rates',
-        (r) => r.date === String(p.date) && r.pair === S(q.pair, 'USDTWD')),
-    }));
-
-    // --- prices -----------------------------------------------------------
-
-    on('GET', '/api/prices', (_p, _b, q) => {
-      const symbol = S(q.symbol).trim().toUpperCase();
-      if (!symbol) bad('代號必填');
-      const market = marketOf(q.market, DEFAULT_MARKET);
-      return raw.all('prices')
-        .filter((r) => r.symbol === symbol && r.market === market)
-        .sort(by('-date'));
-    });
-
-    on('POST', '/api/prices', (_p, b) => {
-      const list = Array.isArray(b.rows) ? b.rows : [b];
-      return {
-        saved: raw.tx(() => {
-          let n = 0;
-          for (const r of list) {
-            const symbol = S(r.symbol).trim().toUpperCase();
-            if (!symbol) bad('代號必填');
-            const d = csv.parseDate(r.date, 'auto');
-            if (!d) bad(`日期無法解析：${r.date}`);
-            const price = N(r.price);
-            if (price <= 0) bad('價格必須大於 0');
-            raw.put('prices', {
-              symbol, market: marketOf(r.market, DEFAULT_MARKET), date: d, price, source: S(r.source, 'manual'),
-            });
-            n++;
-          }
-          return n;
-        }),
-      };
-    });
-
-    // The market is resolved before any row is looked at. Inside the
-    // predicate it would only be checked for a row whose symbol matched, so a
-    // bad market with nothing to delete would answer 200 where the server
-    // answers 400.
-    on('DELETE', '/api/prices', (_p, _b, q) => {
-      const symbol = S(q.symbol).trim().toUpperCase();
-      const market = marketOf(q.market, DEFAULT_MARKET);
-      return {
-        deleted: raw.remove('prices', (r) => r.symbol === symbol && r.market === market && r.date === S(q.date)),
-      };
-    });
-
     // --- the shared routes -------------------------------------------------
 
     // The rows spending, recurring and budgets read over one window, and the
@@ -749,6 +600,10 @@
       insert: (table, row) => raw.insert(table, row).id,
       update: (table, id, patch) => raw.update(table, id, patch),
       remove: (table, id) => raw.remove(table, (x) => x.id === id),
+      // The two keyed tables: `put` merges by the table's key, as ON CONFLICT
+      // does, and a delete names the whole key.
+      upsert: (table, row) => { raw.put(table, row); },
+      removeKey: (table, key) => raw.remove(table, (r) => Object.entries(key).every(([k, v]) => r[k] === v)),
       tx: (fn) => raw.tx(fn),
       getMeta: (key, fallback = null) => { const r = raw.get('meta', key); return r ? r.value : fallback; },
       setMeta: (key, value) => { raw.put('meta', { key, value: String(value) }); },
@@ -757,6 +612,11 @@
       transferCandidates: () => transferCandidates(),
       reconcile: () => reconcile(),
       coverage: (opts) => coverage(opts),
+      holdingsValued: (asOf) => holdingsValued(asOf),
+      institutions: () => raw.all('institutions').sort(by('country', 'name')),
+      prices: (symbol, market) => raw.all('prices')
+        .filter((r) => r.symbol === symbol && r.market === market).sort(by('-date')),
+      fxRates: () => raw.all('fx_rates').sort(by('-date')).slice(0, 400),
       txnDescriptions: () => raw.all('txns').sort(by('id'))
         .map(({ id, description, category }) => ({ id, description, category })),
       mappings: () => raw.all('mappings').sort(by('-used_at', 'name')),

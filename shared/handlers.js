@@ -34,7 +34,8 @@
 
 (function (root) {
   const NODE = typeof module !== 'undefined' && module.exports;
-  const { round2 } = NODE ? require('./currency') : root;
+  const { round2, MAX_DECIMALS } = NODE ? require('./currency') : root;
+  const { MARKET_KEYS, DEFAULT_MARKET, marketInfo } = NODE ? require('./kinds') : root;
   const { COVERAGE_MONTHS } = NODE ? require('./money') : root;
   const { parseDate } = NODE ? require('./csv') : root;
   const R = NODE ? require('./rules') : root;
@@ -51,6 +52,7 @@
 
   const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
   const N = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+  const OPT = (v) => (v === undefined || v === '' ? null : v);
 
   function checked(row) {
     for (const [k, v] of Object.entries(row)) {
@@ -281,6 +283,164 @@
     });
 
     on('DELETE', '/api/mappings/:id', (p) => ({ deleted: L.remove('mappings', N(p.id)) }));
+
+    // --- institutions --------------------------------------------------------
+
+    on('GET', '/api/institutions', () => L.institutions());
+
+    // The name is UNIQUE in the schema. Checked here first so the refusal is a
+    // sentence rather than SQLite's constraint error, which the server used to
+    // answer with as a 500.
+    on('POST', '/api/institutions', (_p, b) => {
+      const name = S(b.name).trim();
+      if (!name) bad('機構名稱必填');
+      if (L.all('institutions').some((i) => i.name === name)) bad(`機構「${name}」已經存在`);
+      return { id: L.insert('institutions', checked({ name, kind: S(b.kind, 'bank'), country: S(b.country, 'TW') })) };
+    });
+
+    // Its accounts stay and lose the link — the schema's ON DELETE SET NULL,
+    // done here so a store without foreign keys does the same.
+    on('DELETE', '/api/institutions/:id', (p) => {
+      const id = N(p.id);
+      return L.tx(() => {
+        for (const a of L.all('accounts').filter((x) => x.institution_id === id)) {
+          L.update('accounts', a.id, checked({ institution_id: null }));
+        }
+        return { deleted: L.remove('institutions', id) };
+      });
+    });
+
+    // --- holdings ------------------------------------------------------------
+
+    // One normaliser for every place a market arrives: holdings and all three
+    // price routes. Holdings used to store the market as sent while /api/prices
+    // upper-cased it, so a `crypto` holding looked its price up under `crypto`
+    // in a series stored as `CRYPTO` and never found it. Refused outside the
+    // list rather than stored, because an unknown market has no section on the
+    // holdings page to be shown in.
+    const marketOf = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      const m = S(v).trim().toUpperCase();
+      if (!MARKET_KEYS.includes(m)) bad(`market 只能是 ${MARKET_KEYS.join('、')}`);
+      return m;
+    };
+
+    // The quantity's scale. Refused rather than clamped: 12 places would look
+    // like precision and be float noise, and 2.5 places is a typo.
+    const placesOf = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 0 || n > MAX_DECIMALS) bad(`decimals 要是 0 到 ${MAX_DECIMALS} 的整數`);
+      return n;
+    };
+
+    on('GET', '/api/holdings', () => L.holdingsValued(today()));
+
+    on('POST', '/api/holdings', (_p, b) => {
+      if (!S(b.symbol).trim()) bad('代號必填');
+      const market = marketOf(b.market, DEFAULT_MARKET);
+      // The market's currency and scale are defaults for a holding that did
+      // not say — a coin can be priced in TWD on a Taiwanese exchange — not
+      // rules. This used to be a ternary on the market, which priced any third
+      // market in TWD.
+      const info = marketInfo(market);
+      return {
+        id: L.insert('holdings', checked({
+          account_id: N(b.account_id), symbol: S(b.symbol).trim().toUpperCase(), name: S(b.name), market,
+          shares: N(b.shares), avg_cost: N(b.avg_cost), last_price: N(b.last_price),
+          price_date: OPT(b.price_date), currency: S(b.currency, info.currency), note: S(b.note),
+          decimals: placesOf(b.decimals, info.decimals),
+        })),
+      };
+    });
+
+    on('PUT', '/api/holdings/:id', (p, b) => {
+      const cur = L.get('holdings', N(p.id)) || missing('持股不存在');
+      L.update('holdings', cur.id, checked({
+        account_id: b.account_id === undefined ? cur.account_id : N(b.account_id),
+        symbol: S(b.symbol, cur.symbol).trim().toUpperCase(),
+        name: S(b.name, cur.name),
+        market: marketOf(b.market, cur.market),
+        shares: b.shares === undefined ? cur.shares : N(b.shares),
+        avg_cost: b.avg_cost === undefined ? cur.avg_cost : N(b.avg_cost),
+        last_price: b.last_price === undefined ? cur.last_price : N(b.last_price),
+        price_date: b.price_date === undefined ? cur.price_date : OPT(b.price_date),
+        currency: S(b.currency, cur.currency),
+        note: S(b.note, cur.note),
+        decimals: placesOf(b.decimals, cur.decimals),
+      }));
+      return { ok: true };
+    });
+
+    on('DELETE', '/api/holdings/:id', (p) => ({ deleted: L.remove('holdings', N(p.id)) }));
+
+    // --- prices --------------------------------------------------------------
+
+    // Price history per security. Keyed (symbol, market, date) and read by
+    // symbol, so a holding of that symbol in any account values off the same
+    // series — exactly how /api/fx serves one series per pair rather than per
+    // account. The symbol is upper-cased on the way in and out to match how
+    // holdings store it, and the date goes through the same parser a statement
+    // does. Query params, not a path segment, because a US symbol can carry a
+    // slash (BRK/B).
+    on('GET', '/api/prices', (_p, _b, q) => {
+      const symbol = S(q.symbol).trim().toUpperCase();
+      if (!symbol) bad('代號必填');
+      return L.prices(symbol, marketOf(q.market, DEFAULT_MARKET));
+    });
+
+    // One row or `rows`, all or nothing; a day already priced takes the new one.
+    on('POST', '/api/prices', (_p, b) => {
+      const list = Array.isArray(b.rows) ? b.rows : [b];
+      return {
+        saved: L.tx(() => {
+          for (const r of list) {
+            const symbol = S(r.symbol).trim().toUpperCase();
+            if (!symbol) bad('代號必填');
+            const date = parseDate(r.date, 'auto');
+            if (!date) bad(`日期無法解析：${r.date}`);
+            const price = N(r.price);
+            if (price <= 0) bad('價格必須大於 0');
+            L.upsert('prices', checked({
+              symbol, market: marketOf(r.market, DEFAULT_MARKET), date, price, source: S(r.source, 'manual'),
+            }));
+          }
+          return list.length;
+        }),
+      };
+    });
+
+    // The market is resolved before anything is looked up, so a bad market is
+    // refused even when there is nothing to delete.
+    on('DELETE', '/api/prices', (_p, _b, q) => ({
+      deleted: L.removeKey('prices', {
+        symbol: S(q.symbol).trim().toUpperCase(), market: marketOf(q.market, DEFAULT_MARKET), date: S(q.date),
+      }),
+    }));
+
+    // --- fx ------------------------------------------------------------------
+
+    on('GET', '/api/fx', () => L.fxRates());
+
+    on('POST', '/api/fx', (_p, b) => {
+      const list = Array.isArray(b.rows) ? b.rows : [b];
+      return {
+        saved: L.tx(() => {
+          for (const r of list) {
+            const date = parseDate(r.date, 'auto');
+            if (!date) bad(`日期無法解析：${r.date}`);
+            const rate = N(r.rate);
+            if (rate <= 0) bad('匯率必須大於 0');
+            L.upsert('fx_rates', checked({ date, pair: S(r.pair, 'USDTWD').toUpperCase(), rate }));
+          }
+          return list.length;
+        }),
+      };
+    });
+
+    on('DELETE', '/api/fx/:date', (p, _b, q) => ({
+      deleted: L.removeKey('fx_rates', { date: String(p.date), pair: S(q.pair, 'USDTWD') }),
+    }));
   }
 
   const api = { defineLedgerRoutes, ApiError };
