@@ -1041,9 +1041,7 @@ does, so use it:
 order, every rule in its file's layer, colour only on a `--token` in a token
 block, `!important` only for reduced motion, no `outline: none`, no nesting
 under a list — and `test/modes.test.js` holds every token set, the default
-included, to the contrast bar below. Its `KNOWN_GAPS` names the one shortfall
-there is: the default `--line-strong` is 2.95:1 on `--surface-3`, the row
-hover.
+included, to the contrast bar below on all four surfaces.
 
 **Changing how the CSS is organised must not change a pixel.** The split from
 one file was checked by screenshotting every view, three phone widths, each
@@ -1079,9 +1077,10 @@ it sits on, and a control border ≥ 3:1 (WCAG 1.4.11). The comment beside each
 token carries its ratio; if you change a token, recompute it. What this
 replaced: `--text-3` at 3.68:1 (table headers, every `.dim`, every `.muted`),
 row hover at 1.03:1, input borders at 1.64:1, a focus border at 1.66:1 against
-its own resting state, and `tr.dup` dimmed with `opacity: .45` — which drops the
-text to ~3.6:1, unreadable, when reading it is exactly how you judge whether the
-row really is a duplicate.
+its own resting state, `--line-strong` measured on `--surface` alone and 2.95:1
+on the row hover it also sits on, and `tr.dup` dimmed with `opacity: .45` —
+which drops the text to ~3.6:1, unreadable, when reading it is exactly how you
+judge whether the row really is a duplicate.
 
 - **Focus is one rule for the whole app**: `:focus-visible` gets
   `outline: 2px solid var(--brand)` at `2px` offset. Never `outline: none`

@@ -54,7 +54,7 @@
     --surface-2:   #232120;  /* table head, inset, bar track */
     --surface-3:   #272524;  /* hover — 1.15:1, seen without shouting */
     --line:        #332f2b;  /* hairline between rows */
-    --line-strong: #736c63;  /* 3.4:1 — anything whose border identifies it */
+    --line-strong: #787067;  /* 3.1:1 at worst, on --surface-3 — anything whose border identifies it */
 
     /* -- ink ------------------------------------------------------------ */
     --ink:   #efebe4;  /* 14.8:1 */
