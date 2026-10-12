@@ -6,8 +6,6 @@ const { db, getMeta, setMeta, snapshot, listBackups } = require('./db');
 const csv = require('../shared/csv');
 const M = require('./money');
 const R = require('../shared/rules');
-const SP = require('../shared/spending');
-const AUDIT = require('../shared/audit');
 const I = require('../shared/import');
 const PRICES = require('./prices');
 const AI = require('./ai');
@@ -27,18 +25,25 @@ const B = (v, d = 1) => (v === undefined || v === null ? d : v ? 1 : 0);
 const OPT = (v) => (v === undefined || v === '' ? null : v);
 const now = () => new Date().toISOString();
 
-class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
+// One error class for every route, the shared ones included, because
+// server/index.js answers with the status of exactly this class.
+const { defineLedgerRoutes, ApiError: HttpError } = require('../shared/handlers');
+const { makeLedger } = require('./ledger');
+const ledger = makeLedger({ db, getMeta, setMeta, M });
 const bad = (msg) => { throw new HttpError(400, msg); };
 const missing = (msg) => { throw new HttpError(404, msg); };
 const conflict = (msg) => { throw new HttpError(409, msg); };
 
 // ---------------------------------------------------------------------------
 
+// A route registered twice is refused at load. The second used to replace the
+// first without a word, so a route moved into shared/handlers.js and left
+// behind here would answer instead of the shared one.
 const routes = {};
 const on = (method, pattern, handler) => {
-  routes[`${method} ${pattern}`] = handler;
+  const key = `${method} ${pattern}`;
+  if (routes[key]) throw new Error(`路由重複註冊：${key}`);
+  routes[key] = handler;
 };
 
 // --- overview --------------------------------------------------------------
@@ -467,161 +472,12 @@ on('GET', '/api/coverage', (_p, _b, q) => {
   return M.coverage({ months, to: q.to ? S(q.to) : M.todayISO() });
 });
 
-// --- spending --------------------------------------------------------------
+// --- the shared routes -----------------------------------------------------
 
-// The two loaders the breakdown and the recurring scan share. They live in
-// server/money.js because the overview export reads the same rows, and are
-// bound here under the names every handler below already calls.
-const { spendingRows, accountCurrencies } = M;
-
-// The default window is twelve months back, which is the shortest one that
-// shows a yearly subscription at all.
-function windowFrom(q) {
-  const to = q.to ? S(q.to) : M.todayISO();
-  if (q.from) return { from: S(q.from), to };
-  return { from: SP.yearsBefore(to, N(q.years, 1)), to };
-}
-
-on('GET', '/api/spending', (_p, _b, q) => {
-  const { from, to } = windowFrom(q);
-  return SP.computeSpending({ txns: spendingRows(from, to), accounts: accountCurrencies(), from, to });
-});
-
-on('GET', '/api/recurring', (_p, _b, q) => {
-  // Two years by default rather than one: three occurrences is the minimum a
-  // series needs, and a yearly charge cannot reach three inside twelve months.
-  const { from, to } = windowFrom({ ...q, years: q.years || 2 });
-  return SP.computeRecurring({ txns: spendingRows(from, to), accounts: accountCurrencies(), to });
-});
-
-// --- budgets ---------------------------------------------------------------
-
-// A month is written the way the ledger slices one off a date. No month means
-// the running one; a month that is not a month is refused rather than read as
-// the running one, which would answer a typo with a plausible card.
-function monthOf(v) {
-  if (v === undefined || v === null || v === '') return M.todayISO().slice(0, 7);
-  const m = S(v).trim();
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) bad(`月份要寫成 YYYY-MM：${m}`);
-  return m;
-}
-
-// 未分類 is the ledger not knowing yet, not a place money was meant to go, so
-// it cannot carry a budget — by its empty key or by the word the page shows.
-function budgetCategoryOf(v) {
-  const c = S(v).trim();
-  if (!c || c === SP.UNCATEGORISED_LABEL) bad(`預算要有分類，而且不能是「${SP.UNCATEGORISED_LABEL}」`);
-  return c;
-}
-
-// Any three-letter code, as an account's currency may be. Nothing converts, so
-// the currency is which accounts' spending the budget counts.
-function budgetCurrencyOf(v) {
-  const c = S(v).trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(c)) bad('幣別要是三個英文字母，例如 TWD');
-  return c;
-}
-
-// Refused rather than coerced: N() turns garbage into 0, and a budget of 0 is a
-// bar that is over budget the moment anything is bought.
-function budgetAmountOf(v) {
-  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
-  if (!Number.isFinite(n) || n <= 0) bad('預算金額要是大於 0 的數字');
-  return M.round2(n);
-}
-
-// The table's UNIQUE would refuse it too, in SQLite's words; this says it in
-// the user's, and the demo answers with the same sentence.
-function refuseDuplicateBudget(category, currency, id) {
-  const clash = db
-    .prepare('SELECT id FROM budgets WHERE category = ? AND currency = ? AND id <> ?')
-    .get(category, currency, id);
-  if (clash) bad(`「${category}」已經有 ${currency} 的預算了`);
-}
-
-// The rows are the month's own window, cut at today by computeBudgets itself —
-// the same cut the breakdown makes. `-31` is the last day any month can have,
-// and dates compare as strings, so no calendar is needed to bound the query.
-on('GET', '/api/budgets', (_p, _b, q) => {
-  const month = monthOf(q.month);
-  return SP.computeBudgets({
-    budgets: db.prepare('SELECT * FROM budgets ORDER BY id').all(),
-    txns: spendingRows(`${month}-01`, `${month}-31`),
-    accounts: accountCurrencies(),
-    month,
-    today: M.todayISO(),
-  });
-});
-
-on('POST', '/api/budgets', (_p, b) => {
-  const category = budgetCategoryOf(b.category);
-  const currency = budgetCurrencyOf(b.currency);
-  const amount = budgetAmountOf(b.amount);
-  refuseDuplicateBudget(category, currency, 0);
-  const r = db
-    .prepare('INSERT INTO budgets (category, currency, amount, created_at) VALUES (?, ?, ?, ?)')
-    .run(category, currency, amount, now());
-  return { id: Number(r.lastInsertRowid) };
-});
-
-on('PUT', '/api/budgets/:id', (p, b) => {
-  const cur = db.prepare('SELECT * FROM budgets WHERE id = ?').get(N(p.id)) || missing('預算不存在');
-  const category = b.category === undefined ? cur.category : budgetCategoryOf(b.category);
-  const currency = b.currency === undefined ? cur.currency : budgetCurrencyOf(b.currency);
-  const amount = b.amount === undefined ? cur.amount : budgetAmountOf(b.amount);
-  refuseDuplicateBudget(category, currency, cur.id);
-  db.prepare('UPDATE budgets SET category = ?, currency = ?, amount = ? WHERE id = ?')
-    .run(category, currency, amount, cur.id);
-  return { ok: true };
-});
-
-on('DELETE', '/api/budgets/:id', (p) => ({
-  deleted: db.prepare('DELETE FROM budgets WHERE id = ?').run(N(p.id)).changes,
-}));
-
-// --- 月度審計 ----------------------------------------------------------------
-
-// The rules are shared/audit.js; this loads rows and keeps the owner's two
-// answers. Rows carry their id, because a finding names the rows it is about,
-// and reach two years back, which is what the recurring scan needs to see a
-// series. The answers live in `meta` beside the book's other choices — small,
-// only ever read whole, so one JSON value each rather than a table.
-const auditRows = (to) => {
-  const from = `${Number(to.slice(0, 4)) - 2}${to.slice(4, 7)}-01`;
-  return db.prepare(
-    `SELECT id, account_id, date, amount, description, category, kind, transfer_group
-       FROM txns WHERE date >= ? AND date <= ? ORDER BY date, id`
-  ).all(from, to);
-};
-const auditAnswers = () => AUDIT.parseAnswers(getMeta('audit_ok', ''), getMeta('audit_cancelled', ''));
-
-// One month's findings, and every subscription that can be marked cancelled.
-// `-31` bounds any month, as the budgets route does: dates compare as strings.
-on('GET', '/api/audit', (_p, _b, q) => {
-  const month = monthOf(q.month);
-  const today = M.todayISO();
-  const { ok, cancelled } = auditAnswers();
-  const accounts = accountCurrencies();
-  const unpaired = M.findTransferCandidates().flatMap((c) => [c.out.id, c.in.id]);
-  return {
-    ...AUDIT.computeAudit({ txns: auditRows(`${month}-31`), accounts, month, today, ok, cancelled, unpaired }),
-    subscriptions: AUDIT.computeSubscriptions({ txns: auditRows(today), accounts, today, cancelled }).items,
-  };
-});
-
-on('PUT', '/api/audit/ok', (_p, b) => {
-  const r = AUDIT.answerOk(auditAnswers().ok, b);
-  if (r.error) bad(r.error);
-  setMeta('audit_ok', JSON.stringify(r.value));
-  return { ok: true };
-});
-
-on('PUT', '/api/audit/cancel', (_p, b) => {
-  const r = AUDIT.answerCancelled(auditAnswers().cancelled, b);
-  if (r.error) bad(r.error);
-  setMeta('audit_cancelled', JSON.stringify(r.value));
-  return { ok: true };
-});
+// Spending, recurring, budgets and 月度審計, written once in shared/handlers.js
+// and answered here from SQLite through server/ledger.js. The demo registers
+// the same handlers over its Map.
+defineLedgerRoutes(on, { L: ledger, now, today: M.todayISO });
 
 // --- categorisation rules --------------------------------------------------
 
