@@ -34,12 +34,17 @@ unless its owner turns on one of the two opt-in exceptions below and, for AI
   to reach and ships `'none'`, so that page is *incapable* of sending
   anything anywhere. Keep the gap exactly one directive wide — a second copy
   of the list drifts on the first change here, and the only thing that
-  notices a weakened CSP is somebody reading it. `style-src` admits
-  `'unsafe-inline'` only because the views still write inline `style=`
-  attributes; that is a reason to finish moving them into the stylesheet, not
-  a licence to add a host to any other directive. Adding one — or a `*` — to
-  `script-src`, `connect-src` or `img-src` is how the ledger starts talking to
-  somebody, so `test/api.test.js` fails on it.
+  notices a weakened CSP is somebody reading it. **Nothing inline, scripts or
+  styles**: `style-src 'self'` admits the stylesheets and refuses every
+  `<style>` and `style=` attribute. A datum's own position — where a bar ends,
+  where a gridline sits — goes in `data-at` as a number, and `mount()` sets it
+  through the CSSOM as `--at` for the stylesheet to place by; the CSP does not
+  govern the CSSOM, and only a finite number gets through, so `data-at` cannot
+  become inline CSS by another name. The browser drops a `style=` without a
+  word under this policy, which is why `test/html.test.js` fails on one
+  anywhere in the frontend. Adding a host — or a `*` — to `script-src`,
+  `connect-src` or `img-src` is how the ledger starts talking to somebody, so
+  `test/api.test.js` fails on it.
 - **Static paths stay contained.** `path.resolve()` then compare against the
   root *plus a separator*. A bare `startsWith(WEB_DIR)` also accepts a sibling
   directory whose name merely starts with `web`. There are two roots now —
@@ -1151,7 +1156,8 @@ judge whether the row really is a duplicate.
 
 **No colour is written in JavaScript.** `lineChart` emits its gradient stops and
 its end marker with no colour at all and `.chart stop` / `.chart circle` supply
-it; `BAR_COLORS` holds `var(--chart-N)` strings, not hexes. A breakdown is not
+it; a bar names its step as a class (`tone-1` … `tone-4`, `neg`) and
+`charts.css` colours it from the tokens. A breakdown is not
 seven categories, it is assets against liabilities — a diverging scale, so the
 `--chart-N` ramp is the asset pole and `--down` is the other, one hue stepped
 by lightness. Every row is already labelled with its own name and number, so
@@ -1160,9 +1166,12 @@ rather than getting a new hue. Grep `web/` for `#` before claiming the palette
 is in one place — a hex in the JS is invisible to every check the stylesheets
 make on themselves.
 
-The frontend still writes ~54 inline `style=` attributes. Those are the
-remaining styling debt, and the split made them countable: 25 of them are in
-`view-import.js` alone, so that is where the debt actually is.
+**The frontend writes no `style=` at all**, and the CSP would drop one if it
+did. A value that is the datum itself — a share's width, a gridline's height —
+is a number in `data-at`, which `mount()` sets as `--at`, and the rule for that
+element in the stylesheet says what `--at` is (`width`, `top`, `left`). A
+style the code sets while something moves, like the chart's hover cursor, goes
+through the CSSOM (`el.style.left = …`), which the CSP does not govern.
 
 ## Schema changes
 

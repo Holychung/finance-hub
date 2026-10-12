@@ -37,8 +37,20 @@
   // Every use should be obvious at the call site and justified in a comment.
   const raw = (s) => new Html(String(s));
 
+  // A position that is the datum itself — where a bar ends, where a gridline
+  // sits — cannot come from the stylesheet, and the CSP refuses `style=` on
+  // markup. So it travels as a number in `data-at` and is set here, through
+  // the CSSOM, as the `--at` the stylesheet places the element by. Only a
+  // finite number gets through: this carries data, never CSS.
+  const place = (el) => {
+    for (const node of el.querySelectorAll('[data-at]')) {
+      const n = Number(node.dataset.at);
+      if (Number.isFinite(n)) node.style.setProperty('--at', `${n}%`);
+    }
+  };
+
   // The only sanctioned way to put a template into the document.
-  const mount = (el, tpl) => { el.innerHTML = fmt(tpl); };
+  const mount = (el, tpl) => { el.innerHTML = fmt(tpl); place(el); };
 
   const api = { Html, html, raw, fmt, esc, mount };
   Object.assign(root, api);
