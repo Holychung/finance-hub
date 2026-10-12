@@ -166,6 +166,28 @@ function makeLedger({ db, getMeta, setMeta, M }) {
       return { total, first, last, rows };
     },
 
+    // What the dedup compares a file against: how many rows of the account
+    // carry each fingerprint, and which external ids it already holds.
+    dedupCounts(accountId) {
+      const fingerprints = new Map();
+      for (const r of db
+        .prepare('SELECT fingerprint, COUNT(*) AS n FROM txns WHERE account_id = ? GROUP BY fingerprint')
+        .all(accountId)) {
+        fingerprints.set(r.fingerprint, r.n);
+      }
+      const externalIds = new Set(
+        db.prepare('SELECT external_id FROM txns WHERE account_id = ? AND external_id IS NOT NULL')
+          .all(accountId).map((r) => r.external_id)
+      );
+      return { fingerprints, externalIds };
+    },
+
+    // The latest fifty, with the account's name where the account still exists.
+    importList: () => db.prepare(
+      `SELECT i.*, a.name AS account_name FROM imports i
+         LEFT JOIN accounts a ON a.id = i.account_id ORDER BY i.id DESC LIMIT 50`
+    ).all(),
+
     transferLegs: () => db.prepare(
       `SELECT t.transfer_group, t.id, t.account_id, t.date, t.amount, t.description, a.name AS account_name, a.currency
          FROM txns t JOIN accounts a ON a.id = t.account_id

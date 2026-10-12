@@ -40,7 +40,9 @@
     defaultAccessFor, TAX_STATUS_KEYS,
   } = NODE ? require('./kinds') : root;
   const { COVERAGE_MONTHS } = NODE ? require('./money') : root;
-  const { parseDate, fingerprint } = NODE ? require('./csv') : root;
+  const csv = NODE ? require('./csv') : root;
+  const { parseDate, fingerprint } = csv;
+  const I = NODE ? require('./import') : root;
   const R = NODE ? require('./rules') : root;
   const SP = NODE ? require('./spending') : root;
   const AUDIT = NODE ? require('./audit') : root;
@@ -52,6 +54,7 @@
   }
   const bad = (msg) => { throw new ApiError(400, msg); };
   const missing = (msg) => { throw new ApiError(404, msg); };
+  const conflict = (msg) => { throw new ApiError(409, msg); };
 
   const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
   const N = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
@@ -69,8 +72,11 @@
 
   // `on(method, pattern, handler)` is the side's router. `today()` and `now()`
   // are its clock: the server's is the machine's, the demo's is injected, so a
-  // handler here never reads one of its own.
-  function defineLedgerRoutes(on, { L, now, today, uuid }) {
+  // handler here never reads one of its own. `uuid()` names a transfer.
+  // `snapshot(label)` is the pre-import copy of the book, a file's name or
+  // null where there is no filesystem; `decodeBase64` is Buffer on the server
+  // and atob in a browser.
+  function defineLedgerRoutes(on, { L, now, today, uuid, snapshot, decodeBase64 }) {
 
     // A row that names an account or an institution has to name one that
     // exists. The schema's foreign keys refused the server's version of this
@@ -641,6 +647,220 @@
     on('DELETE', '/api/transfers/:group', (p) => ({
       unlinked: L.updateWhere('txns', { transfer_group: String(p.group) }, checked({ transfer_group: null, kind: 'other' })),
     }));
+
+    // --- import --------------------------------------------------------------
+
+    // What an import page is told about the account, and nothing else of it.
+    const accountCard = (a) => (a ? { id: a.id, name: a.name, kind: a.kind, currency: a.currency } : null);
+    const balanceOf = (id, asOf = today()) => L.accountsWithBalances(asOf).find((a) => a.id === id)?.balance ?? 0;
+
+    // One reading of a file against one account, for the preview and the
+    // commit alike. The commit re-reads the bytes rather than trusting rows the
+    // page was shown, so the two have to read them the same way — down to the
+    // issues, which the commit enforces and the preview only reports.
+    const analyseImport = (account, grid, mapping, skipLines) => {
+      const skip = I.importListParam(skipLines, 'skip_lines');
+      if (skip.error) bad(skip.error);
+      const { rows } = csv.extractRows(grid, mapping, account ? account.id : null);
+      csv.markDuplicates(rows, L.dedupCounts(account ? account.id : null));
+      I.skipImportRows(rows, skip);
+      const st = I.statedBalance(rows);
+      const { summary, reconcile } = I.computeImportSummary({
+        rows, account,
+        before: account ? balanceOf(account.id) : null,
+        ledgerOn: account && st ? balanceOf(account.id, st.stated_on) : null,
+      });
+      return { rows, summary, reconcile, issues: I.importIssues({ summary, reconcile, rows, mapping }) };
+    };
+
+    // The account is optional here on purpose. Without it there is nowhere to
+    // import to, but the file can still be read — and reading it is what
+    // supplies the numbers needed to create the account in the first place.
+    // Requiring one first made the first import a chicken-and-egg: the page
+    // told you to go to another view and type in an opening balance the file
+    // already knew.
+    on('POST', '/api/import/preview', (_p, b) => {
+      const accountId = N(b.account_id);
+      const account = accountId ? accountCard(L.get('accounts', accountId)) : null;
+      if (accountId && !account) missing('帳戶不存在');
+      const buf = decodeBase64(S(b.content_base64));
+      if (!buf.length) bad('檔案是空的');
+
+      const { text, encoding } = csv.decode(buf, S(b.encoding, 'auto') || 'auto');
+      const delimiter = b.mapping?.delimiter || csv.sniffDelimiter(text);
+      const grid = csv.parseCsv(text, delimiter);
+      if (!grid.length) bad('這個檔案解析不出任何一行');
+
+      // Only guess the header row on the first look; once the user has told
+      // us where it is, that answer stands even if the detector disagrees.
+      const headerRow = b.mapping?.headerRow ? Math.max(1, N(b.mapping.headerRow, 1)) : csv.detectHeaderRow(grid);
+      const headers = grid[headerRow - 1] || [];
+      const mapping = b.mapping?.dateCol !== undefined && b.mapping?.dateCol !== null
+        ? { ...b.mapping, delimiter, encoding }
+        : { ...csv.guessMapping(headers, grid.slice(headerRow)), delimiter, encoding, headerRow };
+
+      // What the user wants to know before anything is written is not how much
+      // this moves the account by, but whether the account will agree with the
+      // statement afterwards. See computeImportSummary for why it is compared
+      // on the statement's own last day.
+      const { rows, summary, reconcile, issues } = analyseImport(account, grid, mapping, b.skip_lines);
+
+      return {
+        encoding, delimiter, headers, mapping,
+        // The rows are in the account's own currency, and the preview has no
+        // other way to know which: without it a USD statement previewed as
+        // "NT$3,761" reads as a number thirty times smaller than it is.
+        account,
+        // Only when there is nothing to import into: with an account chosen
+        // the answer is already on screen.
+        suggested_account: accountId ? null : csv.suggestAccount({ filename: S(b.filename), headers, rows, mapping }),
+        grid_preview: grid.slice(0, Math.max(headerRow + 5, 8)),
+        rows: rows.slice(0, 500),
+        truncated: rows.length > 500,
+        // Counted over every row, here rather than in the browser, because
+        // `rows` is truncated at 500.
+        summary,
+        reconcile,
+        // Empty when the file may go straight in.
+        issues,
+      };
+    });
+
+    on('POST', '/api/import/commit', (_p, b) => {
+      const accountId = N(b.account_id);
+      if (!accountId) bad('請先選擇要匯入的帳戶');
+      const buf = decodeBase64(S(b.content_base64));
+      const mapping = b.mapping || bad('缺少欄位對應設定');
+      const account = accountCard(L.get('accounts', accountId)) || missing('帳戶不存在');
+
+      const { text } = csv.decode(buf, mapping.encoding || 'auto');
+      const grid = csv.parseCsv(text, mapping.delimiter || ',');
+      const { rows, summary, reconcile, issues } = analyseImport(account, grid, mapping, b.skip_lines);
+
+      // The gate. Whatever the page decided, a file with an unanswered issue
+      // does not reach the ledger — see shared/import.js.
+      const accept = I.importListParam(b.accept, 'accept');
+      if (accept.error) bad(accept.error);
+      const refusal = I.commitRefusal(issues, accept);
+      if (refusal) conflict(refusal);
+
+      // Nothing to write is not an import: it would leave a batch of zero rows
+      // in the history and a snapshot of a book nobody changed. The usual way
+      // here is the same file committed twice.
+      const toInsert = rows.filter((r) => r.status === 'new');
+      if (!toInsert.length) bad('這份檔案沒有新的交易可以匯入');
+
+      // What period this file covers. The user's answer wins, because the file
+      // does not carry one; failing that, the file's own span, which is
+      // recorded either way so the answer can still be given afterwards
+      // (PUT /api/imports/:id).
+      const span = I.fileSpan(rows);
+      const declaredFrom = OPT(b.period_from) && S(b.period_from);
+      const declaredTo = OPT(b.period_to) && S(b.period_to);
+      const declared = !!(declaredFrom && declaredTo);
+      if (declared) {
+        const problem = I.periodProblem({ from: declaredFrom, to: declaredTo }, span);
+        if (problem) bad(problem);
+      }
+      const period = declared
+        ? { from: declaredFrom, to: declaredTo, kind: 'declared' }
+        : { from: span.from, to: span.to, kind: 'derived' };
+
+      // Refuse rather than import without a safety net — the point of the
+      // snapshot is the case where the mapping turns out to be wrong. Taken
+      // after every refusal above, so a commit that writes nothing leaves no
+      // snapshot, and before the transaction, because SQLite takes a copy of
+      // the book only outside one.
+      let backup = null;
+      if (!b.skip_backup) {
+        try { backup = snapshot('preimport'); } catch (e) { throw new ApiError(500, `匯入前備份失敗，已中止匯入：${e.message}`); }
+      }
+
+      // The file's own category wins where it has one; everywhere else this is
+      // the only chance the row gets, because nobody goes back through two
+      // hundred imported rows by hand. The import's own row goes in the same
+      // transaction as its rows: on the server it used to be written first,
+      // outside it, and survived a commit that failed half way as an import
+      // of nothing.
+      const ruleList = R.sortRules(L.all('rules'));
+      const importId = L.tx(() => {
+        const id = L.insert('imports', checked({
+          account_id: accountId, filename: S(b.filename, 'upload.csv'), mapping: JSON.stringify(mapping),
+          imported: 0, skipped: 0, created_at: now(),
+          date_from: period.from, date_to: period.to, period_kind: period.kind,
+          span_from: span.from, span_to: span.to,
+        }));
+        for (const r of toInsert) {
+          insertTxn({
+            account_id: accountId, date: r.date, amount: r.amount, description: r.description,
+            category: r.category || R.categorise(r.description, ruleList),
+            // A row that names its own kind — a plan's contribution or dividend
+            // — keeps it, the way a file's own category beats a rule.
+            kind: r.kind || S(b.default_kind, DEFAULT_TXN_KIND),
+            source: 'csv', external_id: r.externalId, fingerprint: r.fingerprint,
+          }, id);
+        }
+        L.update('imports', id, checked({ imported: toInsert.length, skipped: rows.length - toInsert.length }));
+        return id;
+      });
+
+      if (b.save_mapping_as) {
+        const name = String(b.save_mapping_as).trim();
+        const config = JSON.stringify(mapping);
+        const cur = L.all('mappings').find((m) => m.name === name);
+        if (cur) L.update('mappings', cur.id, checked({ config, used_at: now() }));
+        else L.insert('mappings', checked({ name, config, created_at: now(), used_at: now() }));
+      }
+
+      // Everything the page's result needs, so it can say what happened
+      // without a second round trip. `summary` and `reconcile` are the reading
+      // the gate just passed, which is also what was written.
+      return {
+        import_id: importId,
+        imported: toInsert.length,
+        skipped: rows.length - toInsert.length,
+        account,
+        summary,
+        reconcile,
+        period,
+        transfer_candidates: L.transferCandidates().length,
+        backup,
+      };
+    });
+
+    on('GET', '/api/imports', () => L.importList());
+
+    // Reverting an import takes the rows it wrote with it.
+    on('DELETE', '/api/imports/:id', (p) => {
+      const id = N(p.id);
+      return L.tx(() => {
+        const reverted = L.removeWhere('txns', { import_id: id });
+        L.remove('imports', id);
+        return { reverted };
+      });
+    });
+
+    // The period an import is credited with, answered after the fact: both
+    // dates to declare one, neither to go back to the file's own span — held
+    // to the same rule as at the commit, a declaration contains every row of
+    // the file, against the span the commit recorded.
+    on('PUT', '/api/imports/:id', (p, b) => {
+      const imp = L.get('imports', N(p.id)) || missing('匯入紀錄不存在');
+      if (!imp.span_from || !imp.span_to) bad('這筆匯入沒有記下檔案的範圍（是舊版匯入的），涵蓋期間不能再改。');
+      const rawFrom = OPT(b.period_from);
+      const rawTo = OPT(b.period_to);
+      if (!!rawFrom !== !!rawTo) bad('期間要有起日和迄日');
+      const from = rawFrom && (parseDate(rawFrom, 'ymd') || bad(`日期無法解析：${rawFrom}`));
+      const to = rawTo && (parseDate(rawTo, 'ymd') || bad(`日期無法解析：${rawTo}`));
+      const span = { from: imp.span_from, to: imp.span_to };
+      if (from) {
+        const problem = I.periodProblem({ from, to }, span);
+        if (problem) bad(problem);
+      }
+      const period = from ? { from, to, kind: 'declared' } : { ...span, kind: 'derived' };
+      L.update('imports', imp.id, checked({ date_from: period.from, date_to: period.to, period_kind: period.kind }));
+      return { id: imp.id, period };
+    });
   }
 
   const api = { defineLedgerRoutes, ApiError };
