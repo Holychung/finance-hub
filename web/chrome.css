@@ -1,0 +1,211 @@
+/* The chrome: the sidebar — brand, nav, the accounts list and the badge at
+   its foot — and the page around a view. On a phone the sidebar becomes a
+   strip across the top; each rule says how it changes there, in its own
+   nested @media. See tokens.css for how the files fit together. */
+
+@layer app {
+
+  /* ---------- sidebar ---------- */
+
+  .sidebar {
+    width: 208px;
+    flex: 0 0 208px;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    padding: var(--sp-16) var(--sp-12);
+    gap: var(--sp-24);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    @media (max-width: 720px) {
+      width: 100%; flex: none; height: auto; position: static;
+      flex-direction: row; align-items: center; gap: var(--sp-12);
+      padding: var(--sp-12); overflow-x: auto;
+    }
+  }
+
+  /* The strip scrolls sideways rather than squeezing what is in it. A flex
+     item shrinks below its content by default, and the brand and the nav are
+     the two holding text: at 390px the brand broke into "Finance / Hub" and
+     every nav label stacked its two characters, doubling the strip's height
+     to make room for words that were never going to fit across anyway.
+     Nothing shrinks now, and the sidebar's own overflow-x carries what does
+     not fit. */
+  .brand {
+    display: flex; align-items: center; gap: var(--sp-8);
+    font-weight: 700; font-size: var(--fs-md);
+    padding: 0 var(--sp-8);
+    @media (max-width: 720px) { flex: 0 0 auto; white-space: nowrap; }
+
+    /* The name alone says what the app is called and nothing about what it
+       is. The subtitle is a label, not a nav item: dim, small, and never a
+       link — and on a phone the first thing that can afford to go, because a
+       second line doubles the strip's height. */
+    & span { display: flex; flex-direction: column; line-height: var(--lh-tight); }
+    & small {
+      font-size: var(--fs-2xs);
+      font-weight: 400;
+      color: var(--ink-3);
+      letter-spacing: var(--track-label);
+      @media (max-width: 720px) { display: none; }
+    }
+  }
+  .brand-mark { color: var(--brand); flex: 0 0 auto; }
+
+  #nav {
+    display: flex; flex-direction: column; gap: var(--sp-2);
+    @media (max-width: 720px) { flex-direction: row; flex: 0 0 auto; }
+
+    & a {
+      display: flex; align-items: center; gap: var(--sp-8);
+      padding: var(--sp-8) var(--sp-12);
+      border-radius: var(--r-1);
+      color: var(--ink-2);
+      text-decoration: none;
+      font-size: var(--fs-sm);
+      transition: background var(--dur), color var(--dur);
+      @media (max-width: 720px) { flex: 0 0 auto; white-space: nowrap; }
+
+      & > svg { flex: 0 0 auto; }
+      /* `#nav a` sets a display, which outranks the UA's [hidden]. */
+      &[hidden] { display: none; }
+      &:hover { background: var(--surface-3); color: var(--ink); }
+      /* Where you are is a tinted pill, and that is all: the background, the
+         brand ink and the weight are three signals already, and
+         `aria-current="page"` is the fourth for anyone not looking at it. */
+      &.active {
+        background: var(--brand-tint);
+        color: var(--brand);
+        font-weight: 600;
+      }
+    }
+  }
+
+  /* Accounts in the chrome: one row each, balance always visible. The list can
+     outgrow the viewport once there are a dozen accounts, so it scrolls on its
+     own rather than pushing the profile badge off the bottom. A vertical list,
+     so a horizontal strip has nowhere to put it. */
+  #nav-accounts {
+    display: flex; flex-direction: column; gap: var(--sp-16);
+    overflow-y: auto; min-height: 0;
+    margin: calc(var(--sp-8) * -1) calc(var(--sp-4) * -1) 0; padding: 0 var(--sp-4);
+    @media (max-width: 720px) { display: none; }
+  }
+  .nav-group-head {
+    font-size: var(--fs-2xs); letter-spacing: .09em; text-transform: uppercase;
+    font-weight: 600; color: var(--ink-3);
+    padding: 0 var(--sp-12) var(--sp-4);
+  }
+  .nav-account {
+    display: flex; align-items: baseline; gap: var(--sp-8);
+    padding: var(--sp-6) var(--sp-12); border-radius: var(--r-1);
+    color: var(--ink-2); text-decoration: none; font-size: var(--fs-sm);
+    transition: background var(--dur), color var(--dur);
+
+    &:hover { background: var(--surface-3); color: var(--ink); }
+    &.active {
+      background: var(--brand-tint); color: var(--brand); font-weight: 600;
+    }
+  }
+  .nav-account-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-account-bal {
+    flex: 0 0 auto; font-family: var(--mono); font-size: var(--fs-2xs);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Like the accounts, a vertical list: gone from the phone's strip. */
+  .sidebar-foot {
+    margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-8);
+    @media (max-width: 720px) { display: none; }
+
+    /* A path has no spaces to break at, so a long FINANCE_DB ran straight out
+       of the sidebar and across the page. */
+    & code { overflow-wrap: anywhere; }
+  }
+
+  /* Neutral, not green: the reassurance is the lock glyph and the words, and
+     green is spoken for. Amber below is a label, which is what amber is for. */
+  .local-badge {
+    display: inline-flex; align-items: center; gap: var(--sp-8);
+    font-size: var(--fs-xs); font-weight: 500; color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: var(--sp-6) var(--sp-8); border-radius: var(--r-full); width: fit-content;
+  }
+  .dot { width: var(--sp-6); height: var(--sp-6); border-radius: 50%; background: var(--ink-3); }
+
+  /* The source offer under the badge, on the demo only. Brand because it is a
+     link and everything interactive is brand — and deliberately not `.muted`:
+     AGPL §13 asks for a *prominent* offer, and the one line on the page that a
+     licence requires is not the line to dim. */
+  #source-offer {
+    &:empty { display: none; }
+    & a {
+      color: var(--brand); text-decoration: none;
+      &:hover { text-decoration: underline; }
+    }
+  }
+
+  /* A non-personal profile is a different ledger at the same address. Amber
+     makes the badge read as a label rather than as reassurance. */
+  .local-badge.profile-alt {
+    color: var(--warn);
+    background: var(--warn-tint);
+    border-color: var(--warn-line);
+
+    & .dot { background: var(--warn); }
+  }
+
+  /* ---------- layout ---------- */
+
+  /* The column beside the sidebar: the mode banner (modes.css, behind its
+     flag) above the view. With the banner hidden it is just #main's box. */
+  .app-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  #main {
+    flex: 1; min-width: 0; padding: var(--sp-24) var(--sp-32) var(--sp-48); max-width: 1400px;
+    @media (max-width: 720px) { padding: var(--sp-16) var(--sp-16) var(--sp-48); }
+  }
+  .loading { color: var(--ink-3); padding: var(--sp-32) 0; }
+
+  .page-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: var(--sp-16); margin-bottom: var(--sp-24); flex-wrap: wrap;
+
+    & h1 { font-size: var(--fs-xl); font-weight: 700; margin: 0; letter-spacing: -.3px; }
+    & .sub { color: var(--ink-3); font-size: var(--fs-sm); }
+  }
+  /* A page's actions are a row of buttons at their own width. `.row > *` is a
+     form rule — fields share the width — and applied here it gave every action
+     a 150px basis: next to a long subtitle the group shrank and its buttons
+     wrapped into a column of full-width bars. When the head is too narrow the
+     whole group moves under the title instead. */
+  .page-head > .row, .page-head > .row > * { flex: 0 0 auto; }
+
+  section { margin-bottom: var(--sp-24); }
+  h2.sec {
+    font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3);
+    margin: 0 0 var(--sp-12); letter-spacing: var(--track-label);
+  }
+  /* A second heading in the same card is starting a new block, not continuing
+     the one above it. This was `style="margin-top:22px"` at the one call site
+     that happened to need it. */
+  h2.sec:not(:first-child) { margin-top: var(--sp-24); }
+  /* Heading on the left, its context on the right, without a flex row whose
+     `.row > *` rule stretches a pill to the full width of the card. */
+  h2.sec.cur-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-12); }
+  h2.sec.cur-head .muted { font-weight: 400; font-size: var(--fs-xs); }
+
+  .cur-total {
+    font-family: var(--mono); font-size: var(--fs-2xl); font-weight: 700;
+    letter-spacing: -1px; line-height: var(--lh-tight);
+    font-variant-numeric: tabular-nums;
+  }
+  .cur-sub {
+    font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+    margin: var(--sp-8) 0 var(--sp-24);
+  }
+
+}

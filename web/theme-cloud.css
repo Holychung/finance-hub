@@ -1,0 +1,68 @@
+/* 萬聖夜 — a cloud AI: an indigo night, a full moon a bat flies across, and a
+   jack-o'-lantern at the foot of the sidebar. Its brand is orange, so its
+   --warn is lemon; money keeps its green and red.
+
+   Behind the `modes` flag, like modes.css, and the same rule holds:
+   everything here is nested under this theme's own :root[data-mode], so it
+   applies only while the mode is drawn. The block redefines tokens.css's
+   names and adds this theme's drawing and motion; nothing else. Ratios are
+   the worst case across --bg … --surface-3. */
+
+@layer modes {
+
+  /* 萬聖夜 · 月下 */
+  :root[data-mode="cloud"] {
+    color-scheme: dark;
+    --bg: #141029;
+    --surface: #1c1736;
+    --surface-2: #241e44;
+    --surface-3: #2a234f;
+    --line: #352c5e;
+    --line-strong: #7d72a8;  /* 3.3:1 */
+    --ink: #f1edfb;  /* 12.6:1 */
+    --ink-2: #c3bce0;  /* 8.0:1 */
+    --ink-3: #a097c4;  /* 5.3:1 */
+    --brand: #ffa04a;  /* 7.1:1 */
+    --brand-solid: #ff8f2b;
+    --brand-ink: #1a0d02;
+    --brand-tint: #3b2531;
+    --brand-line: #7a4326;
+    --chart-1: #ffc27d;
+    --chart-2: #ffa552;
+    --chart-3: #f58a2c;
+    --chart-4: #dc7419;
+    --deco: #efe0a6;
+    --up: #5fd991;  /* 8.1:1 */
+    --down: #f4837e;  /* 5.8:1 */
+    --warn: #ead46c;  /* 9.7:1 */
+    --warn-tint: #2c2716;
+    --warn-line: #4f4520;
+    --deco-shape: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27120%27%20height%3D%27120%27%3E%3Ccircle%20cx%3D%2792%27%20cy%3D%2730%27%20r%3D%2721%27%20fill%3D%27black%27%2F%3E%3Cpath%20fill%3D%27black%27%20opacity%3D%270.9%27%20transform%3D%27translate(52%2052)%20scale(0.85)%27%20d%3D%27M12%203l-1-2-.6%202.4C9.6%203.6%209%204.4%208.8%205.4%207%203.6%204%202.6%200%203.4c2.2%201%203.4%202.6%203.6%204.6%201.4-.9%203-.8%204.2.4.8-1.1%202-1.6%203.2-1.4.4%201.6.6%203%201%204%20.4-1%20.6-2.4%201-4%201.2-.2%202.4.3%203.2%201.4%201.2-1.2%202.8-1.3%204.2-.4.2-2%201.4-3.6%203.6-4.6-4-.8-7%20.2-8.8%202-.2-1-.8-1.8-1.6-2L13%201z%27%2F%3E%3Cpath%20fill%3D%27black%27%20opacity%3D%270.8%27%20transform%3D%27translate(62%204)%20scale(0.6)%27%20d%3D%27M12%203l-1-2-.6%202.4C9.6%203.6%209%204.4%208.8%205.4%207%203.6%204%202.6%200%203.4c2.2%201%203.4%202.6%203.6%204.6%201.4-.9%203-.8%204.2.4.8-1.1%202-1.6%203.2-1.4.4%201.6.6%203%201%204%20.4-1%20.6-2.4%201-4%201.2-.2%202.4.3%203.2%201.4%201.2-1.2%202.8-1.3%204.2-.4.2-2%201.4-3.6%203.6-4.6-4-.8-7%20.2-8.8%202-.2-1-.8-1.8-1.6-2L13%201z%27%2F%3E%3C%2Fsvg%3E");
+
+    & .sidebar::before { animation: moon-in .8s cubic-bezier(.2, .8, .2, 1) both; }
+
+    /* The bat crossing the full moon, drawn in the page's own --bg so it reads
+       as a silhouette against the moonlight; it flies in after the moon. */
+    & .sidebar::after {
+      content: ''; position: absolute; top: 0; right: 0; width: 120px; height: 120px;
+      background: var(--bg); pointer-events: none;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27120%27%20height%3D%27120%27%3E%3Cpath%20fill%3D%27black%27%20opacity%3D%271%27%20transform%3D%27translate(78%2022)%20scale(1.15)%27%20d%3D%27M12%203l-1-2-.6%202.4C9.6%203.6%209%204.4%208.8%205.4%207%203.6%204%202.6%200%203.4c2.2%201%203.4%202.6%203.6%204.6%201.4-.9%203-.8%204.2.4.8-1.1%202-1.6%203.2-1.4.4%201.6.6%203%201%204%20.4-1%20.6-2.4%201-4%201.2-.2%202.4.3%203.2%201.4%201.2-1.2%202.8-1.3%204.2-.4.2-2%201.4-3.6%203.6-4.6-4-.8-7%20.2-8.8%202-.2-1-.8-1.8-1.6-2L13%201z%27%2F%3E%3C%2Fsvg%3E") no-repeat top right; mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27120%27%20height%3D%27120%27%3E%3Cpath%20fill%3D%27black%27%20opacity%3D%271%27%20transform%3D%27translate(78%2022)%20scale(1.15)%27%20d%3D%27M12%203l-1-2-.6%202.4C9.6%203.6%209%204.4%208.8%205.4%207%203.6%204%202.6%200%203.4c2.2%201%203.4%202.6%203.6%204.6%201.4-.9%203-.8%204.2.4.8-1.1%202-1.6%203.2-1.4.4%201.6.6%203%201%204%20.4-1%20.6-2.4%201-4%201.2-.2%202.4.3%203.2%201.4%201.2-1.2%202.8-1.3%204.2-.4.2-2%201.4-3.6%203.6-4.6-4-.8-7%20.2-8.8%202-.2-1-.8-1.8-1.6-2L13%201z%27%2F%3E%3C%2Fsvg%3E") no-repeat top right;
+      animation: bat-in 1.1s .25s cubic-bezier(.2, .7, .2, 1) both;
+    }
+
+    /* The jack-o'-lantern at the foot of the sidebar, beside the badge, its face
+       cut out so the sidebar shows through. It pops up, then keeps flickering. */
+    & .sidebar-foot::before {
+      content: ''; position: absolute; top: calc(var(--sp-4) * -1); right: 0; width: 44px; height: 40px;
+      background: var(--brand); pointer-events: none;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2744%27%20height%3D%2740%27%3E%3Cmask%20id%3D%27f%27%3E%3Crect%20width%3D%2744%27%20height%3D%2740%27%20fill%3D%27white%27%2F%3E%3Cpath%20fill%3D%27black%27%20d%3D%27M12%2020l4-5.5%204%205.5zM24%2020l4-5.5%204%205.5zM11%2025c3%206%2019%206%2022%200l-3%201.2-2.4%202-2.4-2-3.2%202-3.2-2-2.4%202-2.4-2z%27%2F%3E%3C%2Fmask%3E%3Cg%20mask%3D%27url(%23f)%27%20fill%3D%27black%27%3E%3Cellipse%20cx%3D%2722%27%20cy%3D%2724%27%20rx%3D%2712%27%20ry%3D%2714%27%2F%3E%3Cellipse%20cx%3D%2712.5%27%20cy%3D%2724%27%20rx%3D%2710.5%27%20ry%3D%2713%27%2F%3E%3Cellipse%20cx%3D%2731.5%27%20cy%3D%2724%27%20rx%3D%2710.5%27%20ry%3D%2713%27%2F%3E%3Cpath%20d%3D%27M20%2011c0-4%201-7%204-9l2%201.5c-2%201.6-2.4%204-2.2%207.5z%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E") no-repeat; mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2744%27%20height%3D%2740%27%3E%3Cmask%20id%3D%27f%27%3E%3Crect%20width%3D%2744%27%20height%3D%2740%27%20fill%3D%27white%27%2F%3E%3Cpath%20fill%3D%27black%27%20d%3D%27M12%2020l4-5.5%204%205.5zM24%2020l4-5.5%204%205.5zM11%2025c3%206%2019%206%2022%200l-3%201.2-2.4%202-2.4-2-3.2%202-3.2-2-2.4%202-2.4-2z%27%2F%3E%3C%2Fmask%3E%3Cg%20mask%3D%27url(%23f)%27%20fill%3D%27black%27%3E%3Cellipse%20cx%3D%2722%27%20cy%3D%2724%27%20rx%3D%2712%27%20ry%3D%2714%27%2F%3E%3Cellipse%20cx%3D%2712.5%27%20cy%3D%2724%27%20rx%3D%2710.5%27%20ry%3D%2713%27%2F%3E%3Cellipse%20cx%3D%2731.5%27%20cy%3D%2724%27%20rx%3D%2710.5%27%20ry%3D%2713%27%2F%3E%3Cpath%20d%3D%27M20%2011c0-4%201-7%204-9l2%201.5c-2%201.6-2.4%204-2.2%207.5z%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E") no-repeat;
+      transform-origin: 50% 100%;
+      animation: pop-in .6s .35s cubic-bezier(.2, .8, .3, 1.2) both, flicker 3.2s 1.2s ease-in-out infinite;
+    }
+  }
+
+  @keyframes bat-in { 0% { opacity: 0; transform: translate(-70px, 40px) scale(.4); } 60% { opacity: 1; } }
+  @keyframes pop-in { 0% { opacity: 0; transform: translateY(14px) scale(.3); } 70% { transform: translateY(-3px) scale(1.12); } }
+  @keyframes flicker { 0%, 100% { opacity: 1; } 45% { opacity: .82; } 55% { opacity: .95; } 70% { opacity: .78; } }
+
+}

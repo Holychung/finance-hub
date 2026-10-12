@@ -47,8 +47,8 @@ unless its owner turns on one of the two opt-in exceptions below and, for AI
   single check widened to cover both.
 - **No outbound network calls, with exactly two opt-in exceptions.** The
   default is still offline: `test/deps.test.js` scans `web/`, `shared/`,
-  `server/` and `scripts/` for external URLs and `style.css` for external
-  `url()` / `@import` — a font import is the quiet version of this, and it
+  `server/` and `scripts/` for external URLs and every stylesheet in `web/`
+  for external `url()` / `@import` — a font import is the quiet version of this, and it
   tells a stranger's server, on every page load, that this machine just opened
   its ledger. The exceptions are the daily close fetch in `server/prices.js`
   (Yahoo) and AI 健檢 in `server/ai.js` (Anthropic, OpenAI, Gemini). Both are
@@ -148,8 +148,12 @@ web/view-*.js     one file per route, each registering its own views.<name>
 web/app.js        router, link interception, sidebar — loaded last, boots render()
 web/flags.js      feature flags, per browser; Cmd/Ctrl+Shift+F opens the panel.
                   A flag shows or hides a control; it is never a permission
-web/modes.css     the three AI reaches' looks, behind the `modes` flag; every
-                  rule scoped under :root[data-mode], so off it applies nothing
+web/tokens.css    the token block, and the layer order: tokens, app, modes
+web/base.css … views.css  the app layer — base, chrome, components, charts,
+                  views — what was style.css, in its old order
+web/modes.css     the AI modes' switch, banner and reveal, behind the `modes`
+                  flag; with theme-none/local/cloud.css, one per reach, every
+                  rule nested under :root[data-mode], so off they apply nothing
 test/api.test.js  node:test suite, starts and stops its own server
 test/fixtures/    one file per statement shape — invented rows, real shape
 test/paths.test.js   ledger location, profiles, the data-dir migration script
@@ -177,9 +181,13 @@ test/export.test.js  the CSV bytes: BOM, CRLF, escaping, each sheet's columns
 test/overview.test.js  the overview export over plain arrays: the model, the
                      file, its escaping, and the browser path writing the same
 test/html.test.js    the frontend escaping rules below
-test/modes.test.js   the flag wired before render, modes.css scoped to it, each
-                     mode's tokens at the contrast style.css holds itself to,
-                     and the page's modes naming exactly the server's reaches
+test/modes.test.js   the flag wired before render, the mode stylesheets scoped
+                     to it, every token set (the default and each mode's) at
+                     the contrast bar, and the page's modes naming exactly the
+                     server's reaches
+test/css.test.js     every stylesheet linked in order and in its layer, colour
+                     only in token blocks, !important only for reduced motion,
+                     no nesting under a selector list (test/css-tree.js parses)
 test/pack.test.js    what the hosted copy contains, and what it must not
 test/deps.test.js    zero dependencies and no external URLs, as mechanisms
 scripts/seed-demo.js          invented data for a demo profile; refuses the
@@ -999,12 +1007,49 @@ when a view grows a second such flow, not because of its line count.
 
 ## Styling
 
-`web/style.css` opens with one `:root` block and **every colour, space, size and
-radius in the file comes out of it**. No raw hex, no magic number, no
-`!important` below that block. A value that appears twice is a token that was
-missing. The app is **dark only** — there is no light theme and no toggle; a
-light one would be a second `:root[data-theme]` block redefining the same names
-and nothing else, which is the point of keeping the layer complete.
+`web/tokens.css` holds one `:root` block and **every colour, space, size and
+radius in every stylesheet comes out of it**. No raw hex outside a token block,
+no magic number, no `!important` but the reduced-motion override. A value that
+appears twice is a token that was missing. The default is **dark only**; the
+one other look is a theme, and a theme is one `:root[data-mode="…"]` block
+redefining the same names (the AI modes' `theme-*.css`), which is the point of
+keeping the layer complete.
+
+**The stylesheets are plain native CSS, ten flat files in `web/`, and no
+library** — the zero-dependency rule holds for CSS too, and a framework's own
+token set would fight this one. What a library used to be for, the platform now
+does, so use it:
+
+- **`@layer`**, declared once at the top of `tokens.css`: `tokens, app, modes`.
+  `app` is everything that was `style.css`, spread over `base.css`,
+  `chrome.css`, `components.css`, `charts.css` and `views.css` *in its old
+  order*, so the cascade inside it is what one file gave. Do not split `app`
+  into finer layers: a later layer beats an earlier one whatever the
+  specificity, which is not how these rules were written to interact.
+- **Nesting**, under a single selector only. Under a list, `&` is `:is(…)` and
+  takes its most specific member's weight — nested under `button, .btn`, a
+  `button:hover` would weigh as `.btn:hover`. A narrow-screen override is a
+  nested `@media` inside the rule it adjusts, not a block at the end of a file.
+- **One file per theme.** A new look is a `theme-*.css` with one block of
+  tokens and its own drawing, plus its line in `test/css.test.js`'s
+  `LAYER_OF` — which is the decision of where it sits in the cascade.
+- **`web/` stays flat**: `scripts/pack-demo.js` copies files, never folders. A
+  new stylesheet is a file there and a `<link>` in `index.html`, in cascade
+  order.
+
+`test/css.test.js` makes these mechanical — every file linked once and in
+order, every rule in its file's layer, colour only on a `--token` in a token
+block, `!important` only for reduced motion, no `outline: none`, no nesting
+under a list — and `test/modes.test.js` holds every token set, the default
+included, to the contrast bar below. Its `KNOWN_GAPS` names the one shortfall
+there is: the default `--line-strong` is 2.95:1 on `--surface-3`, the row
+hover.
+
+**Changing how the CSS is organised must not change a pixel.** The split from
+one file was checked by screenshotting every view, three phone widths, each
+theme, the hovers, the modal, the toasts and the import flow before and after,
+and comparing them pixel by pixel against the noise between two runs of the
+same files. Do the same for the next reorganisation.
 
 **Green and red belong to money.** That is the rule the old palette broke:
 `--accent` was one green serving as both the brand (primary buttons, active nav,
@@ -1065,8 +1110,8 @@ seven categories, it is assets against liabilities — a diverging scale, so the
 by lightness. Every row is already labelled with its own name and number, so
 colour carries size, not identity; a fifth asset kind folds into "other"
 rather than getting a new hue. Grep `web/` for `#` before claiming the palette
-is in one place — a hex in the JS is invisible to every check the stylesheet
-makes on itself.
+is in one place — a hex in the JS is invisible to every check the stylesheets
+make on themselves.
 
 The frontend still writes ~54 inline `style=` attributes. Those are the
 remaining styling debt, and the split made them countable: 25 of them are in

@@ -1,0 +1,54 @@
+/* 晴天 — no AI: a bright sky, white and blue, and a sun. The only light
+   theme, so it carries the light money set and its own shadows.
+
+   Behind the `modes` flag, like modes.css, and the same rule holds:
+   everything here is nested under this theme's own :root[data-mode], so it
+   applies only while the mode is drawn. The block redefines tokens.css's
+   names and adds this theme's drawing and motion; nothing else. Ratios are
+   the worst case across --bg … --surface-3. */
+
+@layer modes {
+
+  /* 晴天 · 晴空 */
+  :root[data-mode="none"] {
+    color-scheme: light;
+    --bg: #eef4fa;
+    --surface: #ffffff;
+    --surface-2: #e6eef7;
+    --surface-3: #dce7f3;
+    --line: #d3dfec;
+    --line-strong: #6f8199;  /* 3.2:1 */
+    --ink: #14202e;  /* 13.1:1 */
+    --ink-2: #3c4c60;  /* 7.0:1 */
+    --ink-3: #56677d;  /* 4.6:1 */
+    --brand: #1c64a8;  /* 4.9:1 */
+    --brand-solid: #1c64a8;
+    --brand-ink: #ffffff;
+    --brand-tint: #dbe9f7;
+    --brand-line: #b5cde6;
+    --chart-1: #1c64a8;
+    --chart-2: #3a7cbd;
+    --chart-3: #5a93cc;
+    --chart-4: #6683a8;
+    --deco: #f0b429;
+    --up: #1a6a3d;  /* 5.3:1 */
+    --up-tint: #e2efe5;
+    --up-line: #bcd8c4;
+    --down: #b3372f;  /* 4.8:1 */
+    --down-tint: #f6e3e0;
+    --down-line: #e6c0ba;
+    --warn: #7a5500;  /* 5.4:1 */
+    --warn-tint: #f3ead6;
+    --warn-line: #e0cfa8;
+    --shadow-1: 0 8px 28px rgb(0 0 0 / .12);
+    --shadow-2: 0 16px 48px rgb(0 0 0 / .16);
+    --deco-shape: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27120%27%20height%3D%27120%27%3E%3Cg%20fill%3D%27black%27%20opacity%3D%27.55%27%3E%3Ccircle%20cx%3D%2796%27%20cy%3D%2724%27%20r%3D%2711%27%2F%3E%3C%2Fg%3E%3Cg%20stroke%3D%27black%27%20stroke-width%3D%272.4%27%20stroke-linecap%3D%27round%27%20opacity%3D%27.45%27%3E%3Cpath%20d%3D%27M113.0%2024.0L124.0%2024.0%27%2F%3E%3Cpath%20d%3D%27M110.7%2032.5L115.9%2035.5%27%2F%3E%3Cpath%20d%3D%27M104.5%2038.7L110.0%2048.2%27%2F%3E%3Cpath%20d%3D%27M96.0%2041.0L96.0%2047.0%27%2F%3E%3Cpath%20d%3D%27M87.5%2038.7L82.0%2048.2%27%2F%3E%3Cpath%20d%3D%27M81.3%2032.5L76.1%2035.5%27%2F%3E%3Cpath%20d%3D%27M79.0%2024.0L68.0%2024.0%27%2F%3E%3Cpath%20d%3D%27M81.3%2015.5L76.1%2012.5%27%2F%3E%3Cpath%20d%3D%27M87.5%209.3L82.0%20-0.2%27%2F%3E%3Cpath%20d%3D%27M96.0%207.0L96.0%201.0%27%2F%3E%3Cpath%20d%3D%27M104.5%209.3L110.0%20-0.2%27%2F%3E%3Cpath%20d%3D%27M110.7%2015.5L115.9%2012.5%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+
+    & .sidebar::before {
+      transform-origin: 96px 24px; animation: sun-in .9s cubic-bezier(.2, .8, .2, 1) both;
+    }
+  }
+
+  @keyframes sun-in { from { opacity: 0; transform: rotate(-120deg) scale(.4); } }
+
+}

@@ -507,7 +507,7 @@ describe('前端靜態防線', () => {
   // overlay did exactly that and greyed out the whole app from first paint.
   it('用 hidden 切換又自己設了 display 的元素，都有 [hidden] 覆寫', () => {
     const doc = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-    // Every stylesheet index.html links, not just style.css: a display set in
+    // Every stylesheet index.html links, not just one: a display set in
     // modes.css outranks [hidden] exactly the same way.
     const css = [...doc.matchAll(/<link rel="stylesheet" href="\/([^"]+)">/g)]
       .map(([, f]) => fs.readFileSync(path.join(__dirname, '..', 'web', f), 'utf8')).join('\n');

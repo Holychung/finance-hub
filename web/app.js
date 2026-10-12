@@ -17,7 +17,7 @@ async function render() {
   const snap = captureUi();
   const name = currentView();
   // The active item used to carry a leading bar as well as its tint. The bar
-  // is gone — see the --marker comment in style.css — so the state is stated
+  // is gone — see the --marker comment in tokens.css — so the state is stated
   // rather than only drawn, which it should have been anyway.
   $$('#nav a').forEach((a) => {
     const on = a.dataset.view === name;
@@ -164,7 +164,7 @@ const PRIVACY_MODES = [
 ];
 
 // The flag's apply(). Off takes every trace back out, so the page is
-// style.css's again without a reload; on draws the book's reach once the
+// the app layer's again without a reload; on draws the book's reach once the
 // server has said what it is.
 async function setModes(on) {
   if (!on) {

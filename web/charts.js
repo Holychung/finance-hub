@@ -7,7 +7,7 @@
 // No colour is written here. lineChart emits its gradient stops and its end
 // marker bare and `.chart stop` / `.chart circle` supply them; BAR_COLORS
 // holds `var(--chart-N)` strings. A hex in this file would be invisible to
-// every check style.css makes on itself.
+// every check the stylesheets make on themselves (test/css.test.js).
 
 // Round numbers a reader can hold — 1, 2, 2.5 or 5 times a power of ten —
 // covering the range in roughly `count` steps. Gridlines at a quarter and a
@@ -216,7 +216,7 @@ function wireChartHover() {
 // size and each is already labelled with its own name and number, so colour
 // carries magnitude, not identity. Brightest first — the ground is dark, so
 // bright is what reads as loudest and the largest slice takes --chart-1. A
-// light theme would reverse the ramp, not the order. Defined in style.css so
+// light theme would reverse the ramp, not the order. Defined in tokens.css so
 // the palette stays in one place — see CLAUDE.md "Styling".
 const BAR_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)'];
 

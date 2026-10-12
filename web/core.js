@@ -113,7 +113,7 @@ const routeParam = () => segments()[1] || null;
 // own state drives them. No icon font and no CDN — the app installs nothing.
 //
 // Severity icons are deliberately NOT here. Those belong to the container and
-// come from a CSS mask (`--icon-*` in style.css), so a `.note` cannot be
+// come from a CSS mask (`--icon-*` in tokens.css), so a `.note` cannot be
 // written without one. These are content: which action a button performs is
 // something only the call site knows.
 //
