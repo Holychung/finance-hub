@@ -151,12 +151,42 @@
   ];
 
   // Fixed amount, fixed day, every month — so the recurring detector has
-  // something to find, and finds it for the right reason.
+  // something to find, and finds it for the right reason. `raised` is the one
+  // exception, and it is on purpose: see PLANTED.
   const SUBSCRIPTIONS = [
-    { account: 'esuncard', desc: 'NETFLIX.COM', amount: -390, day: 8, category: '娛樂' },
+    { account: 'esuncard', desc: 'NETFLIX.COM', amount: -390, day: 8, category: '娛樂', raised: -450 },
     { account: 'esuncard', desc: 'SPOTIFY AB', amount: -149, day: 14, category: '娛樂' },
     { account: 'esuncard', desc: '中華電信 行動月租', amount: -799, day: 21, category: '電信' },
     { account: 'sapphire', desc: 'ICLOUD STORAGE', amount: -2.99, day: 11, category: 'Subscriptions' },
+  ];
+
+  // 月度審計 opens on the last complete month, and an audit with nothing to
+  // find demonstrates nothing — the same reason one balance check below does
+  // not agree. So that month carries one of each problem a statement hides,
+  // invented like everything else, each one checkable by hand on the page:
+  //
+  //   Netflix goes from 390 to 450 that month, and stays     固定扣款漲價
+  //   Spotify is charged twice, a day apart                  可能重複扣款
+  //   DISNEY PLUS began two months before — a free trial     新的固定扣款
+  //     nobody cancelled — and its third charge makes it one
+  //   a hotel booked abroad, and the card's 1.5% on it       手續費或利息
+  //   a purchase far larger than anything in half a year     大額支出
+  //
+  // `back` counts months back from the running one, never a date, because the
+  // hosted demo is built from today and the month the page opens on moves with
+  // it. Every amount is fixed, with no draw from the jitter, so every other row
+  // comes out exactly as it did without these. Each sits on a category no
+  // budget names, so the budget card still opens on both its states, and none
+  // comes within three days and 1.5% of an inflow on another account, so
+  // pairing offers nothing it did not before. `test/seed.test.js` holds the
+  // audit of that month to exactly these five, whatever day the book is built.
+  const AUDIT_BACK = 1;
+  const PLANTED = [
+    { back: [AUDIT_BACK], account: 'esuncard', day: 15, desc: 'SPOTIFY AB', amount: -149, category: '娛樂' },
+    { back: [3, 2, AUDIT_BACK, 0], account: 'esuncard', day: 3, desc: 'DISNEY PLUS', amount: -270, category: '娛樂' },
+    { back: [AUDIT_BACK], account: 'esuncard', day: 19, desc: 'AGODA 國外訂房', amount: -4280, category: '旅遊' },
+    { back: [AUDIT_BACK], account: 'esuncard', day: 19, desc: '國外交易手續費', amount: -64, category: '手續費' },
+    { back: [AUDIT_BACK], account: 'sapphire', day: 24, desc: 'BEST BUY 00417', amount: -1249.99, category: 'Shopping' },
   ];
 
   // Rules that match rows the statements left uncategorised, and are **not**
@@ -262,6 +292,15 @@
     };
 
     for (const [i, m] of months.entries()) {
+      // A card's fixed charges this month, and what 月度審計 is meant to find
+      // in it. RNG-free, so they move none of the jittered rows around them.
+      const back = months.length - 1 - i;
+      const charges = (account) => [
+        ...SUBSCRIPTIONS.filter((s) => s.account === account)
+          .map((s) => ({ ...s, amount: s.raised && back <= AUDIT_BACK ? s.raised : s.amount })),
+        ...PLANTED.filter((p) => p.account === account && p.back.includes(back)),
+      ];
+
       add('esun', dayIn(m, 5), wobble(95000, 0.03), '薪資轉帳 XX科技股份有限公司', { kind: 'income' });
       add('esun', dayIn(m, 6), -28000, '房租 轉出', { kind: 'expense' });
       const mortgagePay = wobble(18500, 0.001);
@@ -277,7 +316,7 @@
           add('esuncard', dayIn(m, 2 + Math.floor(rnd() * 26)), amt, s.desc, { category: s.category, kind: 'expense' });
         }
       }
-      for (const s of SUBSCRIPTIONS.filter((x) => x.account === 'esuncard')) {
+      for (const s of charges('esuncard')) {
         cardMonth += s.amount;
         add('esuncard', dayIn(m, s.day), s.amount, s.desc, { category: s.category, kind: 'expense' });
       }
@@ -309,7 +348,7 @@
           add('sapphire', dayIn(m, 3 + Math.floor(rnd() * 24)), amt, s.desc, { category: s.category, kind: 'expense' });
         }
       }
-      for (const s of SUBSCRIPTIONS.filter((x) => x.account === 'sapphire')) {
+      for (const s of charges('sapphire')) {
         usdCard += s.amount;
         add('sapphire', dayIn(m, s.day), s.amount, s.desc, { category: s.category, kind: 'expense' });
       }
