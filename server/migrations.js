@@ -429,6 +429,27 @@ UPDATE imports SET span_from = date_from, span_to = date_to WHERE period_kind = 
 `);
     },
   },
+
+  {
+    version: 12,
+    name: 'ai reach replaces ai enabled',
+    // AI 健檢's on/off becomes how far AI may reach for the book — 'none',
+    // 'local' or 'cloud' (server/ai.js). The only providers there were are
+    // cloud ones, so a book that had it on was a cloud book and one that had
+    // it off was 'none': each keeps exactly the behaviour it had. A book that
+    // never touched the switch has no row and reads as 'none' either way.
+    //
+    // The row is renamed in place rather than inserted beside the old one, so
+    // there is never a second switch left to disagree with the first, and the
+    // count check holds unchanged. NOT EXISTS keeps a book that somehow has
+    // both keys from failing on the primary key; its old row is then inert.
+    up(db) {
+      db.exec(`
+UPDATE meta SET key = 'ai_reach', value = CASE value WHEN '1' THEN 'cloud' ELSE 'none' END
+ WHERE key = 'ai_enabled' AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'ai_reach');
+`);
+    },
+  },
 ];
 
 const LATEST = MIGRATIONS[MIGRATIONS.length - 1].version;

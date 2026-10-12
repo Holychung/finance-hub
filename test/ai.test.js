@@ -216,12 +216,30 @@ describe('每家供應商的回應怎麼讀', () => {
 });
 
 describe('設定', () => {
-  it('預設是關的，Claude，Opus 5', () => {
+  it('預設是 none（晴天），Claude，Opus 5', () => {
     const s = AI.settings(meta().getMeta);
     assert.deepEqual(
-      { enabled: s.enabled, provider: s.provider, model: s.model },
-      { enabled: false, provider: 'anthropic', model: 'claude-opus-5' }
+      { reach: s.reach, provider: s.provider, model: s.model },
+      { reach: 'none', provider: 'anthropic', model: 'claude-opus-5' }
     );
+  });
+
+  // A typo that became 'cloud' would be the book leaving the machine, so an
+  // unknown reach is refused on the way in and read as 'none' on the way out.
+  it('reach 只認 none、local、cloud：寫入時拒絕別的，讀到不認得的當成 none', () => {
+    const m = meta();
+    assert.throws(() => AI.saveSettings({ reach: 'everywhere' }, m), (e) => e.status === 400 && /reach/.test(e.message));
+    assert.throws(() => AI.saveSettings({ reach: true }, m), (e) => e.status === 400);
+    assert.equal(AI.settings(m.getMeta).reach, 'none', '被拒絕的寫入什麼都沒存');
+    for (const r of AI.REACH) {
+      AI.saveSettings({ reach: r }, m);
+      assert.equal(AI.settings(m.getMeta).reach, r);
+    }
+    assert.equal(AI.settings(meta({ ai_reach: 'Cloud' }).getMeta).reach, 'none');
+  });
+
+  it('三家供應商都在雲端', () => {
+    assert.deepEqual(AI.PROVIDERS.map((p) => p.reach), ['cloud', 'cloud', 'cloud']);
   });
 
   // A Claude model id sent to OpenAI is a 404 nobody asked for.
@@ -231,9 +249,9 @@ describe('設定', () => {
     assert.equal(AI.settings(m.getMeta).model, 'gemini-3.8-flash');
     AI.saveSettings({ model: 'gemini-3.5-flash-lite' }, m);
     assert.equal(AI.settings(m.getMeta).model, 'gemini-3.5-flash-lite');
-    AI.saveSettings({ enabled: true }, m);
-    assert.equal(AI.settings(m.getMeta).model, 'gemini-3.5-flash-lite', '只改開關不動模型');
-    assert.equal(AI.settings(m.getMeta).enabled, true);
+    AI.saveSettings({ reach: 'cloud' }, m);
+    assert.equal(AI.settings(m.getMeta).model, 'gemini-3.5-flash-lite', '只改 reach 不動模型');
+    assert.equal(AI.settings(m.getMeta).reach, 'cloud');
   });
 
   it('不認得的供應商、會跑進網址路徑的模型名稱，都拒絕', () => {
@@ -329,7 +347,7 @@ describe('macOS 鑰匙圈（假的 security，不碰真的鑰匙圈）', () => {
 });
 
 describe('review（注入假的 sender，全程離線）', () => {
-  const on = (init = {}) => meta({ ai_enabled: '1', ...init });
+  const on = (init = {}) => meta({ ai_reach: 'cloud', ...init });
   const DAY = '2026-09-30';
   // What the page does: take the preview, then send its digest back. `send`
   // receives whatever `extra` overrides — a changed document, keys, a sender.
@@ -339,11 +357,31 @@ describe('review（注入假的 sender，全程離線）', () => {
     return { shown, run };
   };
 
-  it('沒開就拒絕，而且什麼都沒送', async () => {
+  // With a key in the store, so the refusal is the reach's and nothing else's.
+  // Neither call gets as far as a digest: the reach is the first thing read.
+  it('晴天（none）：預覽和送出都拒絕，什麼都沒送', async () => {
     const keys = keyStore({}, { anthropic: KEY });
     const { send, calls } = sender(anthropicReply('x'));
-    await assert.rejects(ask(meta()).run({ keys, send }), (e) => e.status === 400 && /沒有開啟/.test(e.message));
+    const m = meta({ ai_reach: 'none' });
+    assert.throws(() => AI.preview({ mode: 'audit', asOf: DAY, getMeta: m.getMeta, document: DOC }),
+      (e) => e.status === 403 && /晴天/.test(e.message));
+    await assert.rejects(AI.review({ mode: 'audit', asOf: DAY, digest: 'f'.repeat(40), getMeta: m.getMeta, document: DOC, keys, send }),
+      (e) => e.status === 403 && /晴天/.test(e.message));
     assert.equal(calls.length, 0);
+  });
+
+  // No local provider exists, so 月夜 admits nothing yet — and says so, rather
+  // than reading as if the switch were simply off.
+  it('月夜（local）：雲端的供應商不准，一樣拒絕，並且說本機 AI 還沒有', async () => {
+    const keys = keyStore({}, { anthropic: KEY });
+    const { send, calls } = sender(anthropicReply('x'));
+    const m = meta({ ai_reach: 'local' });
+    assert.throws(() => AI.preview({ mode: 'audit', asOf: DAY, getMeta: m.getMeta, document: DOC }),
+      (e) => e.status === 403 && /月夜/.test(e.message) && /本機 AI 還沒有/.test(e.message));
+    await assert.rejects(AI.review({ mode: 'audit', asOf: DAY, digest: 'f'.repeat(40), getMeta: m.getMeta, document: DOC, keys, send }),
+      (e) => e.status === 403 && /月夜/.test(e.message));
+    assert.equal(calls.length, 0);
+    assert.equal(AI.status({ getMeta: m.getMeta, keys }).allowed, false);
   });
 
   it('開了但沒有 key 也拒絕，並且說要去哪裡設', async () => {
@@ -376,10 +414,11 @@ describe('review（注入假的 sender，全程離線）', () => {
   });
 
   // The order is what makes the check testable safely: a digest that does not
-  // match is refused before the switch is even looked at.
-  it('digest 對不上是第一個檢查，所以關著的時候也測得到', async () => {
+  // match is refused before the key is even looked for, so a store with no key
+  // in it is enough to prove nothing could have been sent.
+  it('digest 對不上在找 key 之前就拒絕，所以沒有 key 也測得到', async () => {
     const { send, calls } = sender(anthropicReply('x'));
-    await assert.rejects(ask(meta()).run({ digest: 'f'.repeat(40), send }), (e) => e.status === 409);
+    await assert.rejects(ask(on()).run({ digest: 'f'.repeat(40), keys: keyStore(), send }), (e) => e.status === 409);
     assert.equal(calls.length, 0);
   });
 

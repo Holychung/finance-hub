@@ -42,7 +42,7 @@
   // the seed rather than a version anything migrates to. It has to be the
   // last step in server/migrations.js, because the seed carries every column
   // that step added; test/demo-store.test.js compares it with a fresh server.
-  const SCHEMA_VERSION = '11';
+  const SCHEMA_VERSION = '12';
 
   // ---------------------------------------------------------------------
   // The raw store
@@ -1138,6 +1138,9 @@
       auto_prices: false,
       prices_fetched_on: null,
       prices_fetched_at: null,
+      // No AI can be reached from here at all, so the demo is 晴天 by
+      // construction, and PUT /api/ai below refuses to make it anything else.
+      ai_reach: 'none',
     }));
 
     on('PUT', '/api/settings', (_p, b) => {

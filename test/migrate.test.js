@@ -901,6 +901,33 @@ describe('v11：匯入記下檔案自己的範圍', () => {
   });
 });
 
+describe('v12：AI 的開關變成 reach', () => {
+  // Every provider that existed was a cloud one, so on means cloud and off
+  // means none: each book keeps the behaviour it had, under one key.
+  const bookWith = (enabled) => {
+    const s = scratch();
+    const db = s.open();
+    v1BookWithRows(db, 0);
+    runMigrations(db, { migrations: MIGRATIONS.filter((m) => m.version <= 11) });
+    if (enabled !== undefined) db.prepare("INSERT INTO meta (key, value) VALUES ('ai_enabled', ?)").run(enabled);
+    runMigrations(db, {});
+    const rows = db.prepare("SELECT key, value FROM meta WHERE key IN ('ai_enabled', 'ai_reach') ORDER BY key")
+      .all().map((r) => ({ ...r }));
+    db.close();
+    s.rm();
+    return rows;
+  };
+
+  it('開著的變成 cloud，關著的變成 none，舊的 key 不留下來', () => {
+    assert.deepEqual(bookWith('1'), [{ key: 'ai_reach', value: 'cloud' }]);
+    assert.deepEqual(bookWith('0'), [{ key: 'ai_reach', value: 'none' }]);
+  });
+
+  it('從來沒碰過開關的帳本什麼都不寫，讀起來就是 none', () => {
+    assert.deepEqual(bookWith(undefined), []);
+  });
+});
+
 describe('比程式新的帳本會讓 server 停下來', () => {
   // db.js prints and exits rather than throwing, for the same reason
   // index.js does it for a stranded data/finance.db: the person needs an

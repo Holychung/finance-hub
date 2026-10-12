@@ -994,6 +994,10 @@ on('GET', '/api/settings', () => ({
   auto_prices: getMeta('auto_prices', '0') === '1',
   prices_fetched_on: getMeta('prices_fetched_on', null),
   prices_fetched_at: getMeta('prices_fetched_at', null),
+  // How far AI may reach for this book — the mode the sidebar draws. Here as
+  // well as in GET /api/ai because that one reads the keychain, and the chrome
+  // asks on every load. It is written through PUT /api/ai.
+  ai_reach: AI.settings(getMeta).reach,
 }));
 
 on('PUT', '/api/settings', (_p, b) => {
