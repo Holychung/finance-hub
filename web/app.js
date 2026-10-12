@@ -143,7 +143,97 @@ document.addEventListener('click', (e) => {
   render();
 });
 
+// The three AI modes, behind the `modes` flag in flags.js. For now a mode is
+// a look and a promise in words: nothing here gates a route yet — that is a
+// server-side setting the AI routes will consult, and localStorage stands in
+// for it until then. With the flag off data-mode is never set, so modes.css
+// applies nothing.
+const PRIVACY_MODES = [
+  { id: 'solo', name: '晴天', where: '不用 AI',
+    icon: html`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>` },
+  { id: 'local', name: '月夜', where: 'AI 在這台電腦',
+    icon: html`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>` },
+  { id: 'cloud', name: '萬聖夜', where: '雲端 AI',
+    icon: html`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7c-5 0-8 3-8 7s3 7 8 7 8-3 8-7-3-7-8-7z"/><path d="M12 7V4c1 0 2 .5 2.5 1.5"/><path d="M9 7.5C7.5 10 7.5 17 9 20.5M15 7.5c1.5 2.5 1.5 9.5 0 13"/></svg>` },
+];
+
+// The flag's apply(): on shows the switch and the last mode chosen; off takes
+// every trace back out, so the page is style.css's again without a reload.
+function setModes(on) {
+  $('#mode-switch').hidden = !on;
+  $('#mode-bar').hidden = !on;
+  if (!on) {
+    delete document.documentElement.dataset.mode;
+    $('#nav a[data-view="ai"]').hidden = false;
+    return;
+  }
+  let id = 'solo';
+  try { id = localStorage.getItem('ai-mode') || id; } catch { /* the first mode, then */ }
+  showMode(id);
+}
+
+// What each mode promises, in one sentence, for the banner.
+const MODE_PROMISE = {
+  solo: '不用 AI，這個帳本不會交給任何 AI。',
+  local: 'AI 在這台電腦上跑，斷網也能用，資料不出門。',
+  cloud: '按「送出」之後，資料會傳給你選的雲端 AI。',
+};
+
+function showMode(id) {
+  const i = Math.max(0, PRIVACY_MODES.findIndex((m) => m.id === id));
+  const m = PRIVACY_MODES[i];
+  const next = PRIVACY_MODES[(i + 1) % PRIVACY_MODES.length];
+  document.documentElement.dataset.mode = m.id;
+  mount($('#mode-bar'), html`${m.icon}<b>${m.name}</b><span>${MODE_PROMISE[m.id]}</span>`);
+  // Under 晴天 there is no AI to visit, so the page does not offer one.
+  $('#nav a[data-view="ai"]').hidden = m.id === 'solo';
+  const btn = $('#mode-switch');
+  btn.setAttribute('aria-label', `模式：${m.name}，${m.where}。按一下切換到${next.name}`);
+  mount(btn, html`${m.icon}<span><b>${m.name}</b><small>${m.where}</small></span>`);
+  btn.onclick = () => {
+    try { localStorage.setItem('ai-mode', next.id); } catch { /* this page only, then */ }
+    switchWithReveal(btn, () => showMode(next.id));
+  };
+}
+
+// The new mode spreads out from the button that was pressed, as a widening
+// circle over a snapshot of the old one. Two dark modes are close enough in
+// colour that the circle's edge alone barely shows — 月夜 into 萬聖夜 read
+// as a faint flash — so the edge carries a glow in the new mode's brand
+// colour and the old view dims as it is covered. A browser without view
+// transitions, or a person who asked for less motion, gets the switch with
+// no animation: the same result, just immediate.
+function switchWithReveal(from, apply) {
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!document.startViewTransition || still) { apply(); return; }
+  const r = from.getBoundingClientRect();
+  const x = r.left + r.width / 2;
+  const y = r.top + r.height / 2;
+  const end = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  const timing = { duration: 700, easing: 'cubic-bezier(.4, 0, .2, 1)' };
+  // Inside the new view, so it is drawn in the new mode's colour and clipped
+  // by the same circle; scaled with the same timing, its rim is the edge.
+  const ring = document.createElement('div');
+  ring.className = 'mode-ring';
+  ring.style.setProperty('--rx', `${x}px`);
+  ring.style.setProperty('--ry', `${y}px`);
+  ring.style.setProperty('--rr', `${end}px`);
+  const t = document.startViewTransition(() => { apply(); document.body.append(ring); });
+  t.ready.then(() => {
+    const root = document.documentElement;
+    root.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${end}px at ${x}px ${y}px)`] },
+      { ...timing, pseudoElement: '::view-transition-new(root)' },
+    );
+    root.animate({ filter: ['brightness(1)', 'brightness(.45)'] },
+      { ...timing, pseudoElement: '::view-transition-old(root)' });
+    ring.animate({ transform: ['scale(0)', 'scale(1)'], opacity: [1, 1, 0] }, timing);
+  });
+  t.finished.finally(() => ring.remove());
+}
+
 window.addEventListener('popstate', render);
 wireChartHover();
+applyFlags();
 render();
 showProfile();
