@@ -622,10 +622,11 @@ describe('自動抓價設定', () => {
 });
 
 // AI 健檢 over HTTP, with nothing leaving the machine: every case here either
-// stops before the provider (off, no key, a refused setting) or never asks for
-// it. The request path itself runs offline in test/ai.test.js, against an
-// injected sender. No case here may store a key, turn the feature on and then
-// press 送出 — that would be a real request to a real provider.
+// stops before the provider (a reach that admits none, no key, a refused
+// setting) or never asks for it. The request path itself runs offline in
+// test/ai.test.js, against an injected sender. No case here may store a key,
+// widen the reach and then press 送出 — that would be a real request to a
+// real provider.
 describe('AI 健檢', () => {
   const PUT = (p, b) => req('PUT', p, b);
   const call = async (method, p, body) => {
@@ -637,16 +638,26 @@ describe('AI 健檢', () => {
     return { status: res.status, body: await res.json().catch(() => ({})) };
   };
 
-  it('預設是關的：Claude、Opus 5、沒有 key', async () => {
+  it('預設是 none（晴天）：Claude、Opus 5、沒有 key', async () => {
     const s = await GET('/api/ai');
     assert.equal(s.available, true);
-    assert.equal(s.enabled, false, '離線是預設');
+    assert.equal(s.reach, 'none', '離線是預設');
+    assert.equal(s.allowed, false);
     assert.equal(s.provider, 'anthropic');
     assert.equal(s.model, 'claude-opus-5');
     assert.equal(s.key.set, false, '測試的伺服器看不到任何人的 key');
     assert.equal(s.key.store, 'memory', '測試的伺服器碰不到鑰匙圈');
     assert.deepEqual(s.providers.map((p) => p.key), ['anthropic', 'openai', 'gemini']);
+    assert.equal((await GET('/api/settings')).ai_reach, 'none', 'settings 也報一樣的 reach');
   });
+
+  // The test server holds no key, so widening the reach to cloud here can at
+  // most get a refusal for the missing key — never a request. Every case that
+  // widens it puts it back, so the next one starts from the default.
+  const withReach = async (reach, fn) => {
+    await PUT('/api/ai', { reach });
+    try { await fn(); } finally { await PUT('/api/ai', { reach: 'none' }); }
+  };
 
   // What the page sends back with 送出: the preview's day and digest.
   const asShown = async (mode = 'audit') => {
@@ -654,30 +665,43 @@ describe('AI 健檢', () => {
     return { mode, as_of: p.as_of, digest: p.digest };
   };
 
-  // With the feature off, so that even a broken check could not send anything.
-  it('digest 不是預覽給的那個就是 409；沒附 digest 是 400', async () => {
+  it('晴天：預覽和送出都是 403，說是這本帳設定成不用 AI', async () => {
+    const p = await call('GET', '/api/ai/preview?mode=audit');
+    assert.equal(p.status, 403);
+    assert.match(p.body.error, /晴天/);
+    const r = await call('POST', '/api/ai/review', { mode: 'audit', digest: 'f'.repeat(40) });
+    assert.equal(r.status, 403);
+    assert.match(r.body.error, /晴天/);
+  });
+
+  it('月夜：雲端的供應商一樣 403，並且說本機 AI 還沒有', () => withReach('local', async () => {
+    assert.equal((await GET('/api/settings')).ai_reach, 'local');
+    assert.equal((await GET('/api/ai')).allowed, false);
+    const p = await call('GET', '/api/ai/preview?mode=audit');
+    assert.equal(p.status, 403);
+    assert.match(p.body.error, /本機 AI 還沒有/);
+  }));
+
+  it('reach 寫錯是 400，什麼都沒改', async () => {
+    assert.equal((await call('PUT', '/api/ai', { reach: 'everywhere' })).status, 400);
+    assert.equal((await GET('/api/ai')).reach, 'none');
+  });
+
+  it('digest 不是預覽給的那個就是 409；沒附 digest 是 400', () => withReach('cloud', async () => {
     const shown = await asShown();
     assert.match(shown.digest, /^[0-9a-f]{40}$/);
     const stale = await call('POST', '/api/ai/review', { ...shown, digest: 'f'.repeat(40) });
     assert.equal(stale.status, 409);
     assert.match(stale.body.error, /變了/);
     assert.equal((await call('POST', '/api/ai/review', { mode: 'audit' })).status, 400);
-  });
+  }));
 
-  it('沒開就按送出，是 400，不是去連網', async () => {
-    const r = await call('POST', '/api/ai/review', await asShown());
-    assert.equal(r.status, 400);
-    assert.match(r.body.error, /沒有開啟/);
-  });
-
-  it('開了但沒有 key，一樣 400，並且說要去哪裡設', async () => {
-    await PUT('/api/ai', { enabled: true });
+  it('雲端但沒有 key，是 400，並且說要去哪裡設', () => withReach('cloud', async () => {
+    assert.equal((await GET('/api/ai')).allowed, true);
     const r = await call('POST', '/api/ai/review', await asShown());
     assert.equal(r.status, 400);
     assert.match(r.body.error, /ANTHROPIC_API_KEY/);
-    await PUT('/api/ai', { enabled: false });
-    assert.equal((await GET('/api/ai')).enabled, false);
-  });
+  }));
 
   it('設定存得住；換供應商就換成那家的預設模型；壞的設定被拒絕', async () => {
     await PUT('/api/ai', { provider: 'openai' });
@@ -710,7 +734,7 @@ describe('AI 健檢', () => {
   // What the page shows above 送出 is the 匯出全覽 file, and review() sends
   // what the preview shows (test/ai.test.js), so this is the link between the
   // download and the request.
-  it('預覽的文件就是匯出全覽那個檔，一個字都不差', async () => {
+  it('預覽的文件就是匯出全覽那個檔，一個字都不差', () => withReach('cloud', async () => {
     const day = '2026-09-30';
     const p = await GET(`/api/ai/preview?mode=audit&to=${day}`);
     const file = await (await raw(`/api/export/overview?to=${day}`)).text();
@@ -719,7 +743,7 @@ describe('AI 健檢', () => {
     assert.equal(p.chars, p.system.length + p.document.length);
     assert.equal(p.host, 'api.anthropic.com');
     assert.equal((await call('GET', '/api/ai/preview?mode=predict')).status, 400);
-  });
+  }));
 });
 
 describe('匯出', () => {

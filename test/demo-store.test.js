@@ -424,10 +424,13 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     assert.equal(a.available, false);
     assert.match(a.reason, /示範版不能用 AI 健檢/);
     assert.equal(b.available, true);
-    assert.equal(b.enabled, false);
+    assert.equal(b.reach, 'none');
+    // The sidebar's mode reads the reach from settings: the demo is 晴天 by
+    // construction, and the switch's write below is refused like the rest.
+    assert.equal((await demo.get('/api/settings')).ai_reach, 'none');
 
     for (const [method, p, body] of [
-      ['put', '/api/ai', { enabled: true }],
+      ['put', '/api/ai', { reach: 'cloud' }],
       ['get', '/api/ai/preview?mode=audit'],
       ['post', '/api/ai/review', { mode: 'audit' }],
     ]) {

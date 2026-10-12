@@ -3,10 +3,13 @@
 // /ai — AI 健檢. The overview document, handed to the model the user chose,
 // for an audit of the ledger or for observations about it.
 //
-// Off until the box is ticked, and even then nothing leaves until 送出 is
-// pressed. The page shows the instruction and the document first, and those
-// are exactly what server/ai.js sends. The key is not entered here: it is set
-// on the machine, and the page is only ever told whether one is set.
+// Off until the book's AI reach admits a provider — the box here widens it to
+// cloud, and the sidebar's mode switch moves it too — and even then nothing
+// leaves until 送出 is pressed. Below that reach the server refuses even the
+// preview, so the page does not ask for one. When it does, it shows the
+// instruction and the document first, and those are exactly what
+// server/ai.js sends. The key is not entered here: it is set on the machine,
+// and the page is only ever told whether one is set.
 
 // Page state, like spendingYears: which question to ask, and the last answer,
 // which has to survive the re-render that every setting change triggers.
@@ -31,11 +34,11 @@ views.ai = async () => {
     return;
   }
 
-  const preview = await api(`/api/ai/preview?mode=${aiMode}`);
+  const preview = s.allowed ? await api(`/api/ai/preview?mode=${aiMode}`) : null;
   const provider = s.providers.find((p) => p.key === s.provider);
   const mode = AI_MODES.find((m) => m.key === aiMode);
-  const ready = s.enabled && s.key.set;
-  const blocker = !s.enabled ? '先打開上面的開關。' : !s.key.set ? `先設定 ${provider.label} 的 API key。` : '';
+  const ready = s.allowed && s.key.set;
+  const blocker = !s.allowed ? '先打開上面的開關。' : !s.key.set ? `先設定 ${provider.label} 的 API key。` : '';
 
   mount(main, html`
     <div class="page-head"><div><h1>AI 健檢</h1><div class="sub">請 AI 審計帳本，或根據帳本給建議</div></div></div>
@@ -49,9 +52,11 @@ views.ai = async () => {
         ${provider.privacy || ''}
       </div>
       <label class="check">
-        <input type="checkbox" id="ai-enabled" ${s.enabled ? 'checked' : ''}>
-        <span>開啟 AI 健檢（需連網）</span>
+        <input type="checkbox" id="ai-cloud" ${s.reach === 'cloud' ? 'checked' : ''}>
+        <span>開啟 AI 健檢，允許用雲端 AI（需連網）</span>
       </label>
+      ${s.reach === 'local' ? html`<div class="muted small">現在這本帳只允許這台電腦上的
+        AI。本機 AI 還沒有做好，所以伺服器不會預覽、也不會送出任何東西。勾選上面就改成可以用雲端。</div>` : ''}
 
       <div class="row spaced">
         <label class="field"><span>AI 供應商</span><select id="ai-provider">
@@ -75,13 +80,14 @@ views.ai = async () => {
         data-aimode="${m.key}" aria-pressed="${ariaBool(m.key === aiMode)}">${m.label}</button>`)}</div>
       <div class="note spaced">${mode.about}</div>
 
-      <details class="ai-preview">
+      ${preview ? html`<details class="ai-preview">
         <summary>要送出的內容：給模型的說明，加上截至 ${preview.as_of} 的資產全覽，共 ${nf(preview.chars)} 字</summary>
         <h2 class="sec">給模型的說明</h2>
         <pre class="ai-text">${preview.system}</pre>
         <h2 class="sec">資產全覽</h2>
         <pre class="ai-text">${preview.document}</pre>
-      </details>
+      </details>` : html`<div class="muted small spaced">打開之後，這裡會先列出要送出的完整內容，看過才按送出。
+        要送的文件就是總覽頁「匯出全覽」下載的那一份，現在就可以先下載來看。</div>`}
 
       <div class="toolbar">
         <button class="primary" id="ai-send" ${ready && !aiBusy ? '' : 'disabled'}>${aiBusy ? '送出中…' : `送出到 ${provider.label}`}</button>
@@ -137,16 +143,18 @@ function answerSection(a) {
 function wireAi(preview) {
   // Every setting is one write and a redraw: the page is drawn from what the
   // server says the settings are, never from what the form last held.
+  // A change of reach also redraws the sidebar's mode, when it is shown.
   const save = async (path, body, done) => {
     try {
       await put(path, body);
       if (done) toast(done, 'ok');
       render();
+      if ('reach' in body) showReach();
     } catch (e) { toast(e.message, 'err'); }
   };
 
-  $('#ai-enabled').onchange = (e) => save('/api/ai', { enabled: e.target.checked },
-    e.target.checked ? '已開啟 AI 健檢' : '已關閉');
+  $('#ai-cloud').onchange = (e) => save('/api/ai', { reach: e.target.checked ? 'cloud' : 'none' },
+    e.target.checked ? '已開啟 AI 健檢（雲端）' : '已關閉：這本帳不用 AI');
   $('#ai-provider').onchange = (e) => save('/api/ai', { provider: e.target.value }, `改用 ${e.target.selectedOptions[0].text}`);
   $('#ai-model-save').onclick = () => save('/api/ai', { model: $('#ai-model').value }, '已儲存模型');
 

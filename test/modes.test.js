@@ -8,6 +8,12 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+
+// Only for REACH. server/ai.js opens nothing at load, and the vault is the
+// in-memory one, as in every test, so nothing here can reach a keychain.
+process.env.FINANCE_AI_VAULT = 'memory';
+const { REACH } = require('../server/ai');
+
 const ROOT = path.join(__dirname, '..');
 const FLAGS_JS = fs.readFileSync(path.join(ROOT, 'web', 'flags.js'), 'utf8');
 const APP_JS = fs.readFileSync(path.join(ROOT, 'web', 'app.js'), 'utf8');
@@ -59,6 +65,25 @@ describe('實驗功能旗標', () => {
   });
 });
 
+describe('模式就是 server 的 reach', () => {
+  // A mode is the server's reach drawn, so the page, the stylesheet and the
+  // server must name the same three — one more on any side would be a look
+  // the server never enforces, or a reach nothing draws.
+  it('側欄的模式、modes.css 的主題、server 的 reach 是同一組名字，順序也一樣', () => {
+    const start = APP_JS.indexOf('const PRIVACY_MODES = [');
+    const block = APP_JS.slice(start, APP_JS.indexOf('\n];', start));
+    assert.deepEqual([...block.matchAll(/\{ id: '(\w+)'/g)].map((m) => m[1]), REACH);
+    const themes = new Set([...CSS.matchAll(/:root\[data-mode="(\w+)"\]/g)].map((m) => m[1]));
+    assert.deepEqual([...themes].sort(), [...REACH].sort());
+  });
+
+  // The switch's promise: what is on screen is what the server took.
+  it('切換鈕先寫 server，成功了才換樣子；不再用 localStorage 記模式', () => {
+    assert.match(APP_JS, /await put\('\/api\/ai', \{ reach: next\.id \}\);[\s\S]*?catch[\s\S]*?return;[\s\S]*?switchWithReveal/);
+    assert.ok(!/'ai-mode'/.test(APP_JS), "localStorage 的 'ai-mode' 不該再出現");
+  });
+});
+
 describe('modes.css 只在旗標開啟時生效', () => {
   const all = rules(CSS);
 
@@ -84,7 +109,7 @@ describe('每個模式的對比度', () => {
       Object.fromEntries([...body.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]))]);
 
   it('三個模式都有自己的一組 token', () => {
-    assert.deepEqual(blocks.map(([m]) => m).sort(), ['cloud', 'local', 'solo']);
+    assert.deepEqual(blocks.map(([m]) => m).sort(), ['cloud', 'local', 'none']);
   });
 
   for (const [mode, t] of blocks) {

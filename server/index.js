@@ -307,10 +307,11 @@ server.listen(PORT, HOST, () => {
   if (!paths.IS_PERSONAL) console.log(`  ⚠  profile「${paths.PROFILE}」— 這不是你的個人帳本`);
   console.log('  只綁在本機，資料不離開這台電腦。Ctrl+C 結束。');
   // AI 健檢 never runs by itself, so there is nothing to start. The line is here
-  // so the terminal says what the page says: with it on, this book can leave
-  // the machine, when somebody asks it to.
+  // so the terminal says what the page says: with the reach at cloud, this book
+  // can leave the machine, when somebody asks it to.
   const ai = AI.settings(getMeta);
-  if (ai.enabled) console.log(`  AI 健檢已開啟（${ai.provider_label}）：只有按下送出時，資產全覽才會送出去。`);
+  if (ai.reach === 'cloud') console.log(`  AI 健檢可以用雲端（${ai.provider_label}）：只有按下送出時，資產全覽才會送出去。`);
+  if (ai.reach === 'local') console.log('  AI 健檢只允許這台電腦上的 AI：本機 AI 還沒有做好，所以什麼都不會送出。');
   console.log('');
 
   // Opt-in, so this is a no-op unless the user turned it on in settings; then it

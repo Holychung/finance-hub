@@ -85,6 +85,19 @@ unless its owner turns on one of the two opt-in exceptions below and, for AI
   Markdown shapes as elements and never turns a link into one. The hosted demo
   refuses every AI route. Nothing else in the app may call a model.
 
+  **How far AI may reach is one setting per book, `ai_reach`, and the server
+  enforces it**: `none` (晴天, the default), `local` (月夜) or `cloud`
+  (萬聖夜), each wider than the last. A provider carries its own `reach` and
+  is admitted only when it is no wider than the book's; `gate()` in
+  `server/ai.js` refuses preview and send with a 403 before either reads the
+  book. No local provider exists yet, so `local` refuses as `none` does and
+  says why. The sidebar's three modes are this setting drawn — the switch
+  writes it and changes the look only once the server has taken it — and
+  AI 健檢's box moves the same setting, so there is one switch, not two. An
+  unknown value is refused on the way in and read as `none` on the way out:
+  a typo that became `cloud` would be the book leaving the machine. Migration
+  12 replaced the old `ai_enabled` with it.
+
 ## Layout
 
 ```
@@ -131,8 +144,8 @@ web/forms.js      modal editors more than one view opens
 web/view-*.js     one file per route, each registering its own views.<name>
 web/app.js        router, link interception, sidebar — loaded last, boots render()
 web/flags.js      feature flags, per browser; Cmd/Ctrl+Shift+F opens the panel.
-                  A flag is a look, never a permission
-web/modes.css     the three AI modes' looks, behind the `modes` flag; every
+                  A flag shows or hides a control; it is never a permission
+web/modes.css     the three AI reaches' looks, behind the `modes` flag; every
                   rule scoped under :root[data-mode], so off it applies nothing
 test/api.test.js  node:test suite, starts and stops its own server
 test/fixtures/    one file per statement shape — invented rows, real shape
@@ -160,7 +173,8 @@ test/overview.test.js  the overview export over plain arrays: the model, the
                      file, its escaping, and the browser path writing the same
 test/html.test.js    the frontend escaping rules below
 test/modes.test.js   the flag wired before render, modes.css scoped to it, each
-                     mode's tokens at the contrast style.css holds itself to
+                     mode's tokens at the contrast style.css holds itself to,
+                     and the page's modes naming exactly the server's reaches
 test/pack.test.js    what the hosted copy contains, and what it must not
 test/deps.test.js    zero dependencies and no external URLs, as mechanisms
 scripts/seed-demo.js          invented data for a demo profile; refuses the
