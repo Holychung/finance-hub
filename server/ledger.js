@@ -20,6 +20,10 @@ const TABLES = new Set([
 // upsert and deleted by its whole key, never part of it — a key with a column
 // missing would be a WHERE that matches every rate of a pair.
 const KEYS = { fx_rates: ['date', 'pair'], prices: ['symbol', 'market', 'date'] };
+// What the full JSON backup holds, in the order it is written.
+const EXPORTED = [
+  'institutions', 'accounts', 'txns', 'holdings', 'prices', 'fx_rates', 'balance_checks', 'mappings', 'budgets',
+];
 
 function makeLedger({ db, getMeta, setMeta, M }) {
   const columns = new Map();
@@ -138,6 +142,24 @@ function makeLedger({ db, getMeta, setMeta, M }) {
     holdingsValued: (asOf) => M.holdingsValued(asOf),
     accountsWithBalances: (asOf) => M.accountsWithBalances(asOf),
     accountSeries: (id, to) => M.accountSeries(id, to),
+    seriesStart: (asOf) => M.seriesStart(asOf),
+    netWorthSeries: (from, to, access) => M.netWorthSeries(from, to, access),
+    overview: (asOf) => M.overview(asOf),
+
+    txnCount: () => db.prepare('SELECT COUNT(*) AS n FROM txns').get().n,
+    fxLatest: () => db.prepare("SELECT date, rate FROM fx_rates WHERE pair='USDTWD' ORDER BY date DESC LIMIT 1").get() || null,
+
+    // Every table the full backup holds, whole, in this order.
+    exportTables: () => Object.fromEntries(EXPORTED.map((t) => [t, db.prepare(`SELECT * FROM ${t}`).all()])),
+
+    // The transactions sheet of the CSV export: every row, newest first, with
+    // its account's name and currency.
+    exportTxns: () => db.prepare(
+      `SELECT t.date, a.name AS account_name, a.currency, t.amount, t.description,
+              t.category, t.kind, t.transfer_group, t.source, t.note
+         FROM txns t JOIN accounts a ON a.id = t.account_id
+        ORDER BY t.date DESC, t.id DESC`
+    ).all(),
 
     // One page of the transactions table, and what every matching row spans.
     txnPage({ account, from, to, kind, q }, limit, offset) {

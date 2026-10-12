@@ -39,7 +39,9 @@
     MARKET_KEYS, DEFAULT_MARKET, marketInfo, DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS,
     defaultAccessFor, TAX_STATUS_KEYS,
   } = NODE ? require('./kinds') : root;
-  const { COVERAGE_MONTHS } = NODE ? require('./money') : root;
+  const { COVERAGE_MONTHS, computeNetWorth, liabilitiesInCredit } = NODE ? require('./money') : root;
+  const { exportCsv } = NODE ? require('./export') : root;
+  const { overviewMarkdown } = NODE ? require('./overview') : root;
   const csv = NODE ? require('./csv') : root;
   const { parseDate, fingerprint } = csv;
   const I = NODE ? require('./import') : root;
@@ -861,6 +863,76 @@
       L.update('imports', imp.id, checked({ date_from: period.from, date_to: period.to, period_kind: period.kind }));
       return { id: imp.id, period };
     });
+
+    // --- overview ------------------------------------------------------------
+
+    on('GET', '/api/overview', () => {
+      const asOf = today();
+      const accounts = L.accountsWithBalances(asOf);
+      const holdings = L.holdingsValued(asOf);
+      const checks = L.reconcile();
+      const from = L.seriesStart(asOf);
+      return {
+        net_worth: computeNetWorth({ accounts, holdings, asOf }),
+        accounts,
+        holdings,
+        series: L.netWorthSeries(from, asOf, null),
+        // The same line for each half of the book, so the chart can follow the
+        // overview's 可動用／受限制 switch instead of drawing the whole under it.
+        series_by_access: Object.fromEntries(ACCESS_KEYS.map((k) => [k, L.netWorthSeries(from, asOf, k)])),
+        reconcile: {
+          total: checks.length,
+          off: checks.filter((c) => !c.ok).length,
+          // Checks, not accounts: three bad checks against one account are
+          // three here and one book to go and fix, and only the second number
+          // is worth putting in a sentence. `latest` is capped, so the client
+          // cannot count the accounts itself without undercounting.
+          off_accounts: new Set(checks.filter((c) => !c.ok).map((c) => c.account_id)).size,
+          latest: checks.slice(0, 8),
+        },
+        counts: { txns: L.txnCount(), unpaired_candidates: L.transferCandidates().length },
+        // A card or loan sitting in credit is usually a sign flipped somewhere.
+        // It belongs on the overview rather than in a dismissible notice,
+        // because the number it produces looks perfectly reasonable on its own.
+        liabilities_in_credit: liabilitiesInCredit(accounts),
+        fx_latest: L.fxLatest(),
+      };
+    });
+
+    // --- exports -------------------------------------------------------------
+
+    // Every table whole, as the full backup the settings page downloads.
+    on('GET', '/api/export/json', () => ({
+      exported_at: now(),
+      base_currency: L.getMeta('base_currency', 'TWD'),
+      ...L.exportTables(),
+    }));
+
+    // The two exports that are files rather than JSON: what they are called
+    // and what they say. Each side sends them its own way — the server with a
+    // Content-Disposition, the demo as a Blob — so this answers `{ kind, name,
+    // body }` and null for a path that is not one of them. Both name the file
+    // after the day it describes.
+    const exportFile = (pathname, query) => {
+      if (pathname === '/api/export/overview') {
+        // `to` pins the day, so the server and the demo can be asked about the
+        // same one; left out, it is today.
+        const asOf = query.to ? parseDate(query.to, 'auto') : today();
+        if (!asOf) bad(`日期無法解析：${query.to}`);
+        return { kind: 'markdown', name: `overview_${asOf}.md`, body: overviewMarkdown(L.overview(asOf)) };
+      }
+      if (pathname === '/api/export/csv') {
+        const type = query.type || 'txns';
+        const day = today();
+        const { name, body } = type === 'accounts' ? exportCsv({ type, accounts: L.accountsWithBalances(day) })
+          : type === 'holdings' ? exportCsv({ type, holdings: L.holdingsValued(day) })
+            : exportCsv({ type: 'txns', txns: L.exportTxns() });
+        return { kind: 'csv', name: `${name}_${day}.csv`, body };
+      }
+      return null;
+    };
+
+    return { exportFile };
   }
 
   const api = { defineLedgerRoutes, ApiError };

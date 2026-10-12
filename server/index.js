@@ -6,14 +6,10 @@ const path = require('node:path');
 
 const paths = require('./paths');
 const { csp, LOCAL } = require('./csp');
-const { routes, HttpError } = require('./api');
+const { routes, HttpError, exportFile } = require('./api');
 const { db, getMeta, DB_PATH } = require('./db');
-const M = require('./money');
 const PRICES = require('./prices');
 const AI = require('./ai');
-const { exportCsv: sharedExport } = require('../shared/export');
-const { overviewMarkdown } = require('../shared/overview');
-const { parseDate } = require('../shared/csv');
 
 const PORT = Number(process.env.PORT || 4321);
 const HOST = process.env.HOST || '127.0.0.1'; // never bind the world to a ledger
@@ -188,31 +184,12 @@ function notFound(res, file, pathname) {
   });
 }
 
-// --- exports (served here, not by api.js: a file with a name, not JSON) -----
+// --- exports (served here, not as JSON: a file with a name) -----------------
 
-// The formatting lives in shared/export.js so a browser with no server
-// behind it produces the same bytes. This end is the part that only a server
-// can do: load the rows, and set the Content-Disposition that names the file.
-function exportCsv(type) {
-  if (type === 'accounts') return sharedExport({ type, accounts: M.accountsWithBalances() });
-  if (type === 'holdings') return sharedExport({ type, holdings: M.holdingsValued() });
-  const txns = db
-    .prepare(
-      `SELECT t.date, a.name AS account_name, a.currency, t.amount, t.description,
-              t.category, t.kind, t.transfer_group, t.source, t.note
-         FROM txns t JOIN accounts a ON a.id = t.account_id
-        ORDER BY t.date DESC, t.id DESC`
-    )
-    .all();
-  return sharedExport({ type: 'txns', txns });
-}
-
-// The overview as one Markdown file. What it says and how it is written are
-// shared/overview.js's, so the demo writes the same bytes from its Map; this
-// end loads the book and names the download after the day it describes.
-function exportOverview(asOf) {
-  return { name: `overview_${asOf}.md`, body: overviewMarkdown(M.overview(asOf)) };
-}
+// What the CSV and the overview Markdown say, and what each file is called, is
+// shared/handlers.js's, so the demo writes the same bytes from its Map. This
+// end sends it, with the Content-Disposition that names the download.
+const EXPORT_TYPES = { csv: 'text/csv; charset=utf-8', markdown: 'text/markdown; charset=utf-8' };
 
 // ---------------------------------------------------------------------------
 
@@ -237,29 +214,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    if (pathname === '/api/export/csv') {
-      const { name, body } = exportCsv(url.searchParams.get('type') || 'txns');
-      const stamp = new Date().toISOString().slice(0, 10);
+    // A day it cannot read is a 400 like any route's, from the catch below.
+    const file = exportFile(pathname, Object.fromEntries(url.searchParams));
+    if (file) {
       res.writeHead(200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${name}_${stamp}.csv"`,
+        'Content-Type': EXPORT_TYPES[file.kind],
+        'Content-Disposition': `attachment; filename="${file.name}"`,
       });
-      res.end(body);
-      return;
-    }
-
-    // `to` pins the day, so a test can ask the server and the demo about the
-    // same one; left out, it is today.
-    if (pathname === '/api/export/overview') {
-      const to = url.searchParams.get('to');
-      const asOf = to ? parseDate(to, 'auto') : M.todayISO();
-      if (!asOf) { sendJson(res, 400, { error: `日期無法解析：${to}` }); return; }
-      const { name, body } = exportOverview(asOf);
-      res.writeHead(200, {
-        'Content-Type': 'text/markdown; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${name}"`,
-      });
-      res.end(body);
+      res.end(file.body);
       return;
     }
 

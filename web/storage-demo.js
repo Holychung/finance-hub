@@ -11,10 +11,11 @@
 //
 // **It routes on the path rather than serving it.** The `/api/...` routes are
 // the vocabulary the views already speak; answering them is what makes this a
-// drop-in. The handlers below are `server/api.js`'s, with the SQL replaced by
-// `filter` and `reduce` — and with every computation delegated to `shared/`,
-// which is the whole reason `shared/` exists. If a handler here is doing
-// arithmetic, it has gone wrong.
+// drop-in. The handlers are the server's own, from `shared/handlers.js`; what
+// this file supplies is the ledger port they run on — the server's SQL
+// queries, as `filter` and `reduce` over the Map — and its own answer to the
+// eight routes only a server can serve. If a method of the port is doing
+// arithmetic, it has gone wrong: that belongs to the `compute*` in `shared/`.
 //
 // Two things a browser cannot do at all, answered rather than faked:
 //
@@ -30,9 +31,7 @@
 (function (root) {
   const dep = typeof module !== 'undefined' && module.exports;
   const M = dep ? require('../shared/money') : root;
-  const csv = dep ? require('../shared/csv') : root;
   const SP = dep ? require('../shared/spending') : root;
-  const X = dep ? require('../shared/export') : root;
   const O = dep ? require('../shared/overview') : root;
   const H = dep ? require('../shared/handlers') : root;
 
@@ -335,41 +334,6 @@
       currency: acct.get(t.account_id)?.currency,
     });
 
-    // --- overview --------------------------------------------------------
-
-    on('GET', '/api/overview', () => {
-      const asOf = today();
-      const accounts = accountsWithBalances(asOf);
-      const holdings = holdingsValued();
-      const checks = reconcile();
-      const from = seriesStart(asOf);
-      const upTo = raw.all('txns').filter((t) => t.date <= asOf).sort(by('date'));
-      const seriesOf = (access) => M.computeNetWorthSeries({
-        accounts: raw.all('accounts'), txns: upTo, from, to: asOf, access,
-      });
-
-      return {
-        net_worth: M.computeNetWorth({ accounts, holdings, asOf }),
-        accounts,
-        holdings,
-        series: seriesOf(null),
-        series_by_access: Object.fromEntries(ACCESS_KEYS.map((k) => [k, seriesOf(k)])),
-        reconcile: {
-          total: checks.length,
-          off: checks.filter((c) => !c.ok).length,
-          off_accounts: new Set(checks.filter((c) => !c.ok).map((c) => c.account_id)).size,
-          latest: checks.slice(0, 8),
-        },
-        counts: {
-          txns: raw.all('txns').length,
-          unpaired_candidates: transferCandidates().length,
-        },
-        liabilities_in_credit: M.liabilitiesInCredit(accounts),
-        fx_latest: raw.all('fx_rates').filter((r) => r.pair === 'USDTWD')
-          .sort(by('-date')).map((r) => ({ date: r.date, rate: r.rate }))[0] || null,
-      };
-    });
-
     // --- the shared routes -------------------------------------------------
 
     // The rows spending, recurring and budgets read over one window, and the
@@ -443,6 +407,23 @@
       coverage: (opts) => coverage(opts),
       holdingsValued: (asOf) => holdingsValued(asOf),
       accountsWithBalances: (asOf) => accountsWithBalances(asOf),
+      seriesStart: (asOf) => seriesStart(asOf),
+      netWorthSeries: (from, to, access) => M.computeNetWorthSeries({
+        accounts: raw.all('accounts'),
+        txns: raw.all('txns').filter((t) => t.date <= to).sort(by('date')),
+        from, to, access,
+      }),
+      overview: (asOf) => overview(asOf),
+      txnCount: () => raw.all('txns').length,
+      fxLatest: () => raw.all('fx_rates').filter((r) => r.pair === 'USDTWD')
+        .sort(by('-date')).map((r) => ({ date: r.date, rate: r.rate }))[0] || null,
+      exportTables: () => Object.fromEntries([
+        'institutions', 'accounts', 'txns', 'holdings', 'prices', 'fx_rates', 'balance_checks', 'mappings', 'budgets',
+      ].map((t) => [t, raw.all(t)])),
+      exportTxns: () => {
+        const acct = accountsById();
+        return raw.all('txns').sort(by('-date', '-id')).map((t) => withAccount(t, acct));
+      },
 
       // As server/money.js's accountSeries: the net worth walk over a book of
       // one, starting on the opening date. null for no such account.
@@ -521,7 +502,7 @@
     // No filesystem, so no pre-import snapshot: a commit reports `backup:
     // null`, which the import view renders as "no backup" rather than a
     // filename that does not exist.
-    H.defineLedgerRoutes(on, { L: ledger, now, today, uuid: newId, snapshot: () => null, decodeBase64 });
+    const shared = H.defineLedgerRoutes(on, { L: ledger, now, today, uuid: newId, snapshot: () => null, decodeBase64 });
 
     // --- settings and export -------------------------------------------------
 
@@ -567,22 +548,6 @@
     for (const [method, pattern] of [
       ['PUT', '/api/ai'], ['GET', '/api/ai/preview'], ['POST', '/api/ai/review'],
     ]) on(method, pattern, () => bad(NO_AI));
-
-    const exportJson = () => ({
-      exported_at: now(),
-      base_currency: (raw.get('meta', 'base_currency') || {}).value || 'TWD',
-      institutions: raw.all('institutions'),
-      accounts: raw.all('accounts'),
-      txns: raw.all('txns'),
-      holdings: raw.all('holdings'),
-      prices: raw.all('prices'),
-      fx_rates: raw.all('fx_rates'),
-      balance_checks: raw.all('balance_checks'),
-      mappings: raw.all('mappings'),
-      budgets: raw.all('budgets'),
-    });
-
-    on('GET', '/api/export/json', () => exportJson());
 
     // server/money.js's overview(), piece for piece, from the Map: the same
     // loaders over the same windows, and shared/overview.js doing the rest.
@@ -646,26 +611,19 @@
 
     // The file an export produces, as data. `exportHref` wraps it in a Blob
     // for the browser; the tests read it directly, because asserting on bytes
-    // beats asserting on a `blob:` URL nothing can open.
+    // beats asserting on a `blob:` URL nothing can open. What the CSV and the
+    // Markdown say is shared/handlers.js's; the full backup is the JSON
+    // route's own answer, written out as a file.
+    const BLOB_TYPES = { csv: 'text/csv;charset=utf-8', markdown: 'text/markdown;charset=utf-8' };
     function exportFile(rawPath) {
       const { pathname, query } = splitPath(rawPath);
       if (pathname === '/api/export/json') {
-        return { name: 'finance_backup.json', type: 'application/json', body: JSON.stringify(exportJson(), null, 2) };
+        const backup = dispatch('GET', '/api/export/json', {});
+        return { name: 'finance_backup.json', type: 'application/json', body: JSON.stringify(backup, null, 2) };
       }
-      if (pathname === '/api/export/overview') {
-        const asOf = query.to ? csv.parseDate(query.to, 'auto') : today();
-        if (!asOf) bad(`日期無法解析：${query.to}`);
-        return { name: `overview_${asOf}.md`, type: 'text/markdown;charset=utf-8', body: O.overviewMarkdown(overview(asOf)) };
-      }
-      const type = query.type || 'txns';
-      const acct = accountsById();
-      const { name, body } = X.exportCsv({
-        type,
-        accounts: accountsWithBalances(),
-        holdings: holdingsValued(),
-        txns: raw.all('txns').sort(by('-date', '-id')).map((t) => withAccount(t, acct)),
-      });
-      return { name: `${name}_${today()}.csv`, type: 'text/csv;charset=utf-8', body };
+      const file = shared.exportFile(pathname, query);
+      if (!file) throw new DemoError(404, `無此匯出：${pathname}`);
+      return { name: file.name, type: BLOB_TYPES[file.kind], body: file.body };
     }
 
     // One live URL per export, revoked when that export's link is built again.
