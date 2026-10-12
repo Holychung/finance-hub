@@ -8,9 +8,11 @@
 // it off. That is the point: a merge behind a flag changes nothing anybody
 // sees by default.
 //
-// A flag is a look, never a permission. Nothing behind one may decide what
-// the server does or what leaves the machine; that belongs in settings, where
-// it is stated and kept.
+// A flag shows or hides; it is never itself a permission. What a feature
+// does to the server is a setting the book keeps, enforced by the server and
+// reachable with the flag off too — the modes switch writes the book's AI
+// reach, which the AI 健檢 page switches as well. Turning a flag off hides a
+// control; it never changes what the server allows.
 //
 // Each entry's apply(on) runs at boot and again whenever the box is ticked,
 // so a flag takes effect without a reload. Retiring one means deleting its
@@ -20,7 +22,7 @@ const FLAGS = [
   {
     id: 'modes',
     name: 'AI 三模式',
-    note: '晴天、月夜、萬聖夜的樣式、側欄的切換鈕、頁首橫幅和切換動畫。目前只是外觀，還不會擋任何 AI 功能。',
+    note: '晴天、月夜、萬聖夜的樣式、側欄的切換鈕、頁首橫幅和切換動畫。切換的是這本帳的 AI 設定：晴天和月夜時，伺服器不會預覽也不會送出任何東西。',
     apply: (on) => setModes(on),
   },
 ];

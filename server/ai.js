@@ -8,8 +8,9 @@
 // every balance, holding and spending category the 匯出全覽 file holds. So it
 // is shaped like prices.js, and a little tighter:
 //
-//   off by default   `ai_enabled` is '0' until the user ticks the box. Nothing
-//                    turns it on for them.
+//   off by default   `ai_reach` is 'none' until the user widens it. Nothing
+//                    widens it for them, and a 'none' book refuses every
+//                    route that would preview or send before reading it.
 //   on request only  Nothing runs at startup or on a timer. One request goes
 //                    out when somebody presses 送出, and none otherwise.
 //   server-side      Node makes the call, so the page keeps `connect-src
@@ -75,6 +76,7 @@ const fail = (status, message) => { throw new AiError(status, message); };
 // recommends for that kind of decline rather than handing the refusal back.
 // `privacy` is what the page says about where the document ends up, and says
 // only what is checked: a provider's terms, or what this request asks of it.
+// `reach` is where the provider runs, from REACH below: all three are 'cloud'.
 
 const text = (s) => (typeof s === 'string' ? s : '');
 
@@ -83,6 +85,7 @@ const PROVIDERS = [
     key: 'anthropic',
     label: 'Anthropic Claude',
     host: 'api.anthropic.com',
+    reach: 'cloud',
     env: 'ANTHROPIC_API_KEY',
     privacy: null,
     models: [
@@ -139,6 +142,7 @@ const PROVIDERS = [
     key: 'openai',
     label: 'OpenAI',
     host: 'api.openai.com',
+    reach: 'cloud',
     env: 'OPENAI_API_KEY',
     privacy: '送出時會設定 store: false，OpenAI 不會把這次的回答留著供之後取用。',
     models: [
@@ -177,6 +181,7 @@ const PROVIDERS = [
     key: 'gemini',
     label: 'Google Gemini',
     host: 'generativelanguage.googleapis.com',
+    reach: 'cloud',
     env: 'GEMINI_API_KEY',
     privacy: '用免費方案的 key 時，Google 的條款允許用你送出的內容和它的回答來改進它的產品，而且可能有人工審閱；付費方案不會。',
     models: [
@@ -300,13 +305,46 @@ function documentFor(asOf) {
 // Settings and keys
 // ---------------------------------------------------------------------------
 
-// The book's choice of provider and model, and whether the feature is on.
-// Stored in `meta` beside `auto_prices`, because like it they are a choice
-// about this book; the key is not, which is why it lives elsewhere.
+// How far AI may reach for this book, and the only switch the feature has.
+// In order, each wider than the last; the page draws them as the three modes:
+//
+//   none   晴天   no AI at all. Preview and send are refused before either
+//                reads the book.
+//   local  月夜   only a model running on this machine. None exists yet, so
+//                for now this refuses exactly as 'none' does — but it says
+//                why, and a local provider will be the only one it admits.
+//   cloud  萬聖夜 the providers above, after 送出, as AI 健檢 always worked.
+//
+// A provider is allowed when its own `reach` is no wider than the book's.
+// This replaced `ai_enabled` (migration 12 converts it): one on/off beside a
+// three-way choice would be two switches saying one thing, and the day they
+// disagreed nobody could say which was meant.
+const REACH = ['none', 'local', 'cloud'];
+
+const allows = (bookReach, providerReach) =>
+  bookReach !== 'none' && REACH.indexOf(providerReach) <= REACH.indexOf(bookReach);
+
+// Refuses for a book whose reach admits none of the providers that exist,
+// with the reason the page shows. 403: the request is well formed, and this
+// book's own setting says no.
+function gate(s) {
+  if (s.reach === 'none') fail(403, '這本帳設定成不用 AI（晴天），所以不會預覽也不會送出任何東西。');
+  const provider = providerInfo(s.provider);
+  if (!allows(s.reach, provider.reach)) {
+    fail(403, `這本帳只允許這台電腦上的 AI（月夜），${provider.label} 在雲端，所以不會送出。本機 AI 還沒有做好。`);
+  }
+  return provider;
+}
+
+// The book's reach and its choice of provider and model. Stored in `meta`
+// beside `auto_prices`, because like it they are a choice about this book; the
+// key is not, which is why it lives elsewhere. A stored reach this code does
+// not know reads as 'none': unknown fails closed.
 function settings(getMeta) {
   const provider = providerInfo(getMeta('ai_provider', '')) || PROVIDERS[0];
+  const reach = getMeta('ai_reach', 'none');
   return {
-    enabled: getMeta('ai_enabled', '0') === '1',
+    reach: REACH.includes(reach) ? reach : 'none',
     provider: provider.key,
     provider_label: provider.label,
     host: provider.host,
@@ -328,7 +366,10 @@ function saveSettings(b, { getMeta, setMeta }) {
   } else if (provider.key !== cur.provider) {
     model = provider.models[0].id;
   }
-  if (b.enabled !== undefined) setMeta('ai_enabled', b.enabled ? '1' : '0');
+  // Refused rather than defaulted, like an account's `access`: a typo that
+  // became 'cloud' would be the book leaving the machine.
+  if (b.reach !== undefined && !REACH.includes(b.reach)) fail(400, `reach 只能是 ${REACH.join('、')}`);
+  if (b.reach !== undefined) setMeta('ai_reach', b.reach);
   setMeta('ai_provider', provider.key);
   setMeta('ai_model', model);
   return { ok: true };
@@ -420,13 +461,17 @@ function status({ getMeta, keys = KEYS }) {
   const s = settings(getMeta);
   return {
     available: true,
-    enabled: s.enabled,
+    reach: s.reach,
+    // Whether this book's reach admits the chosen provider, so the page asks
+    // for a preview only when the server would give one.
+    allowed: allows(s.reach, providerInfo(s.provider).reach),
     provider: s.provider,
     model: s.model,
     providers: PROVIDERS.map((p) => ({
       key: p.key,
       label: p.label,
       host: p.host,
+      reach: p.reach,
       privacy: p.privacy,
       models: p.models.map(({ id, note }) => ({ id, note })),
     })),
@@ -464,8 +509,11 @@ function plan({ mode, asOf, getMeta, document }) {
   };
 }
 
-function preview({ mode, asOf, getMeta, document = documentFor(asOf) }) {
-  return plan({ mode, asOf, getMeta, document });
+// Refused for a book whose reach admits no provider, before the document is
+// built: under 晴天 nothing AI-related reads the book at all.
+function preview({ mode, asOf, getMeta, document }) {
+  gate(settings(getMeta));
+  return plan({ mode, asOf, getMeta, document: document === undefined ? documentFor(asOf) : document });
 }
 
 // `request` is node:https's, and a parameter only so a test can hand in
@@ -508,21 +556,20 @@ function httpsPostJson({ url, headers, body }, { timeoutMs = TIMEOUT_MS, request
 // masked by every provider today; this does not rely on it.
 const scrub = (message, key) => String(message).split(key).join('…');
 
-// Everything that can refuse does so before anything is sent. The document is
-// rebuilt here, from the book, for the day the preview was of — never taken
-// from the page — and must hash to the digest the page was shown; a mismatch
-// is a 409 and the page redraws with the new text. That check comes first, so
-// it is testable with the feature off: nothing can reach the network in a
-// test that only gets that far. `document` is a parameter only so a test can
-// stand in for the book.
+// Everything that can refuse does so before anything is sent. The book's reach
+// first, before the document is even built. Then the document is rebuilt here,
+// from the book, for the day the preview was of — never taken from the page —
+// and must hash to the digest the page was shown; a mismatch is a 409 and the
+// page redraws with the new text. That check comes before the key, so it is
+// testable with no key set: nothing can reach the network in a test that only
+// gets that far. `document` is a parameter only so a test can stand in for the
+// book.
 async function review({ mode, asOf, digest, getMeta, document, keys = KEYS, send = httpsPostJson, now = Date.now }) {
+  const provider = gate(settings(getMeta));
   const p = plan({ mode, asOf, getMeta, document: document === undefined ? documentFor(asOf) : document });
   if (!digest) fail(400, '送出要附上預覽的 digest：先看過要送出的內容。');
   if (digest !== p.digest) fail(409, '要送出的內容在你看過之後變了（帳本、設定或日期）。重新看過一次再送。');
 
-  const s = settings(getMeta);
-  if (!s.enabled) fail(400, 'AI 健檢沒有開啟。先在這一頁打開它。');
-  const provider = providerInfo(s.provider);
   const found = keyFor(provider, keys);
   if (!found) fail(400, `還沒有 ${provider.label} 的 API key。在這台電腦上設定：存進 macOS 鑰匙圈，或在啟動前設定環境變數 ${provider.env}。這一頁有指令。`);
 
@@ -561,7 +608,7 @@ async function review({ mode, asOf, digest, getMeta, document, keys = KEYS, send
 
 module.exports = {
   ANTHROPIC_URL, OPENAI_URL, GEMINI_BASE, MAX_OUTPUT,
-  PROVIDERS, MODES, MODEL_RE, AiError, providerInfo,
+  PROVIDERS, MODES, MODEL_RE, REACH, AiError, providerInfo,
   documentFor, settings, saveSettings, keyFor, keyStatus,
   KEYCHAIN_SERVICE, setupCommand, keychainVault, noVault, memoryVault, defaultVault,
   status, preview, review, httpsPostJson,
