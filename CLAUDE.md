@@ -105,6 +105,9 @@ shared/money.js   the pure half: every `compute*`, plus round2 and the dates
 shared/rules.js   category rules: normalise, match, plan
 shared/spending.js  monthly in/out, category breakdown, recurring charges,
                   and how much of each budget a month has used
+shared/audit.js   月度審計: one month's findings by plain rules, no AI, and
+                  the owner's two answers (沒問題, cancelled) — read and
+                  changed only here, for the server and the demo alike
 shared/export.js  rows -> a CSV file, BOM and CRLF for Excel
 shared/overview.js  the whole book as one model, and the Markdown file that
                   匯出全覽 downloads
@@ -141,6 +144,8 @@ test/migrate.test.js the schema migration runner
 test/seed.test.js    what the demo seeder must produce to be worth running
 test/money.test.js   the pure half of money.js, over plain arrays
 test/budgets.test.js a budget's spent figure is the breakdown's, for its month
+test/audit.test.js   each audit rule over plain rows, and the look-alike it
+                     must stay quiet on
 test/import.test.js  the import gate over plain rows: what stops a file, and
                      what is the file behaving normally
 test/prices.test.js  the close fetch, offline — injected getter, throwaway db
@@ -1137,8 +1142,8 @@ the subject, in the same change as the code**:
 - `docs/money.md` — the amount conventions, the coverage grid's four states,
   and the table list. A schema change lands here.
 - `docs/spending.md` — the spending breakdown, the categorisation rules, the
-  recurring-charge detector and budgets. A change to `shared/rules.js` or
-  `shared/spending.js` lands here.
+  recurring-charge detector, budgets and 月度審計. A change to
+  `shared/rules.js`, `shared/spending.js` or `shared/audit.js` lands here.
 - `docs/data.md` — where the ledger lives, profiles, backups, the overview
   export, keeping data out of version control. A change to
   `shared/overview.js` lands here.

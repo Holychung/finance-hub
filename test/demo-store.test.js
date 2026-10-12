@@ -120,6 +120,19 @@ const SCRIPT = async (s) => {
   await s.put(`/api/budgets/${travel.id}`, { amount: 120.5 });
   await s.del('/api/budgets/2');
 
+  // 月度審計: a fixed-price subscription that rises in May, one charge made
+  // twice on one April day, then an answer to that finding and a cancel mark
+  // on the subscription — so both sides find the same things, keep the same
+  // answers, and read them back the same way.
+  for (const d of ['02-06', '03-06', '04-06']) {
+    await s.post('/api/txns', { account_id: 2, date: `2026-${d}`, amount: -390, description: 'NETFLIX.COM' });
+  }
+  await s.post('/api/txns', { account_id: 2, date: '2026-05-06', amount: -450, description: 'NETFLIX.COM' });
+  const twinA = await s.post('/api/txns', { account_id: 2, date: '2026-04-20', amount: -1290, description: 'MOMO購物網' });
+  const twinB = await s.post('/api/txns', { account_id: 2, date: '2026-04-20', amount: -1290, description: 'MOMO購物網' });
+  await s.put('/api/audit/ok', { key: `duplicate|${twinA.id}|${twinB.id}`, ok: true });
+  await s.put('/api/audit/cancel', { series: '2|netflix com', since: '2026-05-01' });
+
   // A write that reads back what it wrote, and the edit path.
   const extra = await s.post('/api/txns', { account_id: 1, date: '2026-05-01', amount: -10, description: 'TO BE EDITED' });
   await s.put(`/api/txns/${extra.id}`, { amount: -25.5, description: 'EDITED' });
@@ -219,6 +232,8 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     // today; the running month is the one read that cannot be pinned.
     '/api/budgets?month=2026-02',
     '/api/budgets?month=2026-04',
+    '/api/audit?month=2026-04',
+    '/api/audit?month=2026-05',
     '/api/export/json',
     '/api/accounts/1/series?to=2026-09-30',
     '/api/accounts/5/series?to=2026-09-30',
@@ -461,6 +476,34 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     ]) {
       const of = async (s) => { try { await s.post(p, body); return null; } catch (e) { return [e.status, e.message]; } };
       assert.deepEqual(await of(demo), await of(live), `${p} ${JSON.stringify(body)}`);
+    }
+  });
+
+  // Equal reads alone would pass if both sides ignored the answers, so the
+  // answers have to be visible in what comes back.
+  it('審計：回答過的那筆是 ok，標記取消之後的扣款被列出來', async () => {
+    const april = await live.get('/api/audit?month=2026-04');
+    const twins = april.findings.filter((f) => f.kind === 'duplicate');
+    assert.equal(twins.length, 1);
+    assert.equal(twins[0].ok, true);
+    const may = await live.get('/api/audit?month=2026-05');
+    assert.deepEqual(may.findings.filter((f) => f.kind === 'cancelled').map((f) => f.rows[0].date), ['2026-05-06']);
+    assert.ok(may.findings.some((f) => f.kind === 'price_up'), '漲價也要抓到');
+    assert.equal(may.subscriptions.find((x) => x.series === '2|netflix com').cancelled_since, '2026-05-01');
+  });
+
+  it('審計：壞月份、壞答案，兩邊回同一個錯', async () => {
+    const of = async (call) => { try { await call(); return null; } catch (e) { return [e.status, e.message]; } };
+    for (const [what, call] of [
+      ['壞月份', (s) => s.get('/api/audit?month=2026-13')],
+      ['不認得的項目', (s) => s.put('/api/audit/ok', { key: 'nope|1', ok: true })],
+      ['ok 不是布林', (s) => s.put('/api/audit/ok', { key: 'fee|1', ok: 'yes' })],
+      ['不認得的扣款', (s) => s.put('/api/audit/cancel', { series: 'netflix', since: '2026-05-01' })],
+      ['壞日期', (s) => s.put('/api/audit/cancel', { series: '2|netflix com', since: 'soon' })],
+    ]) {
+      const [a, b] = [await of(() => call(demo)), await of(() => call(live))];
+      assert.ok(b, `${what}：伺服器應該要拒絕`);
+      assert.deepEqual(a, b, what);
     }
   });
 

@@ -7,6 +7,7 @@ const csv = require('../shared/csv');
 const M = require('./money');
 const R = require('../shared/rules');
 const SP = require('../shared/spending');
+const AUDIT = require('../shared/audit');
 const I = require('../shared/import');
 const PRICES = require('./prices');
 const AI = require('./ai');
@@ -577,6 +578,50 @@ on('PUT', '/api/budgets/:id', (p, b) => {
 on('DELETE', '/api/budgets/:id', (p) => ({
   deleted: db.prepare('DELETE FROM budgets WHERE id = ?').run(N(p.id)).changes,
 }));
+
+// --- 月度審計 ----------------------------------------------------------------
+
+// The rules are shared/audit.js; this loads rows and keeps the owner's two
+// answers. Rows carry their id, because a finding names the rows it is about,
+// and reach two years back, which is what the recurring scan needs to see a
+// series. The answers live in `meta` beside the book's other choices — small,
+// only ever read whole, so one JSON value each rather than a table.
+const auditRows = (to) => {
+  const from = `${Number(to.slice(0, 4)) - 2}${to.slice(4, 7)}-01`;
+  return db.prepare(
+    `SELECT id, account_id, date, amount, description, category, kind, transfer_group
+       FROM txns WHERE date >= ? AND date <= ? ORDER BY date, id`
+  ).all(from, to);
+};
+const auditAnswers = () => AUDIT.parseAnswers(getMeta('audit_ok', ''), getMeta('audit_cancelled', ''));
+
+// One month's findings, and every subscription that can be marked cancelled.
+// `-31` bounds any month, as the budgets route does: dates compare as strings.
+on('GET', '/api/audit', (_p, _b, q) => {
+  const month = monthOf(q.month);
+  const today = M.todayISO();
+  const { ok, cancelled } = auditAnswers();
+  const accounts = accountCurrencies();
+  const unpaired = M.findTransferCandidates().flatMap((c) => [c.out.id, c.in.id]);
+  return {
+    ...AUDIT.computeAudit({ txns: auditRows(`${month}-31`), accounts, month, today, ok, cancelled, unpaired }),
+    subscriptions: AUDIT.computeSubscriptions({ txns: auditRows(today), accounts, today, cancelled }).items,
+  };
+});
+
+on('PUT', '/api/audit/ok', (_p, b) => {
+  const r = AUDIT.answerOk(auditAnswers().ok, b);
+  if (r.error) bad(r.error);
+  setMeta('audit_ok', JSON.stringify(r.value));
+  return { ok: true };
+});
+
+on('PUT', '/api/audit/cancel', (_p, b) => {
+  const r = AUDIT.answerCancelled(auditAnswers().cancelled, b);
+  if (r.error) bad(r.error);
+  setMeta('audit_cancelled', JSON.stringify(r.value));
+  return { ok: true };
+});
 
 // --- categorisation rules --------------------------------------------------
 
