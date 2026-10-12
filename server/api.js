@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const path = require('node:path');
 const paths = require('./paths');
 const { db, getMeta, setMeta, snapshot, listBackups } = require('./db');
@@ -9,9 +10,7 @@ const R = require('../shared/rules');
 const I = require('../shared/import');
 const PRICES = require('./prices');
 const AI = require('./ai');
-const {
-  DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, defaultAccessFor, TAX_STATUS_KEYS,
-} = require('../shared/kinds');
+const { DEFAULT_TXN_KIND, ACCESS_KEYS } = require('../shared/kinds');
 
 // node:sqlite only binds null/number/bigint/string/Uint8Array.
 const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
@@ -19,7 +18,6 @@ const N = (v, d = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
 };
-const B = (v, d = 1) => (v === undefined || v === null ? d : v ? 1 : 0);
 const OPT = (v) => (v === undefined || v === '' ? null : v);
 const now = () => new Date().toISOString();
 
@@ -84,128 +82,8 @@ on('GET', '/api/overview', () => {
   };
 });
 
-// --- accounts --------------------------------------------------------------
-
-on('GET', '/api/accounts', () => M.accountsWithBalances());
-
-// Refused rather than defaulted. Net worth will split on this value, so a
-// typo that silently became 'liquid' would put a retirement balance back into
-// the spendable figure with nothing on screen to say it had happened.
-function accessOf(v, fallback) {
-  if (v === undefined || v === null || v === '') return fallback;
-  const a = S(v);
-  if (!ACCESS_KEYS.includes(a)) bad(`access 只能是 ${ACCESS_KEYS.join(' 或 ')}`);
-  return a;
-}
-
-// Empty means "not stated" and clears it; anything else must be on the list.
-// A typo stored as a tax status would be a label on screen that means nothing.
-function taxStatusOf(v) {
-  if (v === null || v === '') return null;
-  const t = S(v);
-  if (!TAX_STATUS_KEYS.includes(t)) bad(`tax_status 只能是 ${TAX_STATUS_KEYS.join('、')} 或留空`);
-  return t;
-}
-
-// Refused rather than coerced. N() turns garbage into 0, which is harmless
-// for most fields and wrong here: net worth subtracts this, so a negative one
-// would add money nobody has, and a typo quietly becoming 0 would hand the
-// employer's share back to the total.
-function unvestedOf(v) {
-  if (v === null || v === '') return 0;
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < 0) bad('unvested 要是 0 或正數');
-  return M.round2(n);
-}
-
-on('POST', '/api/accounts', (_p, b) => {
-  if (!S(b.name).trim()) bad('帳戶名稱必填');
-  const kind = S(b.kind, DEFAULT_ACCOUNT_KIND);
-  const r = db
-    .prepare(
-      `INSERT INTO accounts (institution_id, name, kind, currency, opening_balance, opening_date, is_active, sort_order, note,
-                             access, tax_status, unvested)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      OPT(b.institution_id) === null ? null : N(b.institution_id),
-      S(b.name).trim(), kind, S(b.currency, 'TWD'),
-      N(b.opening_balance), S(b.opening_date, '2020-01-01'),
-      B(b.is_active), N(b.sort_order), S(b.note),
-      accessOf(b.access, defaultAccessFor(kind)),
-      b.tax_status === undefined ? null : taxStatusOf(b.tax_status),
-      b.unvested === undefined ? 0 : unvestedOf(b.unvested)
-    );
-  return { id: Number(r.lastInsertRowid) };
-});
-
-on('PUT', '/api/accounts/:id', (p, b) => {
-  const cur = db.prepare('SELECT * FROM accounts WHERE id = ?').get(N(p.id));
-  if (!cur) missing('帳戶不存在');
-  db.prepare(
-    `UPDATE accounts SET institution_id=?, name=?, kind=?, currency=?,
-            opening_balance=?, opening_date=?, is_active=?, sort_order=?, note=?, access=?,
-            tax_status=?, unvested=?
-      WHERE id=?`
-  ).run(
-    b.institution_id === undefined ? cur.institution_id : (OPT(b.institution_id) === null ? null : N(b.institution_id)),
-    S(b.name, cur.name), S(b.kind, cur.kind), S(b.currency, cur.currency),
-    b.opening_balance === undefined ? cur.opening_balance : N(b.opening_balance),
-    S(b.opening_date, cur.opening_date),
-    b.is_active === undefined ? cur.is_active : B(b.is_active),
-    b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
-    S(b.note, cur.note), accessOf(b.access, cur.access),
-    b.tax_status === undefined ? cur.tax_status : taxStatusOf(b.tax_status),
-    b.unvested === undefined ? cur.unvested : unvestedOf(b.unvested),
-    N(p.id)
-  );
-  return { ok: true };
-});
-
-on('DELETE', '/api/accounts/:id', (p) => ({
-  deleted: db.prepare('DELETE FROM accounts WHERE id = ?').run(N(p.id)).changes,
-}));
-
-// The account page's line. `to` defaults to today and can be pinned, so the
-// same question can be asked of the demo adapter and get the same answer.
-on('GET', '/api/accounts/:id/series', (p, _b, q) => {
-  const to = q.to ? csv.parseDate(q.to, 'auto') || bad(`日期無法解析：${q.to}`) : M.todayISO();
-  const points = M.accountSeries(N(p.id), to);
-  if (!points) missing('帳戶不存在');
-  return points;
-});
-
-// --- transactions ----------------------------------------------------------
-
-on('GET', '/api/txns', (_p, _b, q) => {
-  const where = [];
-  const args = [];
-  if (q.account) { where.push('t.account_id = ?'); args.push(N(q.account)); }
-  if (q.from) { where.push('t.date >= ?'); args.push(S(q.from)); }
-  if (q.to) { where.push('t.date <= ?'); args.push(S(q.to)); }
-  if (q.kind) { where.push('t.kind = ?'); args.push(S(q.kind)); }
-  if (q.q) { where.push('(t.description LIKE ? OR t.category LIKE ? OR t.note LIKE ?)'); const k = `%${q.q}%`; args.push(k, k, k); }
-  const sql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
-
-  // `first` and `last` span every matching row, not the page: an account with
-  // more rows than a page has its first row somewhere the page does not reach.
-  const { n: total, first, last } = db
-    .prepare(`SELECT COUNT(*) AS n, MIN(t.date) AS first, MAX(t.date) AS last FROM txns t${sql}`)
-    .get(...args);
-  const limit = Math.min(N(q.limit, 200), 2000);
-  const offset = N(q.offset, 0);
-
-  const rows = db
-    .prepare(
-      `SELECT t.*, a.name AS account_name, a.currency
-         FROM txns t JOIN accounts a ON a.id = t.account_id${sql}
-        ORDER BY t.date DESC, t.id DESC LIMIT ? OFFSET ?`
-    )
-    .all(...args, limit, offset);
-
-  return { total, first, last, limit, offset, rows };
-});
-
+// What the import commit below writes each row with, until the import routes
+// join the others in shared/handlers.js.
 function insertTxn(b, importId = null) {
   const accountId = N(b.account_id);
   if (!accountId) bad('account_id 必填');
@@ -228,63 +106,6 @@ function insertTxn(b, importId = null) {
   return Number(r.lastInsertRowid);
 }
 
-on('POST', '/api/txns', (_p, b) => {
-  if (Array.isArray(b.rows)) {
-    const ids = [];
-    db.exec('BEGIN');
-    try {
-      for (const row of b.rows) ids.push(insertTxn(row));
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
-    return { ids, inserted: ids.length };
-  }
-  return { id: insertTxn(b) };
-});
-
-on('PUT', '/api/txns/:id', (p, b) => {
-  const cur = db.prepare('SELECT * FROM txns WHERE id = ?').get(N(p.id));
-  if (!cur) missing('交易不存在');
-  const date = b.date === undefined ? cur.date : csv.parseDate(b.date, 'auto') || bad(`日期無法解析：${b.date}`);
-  const amount = b.amount === undefined ? cur.amount : M.round2(N(b.amount));
-  const desc = S(b.description, cur.description);
-  const accountId = b.account_id === undefined ? cur.account_id : N(b.account_id);
-  db.prepare(
-    `UPDATE txns SET account_id=?, date=?, amount=?, description=?, category=?, kind=?, note=?, fingerprint=?
-      WHERE id=?`
-  ).run(
-    accountId, date, amount, desc, S(b.category, cur.category),
-    S(b.kind, cur.kind), S(b.note, cur.note),
-    csv.fingerprint(accountId, date, amount, desc), N(p.id)
-  );
-  return { ok: true };
-});
-
-on('DELETE', '/api/txns/:id', (p) => ({
-  deleted: db.prepare('DELETE FROM txns WHERE id = ?').run(N(p.id)).changes,
-}));
-
-// --- transfers -------------------------------------------------------------
-
-on('GET', '/api/transfers/candidates', () => M.findTransferCandidates());
-
-on('POST', '/api/transfers/apply', (_p, b) => {
-  const pairs = (b.pairs || []).map((p) => ({ outId: N(p.outId), inId: N(p.inId) }));
-  if (!pairs.length) bad('沒有要配對的項目');
-  return { paired: M.applyTransferPairs(pairs) };
-});
-
-on('GET', '/api/transfers', () =>
-  db
-    .prepare(
-      `SELECT t.transfer_group, t.id, t.account_id, t.date, t.amount, t.description, a.name AS account_name, a.currency
-         FROM txns t JOIN accounts a ON a.id = t.account_id
-        WHERE t.transfer_group IS NOT NULL ORDER BY t.date DESC, t.transfer_group`
-    )
-    .all()
-);
-
-on('DELETE', '/api/transfers/:group', (p) => ({ unlinked: M.unlinkTransfer(String(p.group)) }));
-
 // --- prices refresh ---------------------------------------------------------
 
 // Opt-in daily fetch of each holding's previous close (server/prices.js). Off
@@ -301,7 +122,7 @@ on('POST', '/api/prices/refresh', async () => {
 
 // Written once in shared/handlers.js and answered here from SQLite through
 // server/ledger.js; the demo registers the same handlers over its Map.
-defineLedgerRoutes(on, { L: ledger, now, today: M.todayISO });
+defineLedgerRoutes(on, { L: ledger, now, today: M.todayISO, uuid: () => crypto.randomUUID() });
 
 // What the import commit categorises each new row by: the rules the shared
 // routes above keep.

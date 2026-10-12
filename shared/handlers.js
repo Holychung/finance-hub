@@ -35,9 +35,12 @@
 (function (root) {
   const NODE = typeof module !== 'undefined' && module.exports;
   const { round2, MAX_DECIMALS } = NODE ? require('./currency') : root;
-  const { MARKET_KEYS, DEFAULT_MARKET, marketInfo } = NODE ? require('./kinds') : root;
+  const {
+    MARKET_KEYS, DEFAULT_MARKET, marketInfo, DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS,
+    defaultAccessFor, TAX_STATUS_KEYS,
+  } = NODE ? require('./kinds') : root;
   const { COVERAGE_MONTHS } = NODE ? require('./money') : root;
-  const { parseDate } = NODE ? require('./csv') : root;
+  const { parseDate, fingerprint } = NODE ? require('./csv') : root;
   const R = NODE ? require('./rules') : root;
   const SP = NODE ? require('./spending') : root;
   const AUDIT = NODE ? require('./audit') : root;
@@ -53,6 +56,7 @@
   const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
   const N = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
   const OPT = (v) => (v === undefined || v === '' ? null : v);
+  const B = (v, d = 1) => (v === undefined || v === null ? d : v ? 1 : 0);
 
   function checked(row) {
     for (const [k, v] of Object.entries(row)) {
@@ -66,7 +70,23 @@
   // `on(method, pattern, handler)` is the side's router. `today()` and `now()`
   // are its clock: the server's is the machine's, the demo's is injected, so a
   // handler here never reads one of its own.
-  function defineLedgerRoutes(on, { L, now, today }) {
+  function defineLedgerRoutes(on, { L, now, today, uuid }) {
+
+    // A row that names an account or an institution has to name one that
+    // exists. The schema's foreign keys refused the server's version of this
+    // as a 500 in SQLite's words, and the demo's Map not at all, so the demo
+    // could hold a transaction for an account nobody has.
+    const accountRef = (v) => {
+      const id = N(v);
+      if (!L.get('accounts', id)) bad('帳戶不存在');
+      return id;
+    };
+    const institutionRef = (v) => {
+      if (OPT(v) === null) return null;
+      const id = N(v);
+      if (!L.get('institutions', id)) bad('機構不存在');
+      return id;
+    };
 
     // --- spending ------------------------------------------------------------
 
@@ -252,9 +272,8 @@
     on('POST', '/api/balance-checks', (_p, b) => {
       const d = parseDate(b.date, 'auto');
       if (!d) bad(`日期無法解析：${b.date}`);
-      return {
-        id: L.insert('balance_checks', checked({ account_id: N(b.account_id), date: d, stated: N(b.stated), note: S(b.note) })),
-      };
+      const account_id = accountRef(b.account_id);
+      return { id: L.insert('balance_checks', checked({ account_id, date: d, stated: N(b.stated), note: S(b.note) })) };
     });
 
     on('DELETE', '/api/balance-checks/:id', (p) => ({ deleted: L.remove('balance_checks', N(p.id)) }));
@@ -344,30 +363,35 @@
       // rules. This used to be a ternary on the market, which priced any third
       // market in TWD.
       const info = marketInfo(market);
+      const decimals = placesOf(b.decimals, info.decimals);
+      const account_id = accountRef(b.account_id);
       return {
         id: L.insert('holdings', checked({
-          account_id: N(b.account_id), symbol: S(b.symbol).trim().toUpperCase(), name: S(b.name), market,
+          account_id, symbol: S(b.symbol).trim().toUpperCase(), name: S(b.name), market,
           shares: N(b.shares), avg_cost: N(b.avg_cost), last_price: N(b.last_price),
           price_date: OPT(b.price_date), currency: S(b.currency, info.currency), note: S(b.note),
-          decimals: placesOf(b.decimals, info.decimals),
+          decimals,
         })),
       };
     });
 
     on('PUT', '/api/holdings/:id', (p, b) => {
       const cur = L.get('holdings', N(p.id)) || missing('持股不存在');
+      const market = marketOf(b.market, cur.market);
+      const decimals = placesOf(b.decimals, cur.decimals);
+      const account_id = b.account_id === undefined ? cur.account_id : accountRef(b.account_id);
       L.update('holdings', cur.id, checked({
-        account_id: b.account_id === undefined ? cur.account_id : N(b.account_id),
+        account_id,
         symbol: S(b.symbol, cur.symbol).trim().toUpperCase(),
         name: S(b.name, cur.name),
-        market: marketOf(b.market, cur.market),
+        market,
         shares: b.shares === undefined ? cur.shares : N(b.shares),
         avg_cost: b.avg_cost === undefined ? cur.avg_cost : N(b.avg_cost),
         last_price: b.last_price === undefined ? cur.last_price : N(b.last_price),
         price_date: b.price_date === undefined ? cur.price_date : OPT(b.price_date),
         currency: S(b.currency, cur.currency),
         note: S(b.note, cur.note),
-        decimals: placesOf(b.decimals, cur.decimals),
+        decimals,
       }));
       return { ok: true };
     });
@@ -440,6 +464,182 @@
 
     on('DELETE', '/api/fx/:date', (p, _b, q) => ({
       deleted: L.removeKey('fx_rates', { date: String(p.date), pair: S(q.pair, 'USDTWD') }),
+    }));
+
+    // --- accounts ------------------------------------------------------------
+
+    on('GET', '/api/accounts', () => L.accountsWithBalances(today()));
+
+    // Refused rather than defaulted. Net worth will split on this value, so a
+    // typo that silently became 'liquid' would put a retirement balance back
+    // into the spendable figure with nothing on screen to say it had happened.
+    const accessOf = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      const a = S(v);
+      if (!ACCESS_KEYS.includes(a)) bad(`access 只能是 ${ACCESS_KEYS.join(' 或 ')}`);
+      return a;
+    };
+
+    // Empty means "not stated" and clears it; anything else must be on the
+    // list. A typo stored as a tax status would be a label that means nothing.
+    const taxStatusOf = (v) => {
+      if (v === null || v === '') return null;
+      const t = S(v);
+      if (!TAX_STATUS_KEYS.includes(t)) bad(`tax_status 只能是 ${TAX_STATUS_KEYS.join('、')} 或留空`);
+      return t;
+    };
+
+    // Refused rather than coerced. N() turns garbage into 0, which is harmless
+    // for most fields and wrong here: net worth subtracts this, so a negative
+    // one would add money nobody has, and a typo quietly becoming 0 would hand
+    // the employer's share back to the total.
+    const unvestedOf = (v) => {
+      if (v === null || v === '') return 0;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) bad('unvested 要是 0 或正數');
+      return round2(n);
+    };
+
+    on('POST', '/api/accounts', (_p, b) => {
+      if (!S(b.name).trim()) bad('帳戶名稱必填');
+      const kind = S(b.kind, DEFAULT_ACCOUNT_KIND);
+      const row = {
+        name: S(b.name).trim(), kind, currency: S(b.currency, 'TWD'),
+        opening_balance: N(b.opening_balance), opening_date: S(b.opening_date, '2020-01-01'),
+        is_active: B(b.is_active), sort_order: N(b.sort_order), note: S(b.note),
+        access: accessOf(b.access, defaultAccessFor(kind)),
+        tax_status: b.tax_status === undefined ? null : taxStatusOf(b.tax_status),
+        unvested: b.unvested === undefined ? 0 : unvestedOf(b.unvested),
+      };
+      return { id: L.insert('accounts', checked({ institution_id: institutionRef(b.institution_id), ...row })) };
+    });
+
+    on('PUT', '/api/accounts/:id', (p, b) => {
+      const cur = L.get('accounts', N(p.id)) || missing('帳戶不存在');
+      const row = {
+        name: S(b.name, cur.name), kind: S(b.kind, cur.kind), currency: S(b.currency, cur.currency),
+        opening_balance: b.opening_balance === undefined ? cur.opening_balance : N(b.opening_balance),
+        opening_date: S(b.opening_date, cur.opening_date),
+        is_active: b.is_active === undefined ? cur.is_active : B(b.is_active),
+        sort_order: b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
+        note: S(b.note, cur.note), access: accessOf(b.access, cur.access),
+        tax_status: b.tax_status === undefined ? cur.tax_status : taxStatusOf(b.tax_status),
+        unvested: b.unvested === undefined ? cur.unvested : unvestedOf(b.unvested),
+      };
+      const institution_id = b.institution_id === undefined ? cur.institution_id : institutionRef(b.institution_id);
+      L.update('accounts', cur.id, checked({ institution_id, ...row }));
+      return { ok: true };
+    });
+
+    // Its transactions, holdings and balance checks go with it — the UI warns
+    // about that — and its imports stay, unlinked: the schema's ON DELETE
+    // CASCADE and SET NULL, done here so a store without foreign keys does
+    // the same. The demo used to keep pointing its imports at the account.
+    on('DELETE', '/api/accounts/:id', (p) => {
+      const id = N(p.id);
+      return L.tx(() => {
+        for (const table of ['txns', 'holdings', 'balance_checks']) L.removeWhere(table, { account_id: id });
+        L.updateWhere('imports', { account_id: id }, checked({ account_id: null }));
+        return { deleted: L.remove('accounts', id) };
+      });
+    });
+
+    // The account page's line. `to` defaults to today and can be pinned, so
+    // the same question can be asked of both sides and get the same answer.
+    on('GET', '/api/accounts/:id/series', (p, _b, q) => {
+      const to = q.to ? parseDate(q.to, 'auto') || bad(`日期無法解析：${q.to}`) : today();
+      return L.accountSeries(N(p.id), to) || missing('帳戶不存在');
+    });
+
+    // --- transactions --------------------------------------------------------
+
+    // `first` and `last` span every matching row, not the page: an account
+    // with more rows than a page has its first row somewhere the page does not
+    // reach. The search is SQLite's LIKE on both sides.
+    on('GET', '/api/txns', (_p, _b, q) => {
+      const limit = Math.min(N(q.limit, 200), 2000);
+      const offset = N(q.offset, 0);
+      const filter = {
+        account: q.account ? N(q.account) : null,
+        from: q.from ? S(q.from) : null,
+        to: q.to ? S(q.to) : null,
+        kind: q.kind ? S(q.kind) : null,
+        q: q.q ? S(q.q) : null,
+      };
+      const { total, first, last, rows } = L.txnPage(filter, limit, offset);
+      return { total, first, last, limit, offset, rows };
+    });
+
+    // One row of a statement or the form. Also what an import writes, once the
+    // import routes are here.
+    const insertTxn = (b, importId = null) => {
+      if (!N(b.account_id)) bad('account_id 必填');
+      const date = parseDate(b.date, 'auto');
+      if (!date) bad(`日期無法解析：${b.date}`);
+      const accountId = accountRef(b.account_id);
+      const amount = round2(N(b.amount));
+      const description = S(b.description);
+      return L.insert('txns', checked({
+        account_id: accountId, date, amount, description, category: S(b.category),
+        kind: S(b.kind, DEFAULT_TXN_KIND), transfer_group: null,
+        source: S(b.source, 'manual'), external_id: OPT(b.external_id),
+        fingerprint: S(b.fingerprint) || fingerprint(accountId, date, amount, description),
+        import_id: importId, note: S(b.note), created_at: now(),
+      }));
+    };
+
+    on('POST', '/api/txns', (_p, b) => {
+      if (Array.isArray(b.rows)) {
+        const ids = L.tx(() => b.rows.map((row) => insertTxn(row)));
+        return { ids, inserted: ids.length };
+      }
+      return { id: insertTxn(b) };
+    });
+
+    // The fingerprint is recomputed: it is made of exactly the four fields
+    // that can change here.
+    on('PUT', '/api/txns/:id', (p, b) => {
+      const cur = L.get('txns', N(p.id)) || missing('交易不存在');
+      const date = b.date === undefined ? cur.date : parseDate(b.date, 'auto') || bad(`日期無法解析：${b.date}`);
+      const amount = b.amount === undefined ? cur.amount : round2(N(b.amount));
+      const description = S(b.description, cur.description);
+      const accountId = b.account_id === undefined ? cur.account_id : accountRef(b.account_id);
+      L.update('txns', cur.id, checked({
+        account_id: accountId, date, amount, description,
+        category: S(b.category, cur.category), kind: S(b.kind, cur.kind), note: S(b.note, cur.note),
+        fingerprint: fingerprint(accountId, date, amount, description),
+      }));
+      return { ok: true };
+    });
+
+    on('DELETE', '/api/txns/:id', (p) => ({ deleted: L.remove('txns', N(p.id)) }));
+
+    // --- transfers -----------------------------------------------------------
+
+    on('GET', '/api/transfers/candidates', () => L.transferCandidates());
+
+    // Both legs of a pair take one new group and become kind `transfer`, all
+    // pairs or none.
+    on('POST', '/api/transfers/apply', (_p, b) => {
+      const pairs = (Array.isArray(b.pairs) ? b.pairs : []).map((x) => ({ outId: N(x.outId), inId: N(x.inId) }));
+      if (!pairs.length) bad('沒有要配對的項目');
+      return {
+        paired: L.tx(() => {
+          for (const { outId, inId } of pairs) {
+            const group = uuid();
+            L.update('txns', outId, checked({ transfer_group: group, kind: 'transfer' }));
+            L.update('txns', inId, checked({ transfer_group: group, kind: 'transfer' }));
+          }
+          return pairs.length;
+        }),
+      };
+    });
+
+    // Every leg, newest first, one row each with its account's name.
+    on('GET', '/api/transfers', () => L.transferLegs());
+
+    on('DELETE', '/api/transfers/:group', (p) => ({
+      unlinked: L.updateWhere('txns', { transfer_group: String(p.group) }, checked({ transfer_group: null, kind: 'other' })),
     }));
   }
 

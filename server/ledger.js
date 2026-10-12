@@ -80,6 +80,23 @@ function makeLedger({ db, getMeta, setMeta, M }) {
 
     remove: (table, id) => db.prepare(`DELETE FROM ${tableOf(table)} WHERE id = ?`).run(id).changes,
 
+    // Every row whose columns equal `match`: an account's rows when it goes,
+    // a transfer's two legs when it is unlinked. An empty match is refused,
+    // so neither can become the whole table.
+    removeWhere(table, match) {
+      const keys = columnsOf(tableOf(table), match);
+      return db.prepare(`DELETE FROM ${table} WHERE ${keys.map((k) => `${k} = ?`).join(' AND ')}`)
+        .run(...keys.map((k) => match[k])).changes;
+    },
+
+    updateWhere(table, match, patch) {
+      const where = columnsOf(tableOf(table), match);
+      const set = columnsOf(table, patch);
+      return db
+        .prepare(`UPDATE ${table} SET ${set.map((k) => `${k} = ?`).join(', ')} WHERE ${where.map((k) => `${k} = ?`).join(' AND ')}`)
+        .run(...set.map((k) => patch[k]), ...where.map((k) => match[k])).changes;
+    },
+
     // Insert, or on its key replace the columns given.
     upsert(table, row) {
       const keys = columnsOf(keyedOf(table), row);
@@ -119,6 +136,41 @@ function makeLedger({ db, getMeta, setMeta, M }) {
     reconcile: () => M.reconcile(),
     coverage: (opts) => M.coverage(opts),
     holdingsValued: (asOf) => M.holdingsValued(asOf),
+    accountsWithBalances: (asOf) => M.accountsWithBalances(asOf),
+    accountSeries: (id, to) => M.accountSeries(id, to),
+
+    // One page of the transactions table, and what every matching row spans.
+    txnPage({ account, from, to, kind, q }, limit, offset) {
+      const where = [];
+      const args = [];
+      if (account !== null) { where.push('t.account_id = ?'); args.push(account); }
+      if (from !== null) { where.push('t.date >= ?'); args.push(from); }
+      if (to !== null) { where.push('t.date <= ?'); args.push(to); }
+      if (kind !== null) { where.push('t.kind = ?'); args.push(kind); }
+      if (q !== null) {
+        where.push('(t.description LIKE ? OR t.category LIKE ? OR t.note LIKE ?)');
+        const k = `%${q}%`;
+        args.push(k, k, k);
+      }
+      const sql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+      const { n: total, first, last } = db
+        .prepare(`SELECT COUNT(*) AS n, MIN(t.date) AS first, MAX(t.date) AS last FROM txns t${sql}`)
+        .get(...args);
+      const rows = db
+        .prepare(
+          `SELECT t.*, a.name AS account_name, a.currency
+             FROM txns t JOIN accounts a ON a.id = t.account_id${sql}
+            ORDER BY t.date DESC, t.id DESC LIMIT ? OFFSET ?`
+        )
+        .all(...args, limit, offset);
+      return { total, first, last, rows };
+    },
+
+    transferLegs: () => db.prepare(
+      `SELECT t.transfer_group, t.id, t.account_id, t.date, t.amount, t.description, a.name AS account_name, a.currency
+         FROM txns t JOIN accounts a ON a.id = t.account_id
+        WHERE t.transfer_group IS NOT NULL ORDER BY t.date DESC, t.transfer_group, t.id`
+    ).all(),
 
     institutions: () => db.prepare('SELECT * FROM institutions ORDER BY country, name').all(),
     prices: (symbol, market) => db.prepare(

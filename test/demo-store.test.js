@@ -133,6 +133,33 @@ const SCRIPT = async (s) => {
   await s.put('/api/audit/ok', { key: `duplicate|${twinA.id}|${twinB.id}`, ok: true });
   await s.put('/api/audit/cancel', { series: '2|netflix com', since: '2026-05-01' });
 
+  // An account deleted with everything under it — its transaction, holding
+  // and balance check go, the rest of the book stays — and an institution
+  // deleted out from under an account, which keeps the account and loses the
+  // link. Nothing deleted here is the newest row of its table, so the ids the
+  // two sides hand out afterwards stay aligned; this sits before the one
+  // delete below that is, for the same reason.
+  const broker = await s.post('/api/institutions', { name: 'Closing Broker', kind: 'broker', country: 'US' });
+  const leaving = await s.post('/api/accounts', { name: '要關的帳戶', kind: 'cash', currency: 'TWD', opening_balance: 10, opening_date: '2026-01-01' });
+  await s.post('/api/accounts', { institution_id: broker.id, name: '舊券商', kind: 'brokerage', currency: 'USD', opening_balance: 50, opening_date: '2026-04-01' });
+  await s.post('/api/txns', { account_id: leaving.id, date: '2026-03-03', amount: -5, description: 'LAST CHARGE' });
+  await s.post('/api/holdings', { account_id: leaving.id, symbol: '0056', market: 'TW', shares: 10 });
+  await s.post('/api/balance-checks', { account_id: leaving.id, date: '2026-03-31', stated: 5 });
+  await s.post('/api/txns', { account_id: 1, date: '2026-03-04', amount: -60, description: 'AFTER THE LAST CHARGE' });
+  await s.post('/api/holdings', { account_id: 3, symbol: 'bnd', market: 'US', shares: 3, avg_cost: 72 });
+  await s.post('/api/balance-checks', { account_id: 2, date: '2026-03-31', stated: -4100 });
+  await s.del(`/api/accounts/${leaving.id}`);
+  await s.del(`/api/institutions/${broker.id}`);
+
+  // Pairing: the one candidate applied, the transfer list read, the pair
+  // unlinked again — so the candidates compared below are still there.
+  const candidates = await s.get('/api/transfers/candidates');
+  const paired = await s.post('/api/transfers/apply', {
+    pairs: candidates.map((c) => ({ outId: c.out.id, inId: c.in.id })),
+  });
+  const legs = await s.get('/api/transfers');
+  const unlinked = await s.del(`/api/transfers/${legs[0].transfer_group}`);
+
   // A write that reads back what it wrote, and the edit path.
   const extra = await s.post('/api/txns', { account_id: 1, date: '2026-05-01', amount: -10, description: 'TO BE EDITED' });
   await s.put(`/api/txns/${extra.id}`, { amount: -25.5, description: 'EDITED' });
@@ -158,12 +185,8 @@ const SCRIPT = async (s) => {
   const chase = (await s.get('/api/mappings')).find((m) => m.name === 'Chase');
   await s.del(`/api/mappings/${chase.id}`);
 
-  // An institution deleted out from under an account, which keeps the account
-  // and loses the link; a holding edited and another deleted; and a rate and a
-  // price removed by their keys.
-  const broker = await s.post('/api/institutions', { name: 'Closing Broker', kind: 'broker', country: 'US' });
-  await s.post('/api/accounts', { institution_id: broker.id, name: '舊券商', kind: 'brokerage', currency: 'USD', opening_balance: 50, opening_date: '2026-04-01' });
-  await s.del(`/api/institutions/${broker.id}`);
+  // A holding edited and another deleted, and a rate and a price removed by
+  // their keys.
   const vti = (await s.get('/api/holdings')).find((h) => h.symbol === 'VTI');
   await s.put(`/api/holdings/${vti.id}`, { shares: 14.5, note: 'added two' });
   const spare = await s.post('/api/holdings', { account_id: 3, symbol: 'aapl', market: 'us', shares: 1, avg_cost: 200 });
@@ -172,7 +195,7 @@ const SCRIPT = async (s) => {
   await s.del('/api/fx/2026-07-01?pair=USDTWD');
   await s.post('/api/prices', { symbol: 'vti', market: 'US', date: '2026-06-30', price: 270 });
   await s.del('/api/prices?symbol=VTI&market=us&date=2026-06-30');
-  return { dry, applied };
+  return { dry, applied, paired, legs, unlinked };
 };
 
 // Fields that cannot line up between a real clock and an injected one, and
@@ -236,9 +259,10 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
 
   // What the writes themselves answered, not only what reads back after them:
   // the sweep's preview and its count have to be the same rows on both.
-  it('套用規則：預覽和實際套用，兩邊回的一樣', () => {
+  it('套用規則和配對轉帳：寫入本身回的，兩邊一樣', () => {
     assert.ok(wrote.live.dry.total > 0, '預覽要真的有東西可以套');
-    assert.deepEqual(wrote.demo, wrote.live);
+    assert.equal(wrote.live.legs.length, 2, '配對完要看得到兩條腿');
+    assert.deepEqual(scrub(wrote.demo), scrub(wrote.live));
   });
 
   after(() => {
@@ -267,6 +291,7 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
     '/api/txns?kind=valuation&limit=200',
     '/api/txns?limit=2&offset=1',
     '/api/transfers/candidates',
+    '/api/transfers',
     '/api/coverage?months=6&to=2026-09-30',
     '/api/spending?from=2026-01-01&to=2026-09-30',
     '/api/recurring?from=2025-01-01&to=2026-09-30',
@@ -521,6 +546,14 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       // The schema's UNIQUE: a sentence on both sides, where the server used
       // to answer SQLite's constraint error as a 500.
       ['/api/institutions', { name: '玉山銀行' }],
+      // A row naming an account or institution nobody has: refused in words
+      // on both, where the server's foreign keys answered a 500 and the demo
+      // stored the orphan.
+      ['/api/txns', { account_id: 999, date: '2026-01-01', amount: 1 }],
+      ['/api/holdings', { account_id: 999, symbol: 'X' }],
+      ['/api/balance-checks', { account_id: 999, date: '2026-01-01', stated: 1 }],
+      ['/api/accounts', { name: '孤兒', institution_id: 999 }],
+      ['/api/transfers/apply', { pairs: 'not a list' }],
     ]) {
       const of = async (s) => { try { await s.post(p, body); return null; } catch (e) { return [e.status, e.message]; } };
       assert.deepEqual(await of(demo), await of(live), `${p} ${JSON.stringify(body)}`);
@@ -626,6 +659,26 @@ describe('demo adapter — 用一個純 Map 驅動', () => {
   it('交易不能巢狀', () => {
     const { raw } = build({});
     assert.throws(() => raw.tx(() => raw.tx(() => 1)), /巢狀/);
+  });
+
+  // The schema's ON DELETE: the rows under an account go with it and its
+  // imports stay with the link cleared. The Map has no foreign keys, so the
+  // shared handler does both; the demo used to leave the imports pointing at
+  // an account that was gone.
+  it('刪帳戶：底下的交易、持股、對帳跟著刪，匯入紀錄留著但不再指向它', async () => {
+    const { raw, s } = build({});
+    const a = await s.post('/api/accounts', { name: '要關的' });
+    const keep = await s.post('/api/accounts', { name: '留著的' });
+    await s.post('/api/txns', { account_id: a.id, date: '2026-01-01', amount: -1, description: 'x' });
+    await s.post('/api/txns', { account_id: keep.id, date: '2026-01-01', amount: -2, description: 'y' });
+    await s.post('/api/holdings', { account_id: a.id, symbol: 'X' });
+    await s.post('/api/balance-checks', { account_id: a.id, date: '2026-01-31', stated: 0 });
+    const imp = raw.insert('imports', { account_id: a.id, filename: 'a.csv', imported: 1, skipped: 0 });
+    assert.deepEqual(await s.del(`/api/accounts/${a.id}`), { deleted: 1 });
+    assert.deepEqual(raw.all('txns').map((t) => t.account_id), [keep.id]);
+    assert.equal(raw.all('holdings').length, 0);
+    assert.equal(raw.all('balance_checks').length, 0);
+    assert.equal(raw.get('imports', imp.id).account_id, null);
   });
 
   it('重設把一切還原成種子', async () => {

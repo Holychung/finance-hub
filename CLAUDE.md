@@ -498,8 +498,8 @@ thousand random Unicode strings.
   scan turned out to be reading the parameter list instead of the body and
   passing with a `db.prepare` planted inside.
 
-  Two functions are deliberately not split: `applyTransferPairs` and
-  `unlinkTransfer` are writes, and nothing needs them pure yet.
+  Nothing here writes. The writes are the routes' own, in
+  `shared/handlers.js`, through the ledger port.
 
 ## Creating an account from a statement
 
