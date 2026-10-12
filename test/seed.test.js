@@ -23,6 +23,7 @@ const M = require('../shared/money');
 const SP = require('../shared/spending');
 const R = require('../shared/rules');
 const { buildDemoBook, DEMO_MONTHS } = require('../shared/demo-seed');
+const { makeMapStore, createDemoStorage } = require('../web/storage-demo');
 
 const SEED = path.join(__dirname, '..', 'scripts', 'seed-demo.js');
 const TO = '2026-09-30';
@@ -305,6 +306,26 @@ describe('示範資料的產生器', () => {
     assert.ok(items.some((i) => i.remaining >= 0), `${month} 每一條都超支了`);
     for (const i of items) assert.ok(i.count > 0, `「${i.category}」${i.currency} 那個月一筆都沒有，是分類打錯了`);
     assert.ok(new Set(budgets.map((b) => b.currency)).size >= 2, '兩個幣別都要有，幣別分頁才示範得到');
+  });
+
+  // 月度審計 opens on the last complete month, and the book plants one of each
+  // problem there (PLANTED in shared/demo-seed.js). Exactly those, whatever
+  // day the book is built on: one more is a false alarm, the first thing a
+  // visitor reads, and so is anything in the months around it. Through the
+  // demo adapter's own route, which test/demo-store.test.js holds to the
+  // server's.
+  it('審計打開的那個月剛好抓到種下的五種問題，前後的月份什麼都沒有', async () => {
+    for (const to of ['2026-10-01', '2026-10-14', '2026-10-31', '2027-01-15']) {
+      let n = 0;
+      const book = buildDemoBook({ to, now: () => 'x', uuid: () => `g${++n}` });
+      const s = createDemoStorage({ raw: makeMapStore(book), now: () => `${to}T00:00:00.000Z` });
+      for (let back = 0; back <= 6; back++) {
+        const month = M.monthAdd(to.slice(0, 7), -back);
+        const kinds = (await s.get(`/api/audit?month=${month}`)).findings.map((f) => f.kind).sort();
+        const want = back === 1 ? ['duplicate', 'fee', 'large', 'new_series', 'price_up'] : [];
+        assert.deepEqual(kinds, want, `${to} 建的帳本，${month}`);
+      }
+    }
   });
 });
 
