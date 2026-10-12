@@ -507,7 +507,10 @@ describe('前端靜態防線', () => {
   // overlay did exactly that and greyed out the whole app from first paint.
   it('用 hidden 切換又自己設了 display 的元素，都有 [hidden] 覆寫', () => {
     const doc = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-    const css = fs.readFileSync(path.join(__dirname, '..', 'web', 'style.css'), 'utf8');
+    // Every stylesheet index.html links, not just style.css: a display set in
+    // modes.css outranks [hidden] exactly the same way.
+    const css = [...doc.matchAll(/<link rel="stylesheet" href="\/([^"]+)">/g)]
+      .map(([, f]) => fs.readFileSync(path.join(__dirname, '..', 'web', f), 'utf8')).join('\n');
     // app.js builds elements carrying `hidden` too — the liability note in the
     // account form is one — and they hit the same precedence rule. Scanning
     // only index.html would call the file clean while missing them.
@@ -518,22 +521,30 @@ describe('前端靜態防線', () => {
     // report it as needing a `[hidden]` override it never wanted. Only the
     // bare boolean attribute counts: not preceded by `-` or a letter, and
     // standing alone rather than starting a longer name.
+    // One entry per element: its id and classes, and its tag — `button, .btn
+    // { display: inline-flex }` is a display too, and it is how a hidden
+    // button with its own class still drew an empty box in the sidebar.
     const toggled = [...markup.matchAll(/<(\w+)([^>]*(?<![-\w])hidden(?=[\s>])[^>]*)>/g)]
-      .flatMap(([, , attrs]) => {
+      .map(([, tag, attrs]) => {
         const id = /id="([^"]+)"/.exec(attrs);
         const klass = /class="([^"]+)"/.exec(attrs);
         return [
           ...(id ? [`#${id[1]}`] : []),
           ...(klass ? klass[1].trim().split(/\s+/).map((c) => `.${c}`) : []),
+          tag,
         ];
       });
 
-    const offenders = toggled.filter((sel) => {
-      const esc = sel.replace(/[.#]/g, '\\$&');
-      const setsDisplay = new RegExp(`${esc}[^{}]*\\{[^}]*\\bdisplay\\s*:`, 's').test(css);
-      const guarded = new RegExp(`${esc}\\[hidden\\]`).test(css);
+    const offenders = toggled.filter((sels) => {
+      const pattern = (sel) => (/^\w/.test(sel)
+        // A bare tag: at the start of a selector, not part of a class name.
+        ? `(?:^|[\\s,}>])${sel}(?![-\\w])`
+        : sel.replace(/[.#]/g, '\\$&'));
+      const setsDisplay = sels.some((sel) =>
+        new RegExp(`${pattern(sel)}[^{}]*\\{[^}]*\\bdisplay\\s*:`, 'm').test(css));
+      const guarded = sels.some((sel) => new RegExp(`${pattern(sel)}\\[hidden\\]`, 'm').test(css));
       return setsDisplay && !guarded;
-    });
+    }).map((sels) => sels[0]);
 
     assert.deepEqual(offenders, [],
       `${offenders.join(', ')} 設了 display 又用 hidden 切換，需要一條 ${offenders[0] || 'X'}[hidden] { display: none }`);

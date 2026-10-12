@@ -9,6 +9,9 @@
      dark-only app; this is the one drawing, at two sizes. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2374b4e8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 21h18'/%3E%3Cpath d='M5 21V10l7-5 7 5v11'/%3E%3Cpath d='M9 21v-6h6v6'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/style.css">
+<!-- Every rule in modes.css is scoped under :root[data-mode], which app.js
+     sets only when the `modes` flag (flags.js) is on; off, it applies nothing. -->
+<link rel="stylesheet" href="/modes.css">
 </head>
 <body>
 
@@ -21,6 +24,9 @@
     <svg class="brand-mark" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M9 21v-6h6v6"/></svg>
     <span>Finance Hub<small>離線帳本</small></span>
   </div>
+  <!-- The AI mode switch, behind the `modes` flag: hidden until showModes()
+       in app.js reveals and fills it. -->
+  <button class="mode-switch" id="mode-switch" type="button" hidden></button>
   <nav id="nav">
     <a href="/overview" data-view="overview"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>總覽</a>
     <a href="/accounts" data-view="accounts"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>帳戶</a>
@@ -46,9 +52,12 @@
   </div>
 </aside>
 
+<div class="app-col">
+<div class="mode-bar" id="mode-bar" role="status" hidden></div>
 <main id="main">
   <div class="loading">載入中…</div>
 </main>
+</div>
 
 <div id="toast" class="toast" hidden></div>
 
@@ -102,6 +111,7 @@
 <script src="/charts.js"></script>
 <script src="/tables.js"></script>
 <script src="/forms.js"></script>
+<script src="/flags.js"></script>
 <script src="/view-overview.js"></script>
 <script src="/view-accounts.js"></script>
 <script src="/view-account.js"></script>

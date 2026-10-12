@@ -130,6 +130,10 @@ web/tables.js     tables more than one view renders
 web/forms.js      modal editors more than one view opens
 web/view-*.js     one file per route, each registering its own views.<name>
 web/app.js        router, link interception, sidebar — loaded last, boots render()
+web/flags.js      feature flags, per browser; Cmd/Ctrl+Shift+F opens the panel.
+                  A flag is a look, never a permission
+web/modes.css     the three AI modes' looks, behind the `modes` flag; every
+                  rule scoped under :root[data-mode], so off it applies nothing
 test/api.test.js  node:test suite, starts and stops its own server
 test/fixtures/    one file per statement shape — invented rows, real shape
 test/paths.test.js   ledger location, profiles, the data-dir migration script
@@ -155,6 +159,8 @@ test/export.test.js  the CSV bytes: BOM, CRLF, escaping, each sheet's columns
 test/overview.test.js  the overview export over plain arrays: the model, the
                      file, its escaping, and the browser path writing the same
 test/html.test.js    the frontend escaping rules below
+test/modes.test.js   the flag wired before render, modes.css scoped to it, each
+                     mode's tokens at the contrast style.css holds itself to
 test/pack.test.js    what the hosted copy contains, and what it must not
 test/deps.test.js    zero dependencies and no external URLs, as mechanisms
 scripts/seed-demo.js          invented data for a demo profile; refuses the
