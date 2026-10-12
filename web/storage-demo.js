@@ -31,11 +31,9 @@
   const dep = typeof module !== 'undefined' && module.exports;
   const M = dep ? require('../shared/money') : root;
   const csv = dep ? require('../shared/csv') : root;
-  const R = dep ? require('../shared/rules') : root;
   const SP = dep ? require('../shared/spending') : root;
   const X = dep ? require('../shared/export') : root;
   const O = dep ? require('../shared/overview') : root;
-  const I = dep ? require('../shared/import') : root;
   const H = dep ? require('../shared/handlers') : root;
 
   // The demo's shape is shipped with the code, so this is a statement about
@@ -331,8 +329,6 @@
       });
     };
 
-    const listRules = () => R.sortRules(raw.all('rules'));
-
     const withAccount = (t, acct) => ({
       ...t,
       account_name: acct.get(t.account_id)?.name,
@@ -373,25 +369,6 @@
           .sort(by('-date')).map((r) => ({ date: r.date, rate: r.rate }))[0] || null,
       };
     });
-
-    // What the import commit below writes each row with, until the import
-    // routes join the others in shared/handlers.js.
-    function insertTxn(b, importId = null) {
-      const accountId = N(b.account_id);
-      if (!accountId) bad('account_id 必填');
-      const date = csv.parseDate(b.date, 'auto');
-      if (!date) bad(`日期無法解析：${b.date}`);
-      const amount = M.round2(N(b.amount));
-      const desc = S(b.description);
-      return raw.insert('txns', {
-        account_id: accountId, date, amount, description: desc,
-        category: S(b.category), kind: S(b.kind, DEFAULT_TXN_KIND),
-        transfer_group: null,
-        source: S(b.source, 'manual'), external_id: OPT(b.external_id),
-        fingerprint: S(b.fingerprint) || csv.fingerprint(accountId, date, amount, desc),
-        import_id: importId, note: S(b.note), created_at: now(),
-      }).id;
-    }
 
     // --- the shared routes -------------------------------------------------
 
@@ -495,6 +472,22 @@
         };
       },
 
+      dedupCounts: (accountId) => {
+        const mine = raw.all('txns').filter((t) => t.account_id === accountId);
+        const fingerprints = new Map();
+        for (const t of mine) fingerprints.set(t.fingerprint, (fingerprints.get(t.fingerprint) || 0) + 1);
+        return {
+          fingerprints,
+          externalIds: new Set(mine.map((t) => t.external_id).filter((v) => v !== null && v !== undefined)),
+        };
+      },
+
+      importList: () => {
+        const acct = accountsById();
+        return raw.all('imports').sort(by('-id')).slice(0, 50)
+          .map((i) => ({ ...i, account_name: acct.get(i.account_id)?.name ?? null }));
+      },
+
       transferLegs: () => {
         const acct = accountsById();
         return raw.all('txns').filter((t) => t.transfer_group).sort(by('-date', 'transfer_group', 'id'))
@@ -515,201 +508,20 @@
     };
 
     // Written once in shared/handlers.js, and registered by server/api.js too.
-    H.defineLedgerRoutes(on, { L: ledger, now, today, uuid: newId });
-
-    // --- import ---------------------------------------------------------------
-
-    function existingCounts(accountId) {
-      const mine = raw.all('txns').filter((t) => t.account_id === accountId);
-      const fingerprints = new Map();
-      for (const t of mine) fingerprints.set(t.fingerprint, (fingerprints.get(t.fingerprint) || 0) + 1);
-      return {
-        fingerprints,
-        externalIds: new Set(mine.map((t) => t.external_id).filter((v) => v !== null && v !== undefined)),
-      };
-    }
-
-    const balanceOf = (id, asOf) => accountsWithBalances(asOf).find((a) => a.id === id)?.balance ?? 0;
-
-    // server/api.js's analyseImport, over the Map.
-    function analyseImport(account, grid, mapping, skipLines) {
-      const skip = I.importListParam(skipLines, 'skip_lines');
-      if (skip.error) bad(skip.error);
-      const { rows } = csv.extractRows(grid, mapping, account ? account.id : null);
-      csv.markDuplicates(rows, existingCounts(account ? account.id : null));
-      I.skipImportRows(rows, skip);
-      const st = I.statedBalance(rows);
-      const { summary, reconcile } = I.computeImportSummary({
-        rows, account,
-        before: account ? balanceOf(account.id) : null,
-        ledgerOn: account && st ? balanceOf(account.id, st.stated_on) : null,
-      });
-      return { rows, summary, reconcile, issues: I.importIssues({ summary, reconcile, rows, mapping }) };
-    }
-
-    const accountRef = (a) => ({ id: a.id, name: a.name, kind: a.kind, currency: a.currency });
-
     // Base64 in both environments: Node has Buffer, a browser has atob. The
     // views send `content_base64` because that is what survives a JSON body.
-    function decodeBase64(b64) {
+    const decodeBase64 = (b64) => {
       if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(b64, 'base64'));
       const bin = atob(b64);
       const out = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
       return out;
-    }
+    };
 
-    on('POST', '/api/import/preview', (_p, b) => {
-      const accountId = N(b.account_id);
-      const account = accountId ? raw.get('accounts', accountId) : null;
-      if (accountId && !account) missing('帳戶不存在');
-      const buf = decodeBase64(S(b.content_base64));
-      if (!buf.length) bad('檔案是空的');
-
-      const { text, encoding } = csv.decode(buf, S(b.encoding, 'auto') || 'auto');
-      const delimiter = (b.mapping && b.mapping.delimiter) || csv.sniffDelimiter(text);
-      const grid = csv.parseCsv(text, delimiter);
-      if (!grid.length) bad('這個檔案解析不出任何一行');
-
-      const headerRow = b.mapping && b.mapping.headerRow
-        ? Math.max(1, N(b.mapping.headerRow, 1))
-        : csv.detectHeaderRow(grid);
-      const headers = grid[headerRow - 1] || [];
-      const mapping = b.mapping && b.mapping.dateCol !== undefined && b.mapping.dateCol !== null
-        ? { ...b.mapping, delimiter, encoding }
-        : { ...csv.guessMapping(headers, grid.slice(headerRow)), delimiter, encoding, headerRow };
-
-      const ref = account ? accountRef(account) : null;
-      const { rows, summary, reconcile, issues } = analyseImport(ref, grid, mapping, b.skip_lines);
-
-      return {
-        encoding, delimiter, headers, mapping,
-        account: ref,
-        suggested_account: accountId
-          ? null
-          : csv.suggestAccount({ filename: S(b.filename), headers, rows, mapping }),
-        grid_preview: grid.slice(0, Math.max(headerRow + 5, 8)),
-        rows: rows.slice(0, 500),
-        truncated: rows.length > 500,
-        summary,
-        reconcile,
-        issues,
-      };
-    });
-
-    on('POST', '/api/import/commit', (_p, b) => {
-      const accountId = N(b.account_id);
-      if (!accountId) bad('請先選擇要匯入的帳戶');
-      const buf = decodeBase64(S(b.content_base64));
-      const mapping = b.mapping || bad('缺少欄位對應設定');
-      const stored = raw.get('accounts', accountId) || missing('帳戶不存在');
-      const account = accountRef(stored);
-
-      const { text } = csv.decode(buf, mapping.encoding || 'auto');
-      const grid = csv.parseCsv(text, mapping.delimiter || ',');
-      const { rows, summary, reconcile, issues } = analyseImport(account, grid, mapping, b.skip_lines);
-
-      const accept = I.importListParam(b.accept, 'accept');
-      if (accept.error) bad(accept.error);
-      const refusal = I.commitRefusal(issues, accept);
-      if (refusal) conflict(refusal);
-
-      const toInsert = rows.filter((r) => r.status === 'new');
-      if (!toInsert.length) bad('這份檔案沒有新的交易可以匯入');
-
-      const span = I.fileSpan(rows);
-      const declaredFrom = OPT(b.period_from) && S(b.period_from);
-      const declaredTo = OPT(b.period_to) && S(b.period_to);
-      const declared = !!(declaredFrom && declaredTo);
-      if (declared) {
-        const problem = I.periodProblem({ from: declaredFrom, to: declaredTo }, span);
-        if (problem) bad(problem);
-      }
-      const period = declared
-        ? { from: declaredFrom, to: declaredTo, kind: 'declared' }
-        : { from: span.from, to: span.to, kind: 'derived' };
-
-      const ruleList = listRules();
-      const importId = raw.tx(() => {
-        const imp = raw.insert('imports', {
-          account_id: accountId, filename: S(b.filename, 'upload.csv'),
-          mapping: JSON.stringify(mapping), imported: 0, skipped: 0, created_at: now(),
-          date_from: period.from,
-          date_to: period.to,
-          period_kind: period.kind,
-          span_from: span.from,
-          span_to: span.to,
-        });
-        for (const r of toInsert) {
-          insertTxn({
-            account_id: accountId, date: r.date, amount: r.amount,
-            description: r.description,
-            category: r.category || R.categorise(r.description, ruleList),
-            kind: r.kind || S(b.default_kind, DEFAULT_TXN_KIND),
-            source: 'csv', external_id: r.externalId, fingerprint: r.fingerprint,
-          }, imp.id);
-        }
-        raw.update('imports', imp.id, {
-          imported: toInsert.length, skipped: rows.length - toInsert.length,
-        });
-        return imp.id;
-      });
-
-      if (b.save_mapping_as) {
-        const name = String(b.save_mapping_as).trim();
-        const cur = raw.all('mappings').find((m) => m.name === name);
-        const cfg = JSON.stringify(mapping);
-        if (cur) raw.update('mappings', cur.id, { config: cfg, used_at: now() });
-        else raw.insert('mappings', { name, config: cfg, created_at: now(), used_at: now() });
-      }
-
-      return {
-        import_id: importId,
-        imported: toInsert.length,
-        skipped: rows.length - toInsert.length,
-        account,
-        summary,
-        reconcile,
-        period,
-        transfer_candidates: transferCandidates().length,
-        // No filesystem, so no snapshot. The import view already renders this
-        // as "no backup" rather than inventing a filename.
-        backup: null,
-      };
-    });
-
-    on('GET', '/api/imports', () => {
-      const acct = accountsById();
-      return raw.all('imports').sort(by('-id')).slice(0, 50)
-        .map((i) => ({ ...i, account_name: acct.get(i.account_id)?.name ?? null }));
-    });
-
-    on('DELETE', '/api/imports/:id', (p) => {
-      const id = N(p.id);
-      return raw.tx(() => {
-        const reverted = raw.remove('txns', (t) => t.import_id === id);
-        raw.remove('imports', (i) => i.id === id);
-        return { reverted };
-      });
-    });
-
-    on('PUT', '/api/imports/:id', (p, b) => {
-      const imp = raw.get('imports', N(p.id)) || missing('匯入紀錄不存在');
-      if (!imp.span_from || !imp.span_to) bad('這筆匯入沒有記下檔案的範圍（是舊版匯入的），涵蓋期間不能再改。');
-      const rawFrom = OPT(b.period_from);
-      const rawTo = OPT(b.period_to);
-      if (!!rawFrom !== !!rawTo) bad('期間要有起日和迄日');
-      const from = rawFrom && (csv.parseDate(rawFrom, 'ymd') || bad(`日期無法解析：${rawFrom}`));
-      const to = rawTo && (csv.parseDate(rawTo, 'ymd') || bad(`日期無法解析：${rawTo}`));
-      const span = { from: imp.span_from, to: imp.span_to };
-      if (from) {
-        const problem = I.periodProblem({ from, to }, span);
-        if (problem) bad(problem);
-      }
-      const period = from ? { from, to, kind: 'declared' } : { ...span, kind: 'derived' };
-      raw.update('imports', imp.id, { date_from: period.from, date_to: period.to, period_kind: period.kind });
-      return { id: imp.id, period };
-    });
+    // No filesystem, so no pre-import snapshot: a commit reports `backup:
+    // null`, which the import view renders as "no backup" rather than a
+    // filename that does not exist.
+    H.defineLedgerRoutes(on, { L: ledger, now, today, uuid: newId, snapshot: () => null, decodeBase64 });
 
     // --- settings and export -------------------------------------------------
 
