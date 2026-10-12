@@ -11,9 +11,7 @@ const PRICES = require('./prices');
 const AI = require('./ai');
 const {
   DEFAULT_ACCOUNT_KIND, DEFAULT_TXN_KIND, ACCESS_KEYS, defaultAccessFor, TAX_STATUS_KEYS,
-  MARKET_KEYS, DEFAULT_MARKET, marketInfo,
 } = require('../shared/kinds');
-const { MAX_DECIMALS } = require('../shared/currency');
 
 // node:sqlite only binds null/number/bigint/string/Uint8Array.
 const S = (v, d = '') => (v === undefined || v === null ? d : String(v));
@@ -85,22 +83,6 @@ on('GET', '/api/overview', () => {
     fx_latest: db.prepare("SELECT date, rate FROM fx_rates WHERE pair='USDTWD' ORDER BY date DESC LIMIT 1").get() || null,
   };
 });
-
-// --- institutions ----------------------------------------------------------
-
-on('GET', '/api/institutions', () => db.prepare('SELECT * FROM institutions ORDER BY country, name').all());
-
-on('POST', '/api/institutions', (_p, body) => {
-  if (!S(body.name).trim()) bad('機構名稱必填');
-  const r = db
-    .prepare('INSERT INTO institutions (name, kind, country) VALUES (?, ?, ?)')
-    .run(S(body.name).trim(), S(body.kind, 'bank'), S(body.country, 'TW'));
-  return { id: Number(r.lastInsertRowid) };
-});
-
-on('DELETE', '/api/institutions/:id', (p) => ({
-  deleted: db.prepare('DELETE FROM institutions WHERE id = ?').run(N(p.id)).changes,
-}));
 
 // --- accounts --------------------------------------------------------------
 
@@ -303,162 +285,17 @@ on('GET', '/api/transfers', () =>
 
 on('DELETE', '/api/transfers/:group', (p) => ({ unlinked: M.unlinkTransfer(String(p.group)) }));
 
-// --- holdings --------------------------------------------------------------
-
-// One normaliser for every place a market arrives: holdings and all three
-// price routes. Holdings used to store the market as sent while /api/prices
-// upper-cased it, so a `crypto` holding looked its price up under `crypto` in
-// a series stored as `CRYPTO` and never found it. Refused outside the list
-// rather than stored, because an unknown market has no section on the
-// holdings page to be shown in.
-function marketOf(v, fallback) {
-  if (v === undefined || v === null || v === '') return fallback;
-  const m = S(v).trim().toUpperCase();
-  if (!MARKET_KEYS.includes(m)) bad(`market 只能是 ${MARKET_KEYS.join('、')}`);
-  return m;
-}
-
-// The quantity's scale. Refused rather than clamped: 12 places would look
-// like precision and be float noise, and 2.5 places is a typo.
-function placesOf(v, fallback) {
-  if (v === undefined || v === null || v === '') return fallback;
-  const n = Number(v);
-  if (!Number.isInteger(n) || n < 0 || n > MAX_DECIMALS) bad(`decimals 要是 0 到 ${MAX_DECIMALS} 的整數`);
-  return n;
-}
-
-on('GET', '/api/holdings', () => M.holdingsValued());
-
-on('POST', '/api/holdings', (_p, b) => {
-  if (!S(b.symbol).trim()) bad('代號必填');
-  const market = marketOf(b.market, DEFAULT_MARKET);
-  // The market's currency and scale are defaults for a holding that did not
-  // say — a coin can be priced in TWD on a Taiwanese exchange — not rules.
-  // This used to be `market === 'US' ? 'USD' : 'TWD'`, which priced any third
-  // market in TWD.
-  const info = marketInfo(market);
-  const r = db
-    .prepare(
-      `INSERT INTO holdings (account_id, symbol, name, market, shares, avg_cost, last_price, price_date, currency, note, decimals)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      N(b.account_id), S(b.symbol).trim().toUpperCase(), S(b.name), market,
-      N(b.shares), N(b.avg_cost), N(b.last_price), OPT(b.price_date),
-      S(b.currency, info.currency), S(b.note), placesOf(b.decimals, info.decimals)
-    );
-  return { id: Number(r.lastInsertRowid) };
-});
-
-on('PUT', '/api/holdings/:id', (p, b) => {
-  const cur = db.prepare('SELECT * FROM holdings WHERE id = ?').get(N(p.id));
-  if (!cur) missing('持股不存在');
-  db.prepare(
-    `UPDATE holdings SET account_id=?, symbol=?, name=?, market=?, shares=?, avg_cost=?,
-            last_price=?, price_date=?, currency=?, note=?, decimals=? WHERE id=?`
-  ).run(
-    b.account_id === undefined ? cur.account_id : N(b.account_id),
-    S(b.symbol, cur.symbol).trim().toUpperCase(), S(b.name, cur.name), marketOf(b.market, cur.market),
-    b.shares === undefined ? cur.shares : N(b.shares),
-    b.avg_cost === undefined ? cur.avg_cost : N(b.avg_cost),
-    b.last_price === undefined ? cur.last_price : N(b.last_price),
-    b.price_date === undefined ? cur.price_date : OPT(b.price_date),
-    S(b.currency, cur.currency), S(b.note, cur.note), placesOf(b.decimals, cur.decimals), N(p.id)
-  );
-  return { ok: true };
-});
-
-on('DELETE', '/api/holdings/:id', (p) => ({
-  deleted: db.prepare('DELETE FROM holdings WHERE id = ?').run(N(p.id)).changes,
-}));
-
-// --- prices ----------------------------------------------------------------
-
-// Price history per security. Keyed (symbol, market, date) and read by symbol,
-// so a holding of that symbol in any account values off the same series —
-// exactly how /api/fx serves one series per pair rather than per account. The
-// symbol is upper-cased on the way in and out to match how holdings store it,
-// and the date goes through the same parser a statement does. Query params, not
-// a path segment, because a US symbol can carry a slash (BRK/B).
-on('GET', '/api/prices', (_p, _b, q) => {
-  const symbol = S(q.symbol).trim().toUpperCase();
-  if (!symbol) bad('代號必填');
-  return db
-    .prepare(
-      'SELECT symbol, market, date, price, source FROM prices WHERE symbol = ? AND market = ? ORDER BY date DESC'
-    )
-    .all(symbol, marketOf(q.market, DEFAULT_MARKET));
-});
-
-on('POST', '/api/prices', (_p, b) => {
-  const list = Array.isArray(b.rows) ? b.rows : [b];
-  const stmt = db.prepare(
-    `INSERT INTO prices (symbol, market, date, price, source) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(symbol, market, date) DO UPDATE SET price = excluded.price, source = excluded.source`
-  );
-  let n = 0;
-  db.exec('BEGIN');
-  try {
-    for (const r of list) {
-      const symbol = S(r.symbol).trim().toUpperCase();
-      if (!symbol) bad('代號必填');
-      const d = csv.parseDate(r.date, 'auto');
-      if (!d) bad(`日期無法解析：${r.date}`);
-      const price = N(r.price);
-      if (price <= 0) bad('價格必須大於 0');
-      stmt.run(symbol, marketOf(r.market, DEFAULT_MARKET), d, price, S(r.source, 'manual'));
-      n++;
-    }
-    db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { saved: n };
-});
-
-on('DELETE', '/api/prices', (_p, _b, q) => ({
-  deleted: db
-    .prepare('DELETE FROM prices WHERE symbol = ? AND market = ? AND date = ?')
-    .run(S(q.symbol).trim().toUpperCase(), marketOf(q.market, DEFAULT_MARKET), S(q.date)).changes,
-}));
+// --- prices refresh ---------------------------------------------------------
 
 // Opt-in daily fetch of each holding's previous close (server/prices.js). Off
 // unless the user turned it on in settings, and when off this does nothing and
 // says so, so the button can stay hidden without the endpoint pretending. Async
-// because the network wait is the one place a handler genuinely is not sync.
+// because the network wait is the one place a handler genuinely is not sync,
+// which is also why it is not in shared/handlers.js.
 on('POST', '/api/prices/refresh', async () => {
   if (getMeta('auto_prices', '0') !== '1') return { enabled: false, updated: [], failed: [] };
   return { enabled: true, ...(await PRICES.updatePrices()) };
 });
-
-// --- fx --------------------------------------------------------------------
-
-on('GET', '/api/fx', () => db.prepare('SELECT * FROM fx_rates ORDER BY date DESC LIMIT 400').all());
-
-on('POST', '/api/fx', (_p, b) => {
-  const list = Array.isArray(b.rows) ? b.rows : [b];
-  const stmt = db.prepare(
-    `INSERT INTO fx_rates (date, pair, rate) VALUES (?, ?, ?)
-     ON CONFLICT(date, pair) DO UPDATE SET rate = excluded.rate`
-  );
-  let n = 0;
-  db.exec('BEGIN');
-  try {
-    for (const r of list) {
-      const d = csv.parseDate(r.date, 'auto');
-      if (!d) bad(`日期無法解析：${r.date}`);
-      const rate = N(r.rate);
-      if (rate <= 0) bad('匯率必須大於 0');
-      stmt.run(d, S(r.pair, 'USDTWD').toUpperCase(), rate);
-      n++;
-    }
-    db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { saved: n };
-});
-
-on('DELETE', '/api/fx/:date', (p, _b, q) => ({
-  deleted: db.prepare('DELETE FROM fx_rates WHERE date = ? AND pair = ?')
-    .run(String(p.date), S(q.pair, 'USDTWD')).changes,
-}));
 
 // --- the shared routes -----------------------------------------------------
 

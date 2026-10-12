@@ -157,6 +157,21 @@ const SCRIPT = async (s) => {
   await s.post('/api/mappings', { name: '玉山', config: { date: 0, amount: 3 } });
   const chase = (await s.get('/api/mappings')).find((m) => m.name === 'Chase');
   await s.del(`/api/mappings/${chase.id}`);
+
+  // An institution deleted out from under an account, which keeps the account
+  // and loses the link; a holding edited and another deleted; and a rate and a
+  // price removed by their keys.
+  const broker = await s.post('/api/institutions', { name: 'Closing Broker', kind: 'broker', country: 'US' });
+  await s.post('/api/accounts', { institution_id: broker.id, name: '舊券商', kind: 'brokerage', currency: 'USD', opening_balance: 50, opening_date: '2026-04-01' });
+  await s.del(`/api/institutions/${broker.id}`);
+  const vti = (await s.get('/api/holdings')).find((h) => h.symbol === 'VTI');
+  await s.put(`/api/holdings/${vti.id}`, { shares: 14.5, note: 'added two' });
+  const spare = await s.post('/api/holdings', { account_id: 3, symbol: 'aapl', market: 'us', shares: 1, avg_cost: 200 });
+  await s.del(`/api/holdings/${spare.id}`);
+  await s.post('/api/fx', { rows: [{ date: '2026-07-01', rate: 32.4 }, { date: '2026-07-02', pair: 'usdtwd', rate: 32.5 }] });
+  await s.del('/api/fx/2026-07-01?pair=USDTWD');
+  await s.post('/api/prices', { symbol: 'vti', market: 'US', date: '2026-06-30', price: 270 });
+  await s.del('/api/prices?symbol=VTI&market=us&date=2026-06-30');
   return { dry, applied };
 };
 
@@ -503,6 +518,9 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       ['/api/budgets', { category: '居住', currency: 'TWD', amount: 0 }],
       ['/api/budgets', { category: '居住', currency: 'TWD', amount: 'abc' }],
       ['/api/budgets', { category: '食', currency: 'twd', amount: 100 }],
+      // The schema's UNIQUE: a sentence on both sides, where the server used
+      // to answer SQLite's constraint error as a 500.
+      ['/api/institutions', { name: '玉山銀行' }],
     ]) {
       const of = async (s) => { try { await s.post(p, body); return null; } catch (e) { return [e.status, e.message]; } };
       assert.deepEqual(await of(demo), await of(live), `${p} ${JSON.stringify(body)}`);

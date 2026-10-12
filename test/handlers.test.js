@@ -93,4 +93,23 @@ describe('server 的 L', () => {
       assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'budgets'").get(), 'budgets 還在');
     } finally { rm(); }
   });
+
+  // A keyed delete short of its key is a WHERE that matches more than one
+  // row: `{ pair }` alone would take every rate that pair ever had.
+  it('沒有 id 的表：用整個主鍵寫和刪，少一欄就拒絕', () => {
+    const { L, db, rm } = scratch();
+    try {
+      L.upsert('fx_rates', { date: '2026-01-01', pair: 'USDTWD', rate: 31 });
+      L.upsert('fx_rates', { date: '2026-01-01', pair: 'USDTWD', rate: 32 });
+      L.upsert('fx_rates', { date: '2026-02-01', pair: 'USDTWD', rate: 33 });
+      assert.deepEqual(db.prepare('SELECT date, rate FROM fx_rates ORDER BY date').all().map((r) => ({ ...r })),
+        [{ date: '2026-01-01', rate: 32 }, { date: '2026-02-01', rate: 33 }]);
+      assert.throws(() => L.removeKey('fx_rates', { pair: 'USDTWD' }), /主鍵/);
+      assert.throws(() => L.upsert('fx_rates', { pair: 'USDTWD', rate: 1 }), /主鍵/);
+      assert.throws(() => L.upsert('budgets', { id: 1 }), /不是用主鍵寫的表/);
+      assert.throws(() => L.get('fx_rates', 1), /沒有 id/);
+      assert.equal(L.removeKey('fx_rates', { date: '2026-01-01', pair: 'USDTWD' }), 1);
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM fx_rates').get().n, 1);
+    } finally { rm(); }
+  });
 });
