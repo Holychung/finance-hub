@@ -876,6 +876,11 @@ describe('本機介面硬化', () => {
       assert.ok(!/https?:|\*/.test(value[1]),
         `${directive} 放行了外部來源：${value[1]}`);
     }
+    // Nothing inline, in either: the views carry no `style=` any more (see
+    // test/html.test.js), so admitting one would only be room for an injected
+    // one.
+    assert.match(policy, /script-src 'self'(;|$)/);
+    assert.match(policy, /style-src 'self'(;|$)/);
   });
 
   // Set once at the top of the handler rather than in each writeHead, so a

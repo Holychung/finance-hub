@@ -62,12 +62,14 @@
   /* A share of a number the user set, not an amount, so the neutral ramp and
      never green. Over budget the bar is full and turns to money's red, beside
      the word 超支 that says the same thing without colour. */
-  .budget-fill { display: block; height: 100%; border-radius: var(--r-1); background: var(--chart-2); }
+  /* The share used is the bar's width, as `--at` (a number in `data-at` that
+     mount() sets, because the CSP refuses `style=`). */
+  .budget-fill { display: block; width: var(--at); height: 100%; border-radius: var(--r-1); background: var(--chart-2); }
   .budget-fill.over { background: var(--down); }
   /* How much of the running month has passed: a second fact beside the bar, not
-     a forecast drawn from the two. `left` is the datum, set where it is known. */
+     a forecast drawn from the two. `--at` is the datum, set where it is known. */
   .budget-tick {
-    position: absolute; top: calc(var(--sp-4) * -1); bottom: calc(var(--sp-4) * -1);
+    position: absolute; left: var(--at); top: calc(var(--sp-4) * -1); bottom: calc(var(--sp-4) * -1);
     width: var(--sp-2); background: var(--ink-2); border-radius: var(--r-1);
     transform: translateX(-50%);
   }

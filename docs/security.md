@@ -26,9 +26,12 @@
 `default-src 'none'` 決定頁面可以連去哪裡，這才是讓「不對外連線」從習慣變成機制的東西。它在
 request handler 最上面設定一次，所以每個 response 都帶著，403 也不例外。
 
-`style-src` 開了 `'unsafe-inline'`，只因為畫面上還有一些行內 `style=` 屬性——那是還沒清乾淨
-的債，不是可以往別的指令加來源的理由。在 `script-src`、`connect-src` 或 `img-src` 加一個網域
-或一個 `*`，帳本就開始跟別人說話了，所以 `test/api.test.js` 會因此失敗。
+`script-src` 和 `style-src` 都只有 `'self'`：只有這個網站自己的腳本和樣式表，沒有任何行內的
+`<script>`、`<style>` 或 `style=` 屬性。`style-src` 以前開著 `'unsafe-inline'`，因為畫面還在寫行內
+`style=`；最後幾個是圖表和長條自己的位置，現在改成 `data-at` 裡的一個數字，由 `mount()` 透過
+CSSOM 設成 `--at`（CSP 不管 CSSOM），而且只有有限的數字才會被套用。因為在這個政策下瀏覽器會
+默默丟掉 `style=`，`test/html.test.js` 只要在前端看到一個就會失敗。在 `script-src`、`connect-src`
+或 `img-src` 加一個網域或一個 `*`，帳本就開始跟別人說話了，所以 `test/api.test.js` 會因此失敗。
 
 ## 沒有對外連線，而且是擋得住的
 

@@ -16,16 +16,18 @@
 // only thing that notices a weakened CSP is somebody reading it.
 //
 // `default-src 'none'` is what makes the rest of the list exhaustive: the
-// page fetches nothing that is not named. `style-src` admits 'unsafe-inline'
-// because the views still write inline `style=` attributes; that costs little
-// while every scheme an inline `url()` could reach is already 'none' or
-// 'self', and it is a reason to finish moving them into the stylesheet rather
-// than to keep a header honest.
+// page fetches nothing that is not named. `style-src 'self'` admits the
+// stylesheets and nothing else: no `<style>`, no `style=` attribute. It used
+// to admit 'unsafe-inline' while the views still wrote `style=`; the last of
+// those, a chart's and a bar's own positions, now travel as numbers in
+// `data-at` that mount() sets through the CSSOM, which the CSP does not
+// govern. `test/html.test.js` fails on a `style=` written anywhere in the
+// frontend, because under this policy the browser drops it without a word.
 
 const directives = (connect) => [
   "default-src 'none'",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self'",
   "img-src 'self' data:",       // the favicon is a data: URI
   `connect-src ${connect}`,
   "form-action 'none'",         // nothing is submitted as a form; it is all fetch

@@ -89,12 +89,12 @@ function lineChart(series, cur = 'TWD') {
   const area = `${line}L1000,1000L0,1000Z`;
 
   const last = pts[pts.length - 1];
-  // `top` is the only inline style left in here, and it has to be: it is the
-  // datum, not a theme choice.
+  // Where a gridline and its label sit is the datum, not a theme choice, so it
+  // is a number in `data-at` that mount() turns into `--at` (see web/html.js).
   const gridlines = niceTicks(min, max).map(({ value, step }) => {
-    const top = `${(frac(value) * 100).toFixed(2)}%`;
-    return html`<span class="chart-grid" style="top:${top}"></span>
-      <span class="chart-y" style="top:${top}">${axisLabel(value, step)}</span>`;
+    const at = (frac(value) * 100).toFixed(2);
+    return html`<span class="chart-grid" data-at="${at}"></span>
+      <span class="chart-y" data-at="${at}">${axisLabel(value, step)}</span>`;
   });
 
   const at = [0, Math.floor((pts.length - 1) / 2), pts.length - 1].filter((v, i, a) => a.indexOf(v) === i);
@@ -130,7 +130,7 @@ function lineChart(series, cur = 'TWD') {
         <path class="line" d="${line}" vector-effect="non-scaling-stroke"/>
       </svg>
       ${gridlines}
-      <span class="chart-dot" style="top:${(frac(last.value) * 100).toFixed(2)}%"></span>
+      <span class="chart-dot" data-at="${(frac(last.value) * 100).toFixed(2)}"></span>
       <span class="chart-cursor"><span class="chart-cursor-dot"></span></span>
       <span class="chart-tip"></span>
     </div>
@@ -211,14 +211,15 @@ function wireChartHover() {
   document.addEventListener('pointerleave', leave, true);
 }
 
-// The asset pole of a diverging scale; liabilities take `--down` below. One
-// hue stepped by lightness, not seven cycling hues: the rows are sorted by
-// size and each is already labelled with its own name and number, so colour
-// carries magnitude, not identity. Brightest first — the ground is dark, so
-// bright is what reads as loudest and the largest slice takes --chart-1. A
-// light theme would reverse the ramp, not the order. Defined in tokens.css so
-// the palette stays in one place — see CLAUDE.md "Styling".
-const BAR_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)'];
+// The asset pole of a diverging scale; liabilities take `--down`. One hue
+// stepped by lightness, not seven cycling hues: the rows are sorted by size
+// and each is already labelled with its own name and number, so colour carries
+// magnitude, not identity. Brightest first — the ground is dark, so bright is
+// what reads as loudest and the largest slice takes --chart-1. A light theme
+// would reverse the ramp, not the order. A bar names its step as a class
+// (`tone-1` … `tone-4`, or `neg`) and charts.css colours it from the tokens,
+// so the palette stays in one place — see CLAUDE.md "Styling".
+const BAR_TONES = 4;
 
 function barBreakdown(entries, total, cur = "TWD") {
   if (!entries.length || !total) return empty('無資料');
@@ -235,11 +236,11 @@ function barBreakdown(entries, total, cur = "TWD") {
     // beside it. A share of a total is not an amount; only the amount is.
     const share = total ? Math.abs((value / total) * 100) : 0;
     const width = Math.min(100, share).toFixed(1);
-    const color = value < 0 ? 'var(--down)' : BAR_COLORS[i % BAR_COLORS.length];
+    const tone = value < 0 ? 'neg' : `tone-${(i % BAR_TONES) + 1}`;
     return html`<div class="bar-row ${solo ? 'solo' : ''}">
       <span class="name">${name}</span>
       ${solo ? '' : html`<span class="bar-track"
-        ><span class="bar-fill" style="width:${width}%;background:${color}"></span></span>`}
+        ><span class="bar-fill ${tone}" data-at="${width}"></span></span>`}
       <span class="val">${nf(share, 1)}%</span>
       <span class="val ${value < 0 ? 'neg' : 'dim'}">${money(value, cur)}</span>
     </div>`;

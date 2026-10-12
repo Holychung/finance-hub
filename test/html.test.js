@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const { html, raw, fmt, Html } = require('../web/html.js');
+const { html, raw, fmt, Html, mount } = require('../web/html.js');
 const K = require('../shared/kinds');
 
 const ROOT = path.join(__dirname, '..');
@@ -118,7 +118,51 @@ describe('html`` 逃脫', () => {
   });
 });
 
+describe('mount() 的位置', () => {
+  // A stand-in element: what mount() writes, and the one node it places.
+  const stub = (at) => {
+    const set = [];
+    const node = { dataset: { at }, style: { setProperty: (k, v) => set.push([k, v]) } };
+    return { el: { set innerHTML(_v) {}, querySelectorAll: () => [node] }, set };
+  };
+
+  it('data-at 的數字變成 --at，CSS 拿它定位', () => {
+    const { el, set } = stub('42.5');
+    mount(el, html`<span data-at="42.5"></span>`);
+    assert.deepEqual(set, [['--at', '42.5%']]);
+  });
+
+  // The attribute carries data, never CSS: if anything but a number could get
+  // through, `data-at` would be the inline style the CSP refuses, by another
+  // name.
+  it('不是有限數字的 data-at 一律不設', () => {
+    for (const at of ['1;color:red', 'calc(100% - 1px)', 'Infinity', '']) {
+      const { el, set } = stub(at);
+      mount(el, html`<span></span>`);
+      assert.deepEqual(set, at === '' ? [['--at', '0%']] : [], `data-at="${at}"`);
+    }
+  });
+});
+
 describe('前端靜態防線', () => {
+  // The CSP's style-src is 'self': a `style` attribute, a <style> element or a
+  // style set through setAttribute is dropped by the browser without a word,
+  // and the bar it was positioning simply is not there. A datum's own position
+  // goes in `data-at` (see web/html.js). A style set through the CSSOM —
+  // `el.style.left = …`, as the chart's hover does — is outside the CSP and
+  // stays legal.
+  it('前端沒有 style 屬性、<style> 或 setAttribute(\'style\')：CSP 會直接丟掉它們', () => {
+    const pages = [
+      ...FILES,
+      { name: 'html.js', src: fs.readFileSync(path.join(WEB, 'html.js'), 'utf8') },
+      { name: 'index.html', src: fs.readFileSync(path.join(WEB, 'index.html'), 'utf8') },
+    ];
+    const re = /\bstyle\s*=\s*(["']|\$\{)|<style[\s>]|setAttribute\(\s*['"]style['"]|createElement\(\s*['"]style['"]/;
+    const hits = pages.flatMap(({ name, src }) => src.split('\n')
+      .flatMap((line, i) => (re.test(line) ? [`${name}:${i + 1}`] : [])));
+    assert.deepEqual(hits, []);
+  });
+
   it('前端沒有任何檔案直接指派 innerHTML，一律走 mount()', () => {
     const direct = FILES.flatMap(({ name, src }) =>
       (src.match(/\.innerHTML\s*=/g) || []).map(() => name));

@@ -182,8 +182,8 @@ function budgetSection(b, cur, categories) {
     return html`<div class="budget-row">
       <div class="budget-name">${i.category}<span class="sub-line">${nf(i.count)} 筆</span></div>
       <div class="budget-track" aria-hidden="true">
-        <span class="budget-fill ${over ? 'over' : ''}" style="width:${Math.min(100, i.used_pct).toFixed(1)}%"></span>
-        ${tick === null ? '' : html`<span class="budget-tick" style="left:${tick}%"></span>`}
+        <span class="budget-fill ${over ? 'over' : ''}" data-at="${Math.min(100, i.used_pct).toFixed(1)}"></span>
+        ${tick === null ? '' : html`<span class="budget-tick" data-at="${tick}"></span>`}
       </div>
       <div class="budget-fig">已花 ${money(i.spent, cur)}／預算 ${money(i.amount, cur)} · ${nf(i.used_pct)}%
         <span class="sub-line ${over ? 'over' : ''}">${over

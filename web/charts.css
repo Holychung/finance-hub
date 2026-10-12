@@ -25,8 +25,10 @@
      is where the series takes its colour and the palette stays in one file. */
   .chart stop { stop-color: var(--brand); }
 
+  /* `--at` is where the datum puts each of these three: a number lineChart()
+     writes in `data-at` and mount() sets, because the CSP refuses `style=`. */
   .chart-grid {
-    position: absolute; left: 0; right: 0; height: 0;
+    position: absolute; left: 0; right: 0; top: var(--at); height: 0;
     border-top: 1px solid var(--line); pointer-events: none;
   }
   .chart-y, .chart-x span {
@@ -34,14 +36,14 @@
     font-variant-numeric: tabular-nums; white-space: nowrap;
   }
   .chart-y {
-    position: absolute; right: 100%; margin-right: var(--sp-8);
+    position: absolute; right: 100%; top: var(--at); margin-right: var(--sp-8);
     transform: translateY(-50%);
   }
   /* The series ends at the right edge, so half the dot would hang outside the
      plot; nudging it in keeps it whole without moving the line it marks. It
      steps aside while the cursor is on the chart so there is only ever one. */
   .chart-dot {
-    position: absolute; left: 100%; width: 7px; height: 7px; border-radius: 50%;
+    position: absolute; left: 100%; top: var(--at); width: 7px; height: 7px; border-radius: 50%;
     background: var(--brand); box-shadow: 0 0 0 2px var(--surface);
     transform: translate(-100%, -50%);
     transition: opacity var(--dur);
@@ -105,10 +107,18 @@
   .bar-track { flex: 1; height: var(--sp-8); background: var(--surface-2); border-radius: var(--r-1); overflow: hidden; }
   /* `display` is load-bearing, not cosmetic: .bar-fill is a <span> and
      .bar-track is a flex *item*, not a flex container, so nothing blockifies
-     the child. Left inline it ignores both the width app.js sets and the height
-     here, and paints its background over a 0×0 box — which is why this bar has
-     never actually appeared. */
-  .bar-fill { display: block; height: 100%; border-radius: var(--r-1); }
+     the child. Left inline it ignores both its width and the height here, and
+     paints its background over a 0×0 box — which is why this bar once never
+     appeared. The width is its share, as `--at`; the colour is its step on
+     the diverging scale, named by barBreakdown() as a class. */
+  .bar-fill {
+    display: block; width: var(--at); height: 100%; border-radius: var(--r-1);
+    &.tone-1 { background: var(--chart-1); }
+    &.tone-2 { background: var(--chart-2); }
+    &.tone-3 { background: var(--chart-3); }
+    &.tone-4 { background: var(--chart-4); }
+    &.neg { background: var(--down); }
+  }
   .bar-row .val { flex: 0 0 auto; font-family: var(--mono); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
   /* A lone entry has no track to sit in, so the name takes the space the bar
      would have occupied instead of leaving the numbers stranded at the left. */
