@@ -374,120 +374,8 @@
       };
     });
 
-    // --- accounts --------------------------------------------------------
-
-    on('GET', '/api/accounts', () => accountsWithBalances());
-
-    // Same refusal as server/api.js, same message: a typo here silently
-    // becoming 'liquid' would be the demo teaching the wrong thing.
-    const accessOf = (v, fallback) => {
-      if (v === undefined || v === null || v === '') return fallback;
-      const a = S(v);
-      if (!ACCESS_KEYS.includes(a)) bad(`access 只能是 ${ACCESS_KEYS.join(' 或 ')}`);
-      return a;
-    };
-    // Both as server/api.js: empty clears a tax status, and a negative or
-    // unreadable unvested figure is refused rather than becoming 0.
-    const taxStatusOf = (v) => {
-      if (v === null || v === '') return null;
-      const t = S(v);
-      if (!TAX_STATUS_KEYS.includes(t)) bad(`tax_status 只能是 ${TAX_STATUS_KEYS.join('、')} 或留空`);
-      return t;
-    };
-    const unvestedOf = (v) => {
-      if (v === null || v === '') return 0;
-      const n = Number(v);
-      if (!Number.isFinite(n) || n < 0) bad('unvested 要是 0 或正數');
-      return M.round2(n);
-    };
-
-    on('POST', '/api/accounts', (_p, b) => {
-      if (!S(b.name).trim()) bad('帳戶名稱必填');
-      const kind = S(b.kind, DEFAULT_ACCOUNT_KIND);
-      return {
-        id: raw.insert('accounts', {
-          institution_id: OPT(b.institution_id) === null ? null : N(b.institution_id),
-          name: S(b.name).trim(), kind, currency: S(b.currency, 'TWD'),
-          opening_balance: N(b.opening_balance), opening_date: S(b.opening_date, '2020-01-01'),
-          is_active: B(b.is_active), sort_order: N(b.sort_order), note: S(b.note),
-          access: accessOf(b.access, defaultAccessFor(kind)),
-          tax_status: b.tax_status === undefined ? null : taxStatusOf(b.tax_status),
-          unvested: b.unvested === undefined ? 0 : unvestedOf(b.unvested),
-        }).id,
-      };
-    });
-
-    on('PUT', '/api/accounts/:id', (p, b) => {
-      const cur = raw.get('accounts', N(p.id));
-      if (!cur) missing('帳戶不存在');
-      raw.update('accounts', cur.id, {
-        institution_id: b.institution_id === undefined
-          ? cur.institution_id
-          : (OPT(b.institution_id) === null ? null : N(b.institution_id)),
-        name: S(b.name, cur.name), kind: S(b.kind, cur.kind), currency: S(b.currency, cur.currency),
-        opening_balance: b.opening_balance === undefined ? cur.opening_balance : N(b.opening_balance),
-        opening_date: S(b.opening_date, cur.opening_date),
-        is_active: b.is_active === undefined ? cur.is_active : B(b.is_active),
-        sort_order: b.sort_order === undefined ? cur.sort_order : N(b.sort_order),
-        note: S(b.note, cur.note),
-        access: accessOf(b.access, cur.access),
-        tax_status: b.tax_status === undefined ? cur.tax_status : taxStatusOf(b.tax_status),
-        unvested: b.unvested === undefined ? cur.unvested : unvestedOf(b.unvested),
-      });
-      return { ok: true };
-    });
-
-    on('DELETE', '/api/accounts/:id', (p) => {
-      const id = N(p.id);
-      // ON DELETE CASCADE on txns and holdings; the UI warns about it.
-      raw.remove('txns', (t) => t.account_id === id);
-      raw.remove('holdings', (h) => h.account_id === id);
-      raw.remove('balance_checks', (c) => c.account_id === id);
-      return { deleted: raw.remove('accounts', (a) => a.id === id) };
-    });
-
-    // As server/money.js's accountSeries: the net worth walk over a book of
-    // one, starting on the opening date.
-    on('GET', '/api/accounts/:id/series', (p, _b, q) => {
-      const to = q.to ? csv.parseDate(q.to, 'auto') || bad(`日期無法解析：${q.to}`) : today();
-      const a = raw.get('accounts', N(p.id));
-      if (!a) missing('帳戶不存在');
-      const txns = raw.all('txns').filter((t) => t.account_id === a.id && t.date <= to).sort(by('date'));
-      const from = a.opening_date || (txns[0] && txns[0].date) || to;
-      return M.computeNetWorthSeries({ accounts: [a], txns, from, to })[a.currency] || [];
-    });
-
-    // --- transactions ----------------------------------------------------
-
-    on('GET', '/api/txns', (_p, _b, q) => {
-      const acct = accountsById();
-      let rows = raw.all('txns');
-      if (q.account) rows = rows.filter((t) => t.account_id === N(q.account));
-      if (q.from) rows = rows.filter((t) => t.date >= q.from);
-      if (q.to) rows = rows.filter((t) => t.date <= q.to);
-      if (q.kind) rows = rows.filter((t) => t.kind === q.kind);
-      if (q.q) {
-        // SQLite's LIKE is case-insensitive for ASCII, which is what the
-        // server does here too.
-        const k = String(q.q).toLowerCase();
-        rows = rows.filter((t) => [t.description, t.category, t.note]
-          .some((v) => String(v || '').toLowerCase().includes(k)));
-      }
-      const total = rows.length;
-      const limit = Math.min(N(q.limit, 200), 2000);
-      const offset = N(q.offset, 0);
-      const dates = rows.map((t) => t.date).sort();
-      return {
-        total,
-        // Every matching row's, like the server's MIN/MAX — null when none match.
-        first: dates[0] || null,
-        last: dates[dates.length - 1] || null,
-        limit,
-        offset,
-        rows: rows.sort(by('-date', '-id')).slice(offset, offset + limit).map((t) => withAccount(t, acct)),
-      };
-    });
-
+    // What the import commit below writes each row with, until the import
+    // routes join the others in shared/handlers.js.
     function insertTxn(b, importId = null) {
       const accountId = N(b.account_id);
       if (!accountId) bad('account_id 必填');
@@ -504,74 +392,6 @@
         import_id: importId, note: S(b.note), created_at: now(),
       }).id;
     }
-
-    on('POST', '/api/txns', (_p, b) => {
-      if (Array.isArray(b.rows)) {
-        const ids = raw.tx(() => b.rows.map((row) => insertTxn(row)));
-        return { ids, inserted: ids.length };
-      }
-      return { id: insertTxn(b) };
-    });
-
-    on('PUT', '/api/txns/:id', (p, b) => {
-      const cur = raw.get('txns', N(p.id));
-      if (!cur) missing('交易不存在');
-      const accountId = b.account_id === undefined ? cur.account_id : N(b.account_id);
-      const date = b.date === undefined ? cur.date : csv.parseDate(b.date, 'auto');
-      if (!date) bad(`日期無法解析：${b.date}`);
-      const amount = b.amount === undefined ? cur.amount : M.round2(N(b.amount));
-      const description = S(b.description, cur.description);
-      raw.update('txns', cur.id, {
-        account_id: accountId, date, amount, description,
-        category: S(b.category, cur.category), kind: S(b.kind, cur.kind),
-        note: S(b.note, cur.note),
-        // Recomputed, the same as the server does: the fingerprint is made of
-        // exactly the four fields that can change here.
-        fingerprint: csv.fingerprint(accountId, date, amount, description),
-      });
-      return { ok: true };
-    });
-
-    on('DELETE', '/api/txns/:id', (p) => ({ deleted: raw.remove('txns', (t) => t.id === N(p.id)) }));
-
-    // --- transfers -------------------------------------------------------
-
-    on('GET', '/api/transfers/candidates', () => transferCandidates());
-
-    on('GET', '/api/transfers', () => {
-      const acct = accountsById();
-      const groups = new Map();
-      for (const t of raw.all('txns').filter((x) => x.transfer_group)) {
-        if (!groups.has(t.transfer_group)) groups.set(t.transfer_group, []);
-        groups.get(t.transfer_group).push(withAccount(t, acct));
-      }
-      return [...groups].map(([transfer_group, legs]) => ({ transfer_group, legs }));
-    });
-
-    on('POST', '/api/transfers/apply', (_p, b) => {
-      const pairs = Array.isArray(b.pairs) ? b.pairs : [];
-      if (!pairs.length) bad('沒有要配對的項目');
-      return {
-        paired: raw.tx(() => {
-          let n = 0;
-          for (const p of pairs) {
-            const g = newId();
-            raw.update('txns', N(p.outId), { transfer_group: g, kind: 'transfer' });
-            raw.update('txns', N(p.inId), { transfer_group: g, kind: 'transfer' });
-            n++;
-          }
-          return n;
-        }),
-      };
-    });
-
-    on('DELETE', '/api/transfers/:group', (p) => {
-      let n = 0;
-      for (const t of raw.all('txns').filter((x) => x.transfer_group === String(p.group))) {
-        n += raw.update('txns', t.id, { transfer_group: null, kind: 'other' });
-      }
-      return { unlinked: n };
-    });
 
     // --- the shared routes -------------------------------------------------
 
@@ -592,6 +412,35 @@
           ({ id, account_id, date, amount, description, category, kind, transfer_group }));
     };
 
+    // A row whose columns equal `match`, as SQL's `=` reads it: NULL equals
+    // nothing. An empty match is refused, as the server's port refuses it.
+    const matching = (match) => {
+      if (!Object.keys(match).length) throw new Error('ledger: 沒有條件');
+      return (r) => Object.entries(match).every(([k, v]) => v !== null && r[k] === v);
+    };
+
+    // SQLite's LIKE, which is what the server searches with: `%` any run of
+    // characters, `_` exactly one, letters folded for ASCII only — so `_`,
+    // `%` and an accented capital mean the same on both sides. Walked, not
+    // turned into a RegExp, so nothing typed becomes a pattern to backtrack.
+    const asciiLower = (s) => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+    const like = (pattern, value) => {
+      const p = [...asciiLower(pattern)];
+      const s = [...asciiLower(value)];
+      let i = 0;
+      let j = 0;
+      let star = -1;
+      let mark = 0;
+      while (i < s.length) {
+        if (j < p.length && (p[j] === '_' || (p[j] !== '%' && p[j] === s[i]))) { i++; j++; }
+        else if (j < p.length && p[j] === '%') { star = j++; mark = i; }
+        else if (star !== -1) { j = star + 1; i = ++mark; }
+        else return false;
+      }
+      while (p[j] === '%') j++;
+      return j === p.length;
+    };
+
     // The demo's half of the ledger port shared/handlers.js runs on, the same
     // methods server/ledger.js answers in SQL.
     const ledger = {
@@ -604,6 +453,9 @@
       // does, and a delete names the whole key.
       upsert: (table, row) => { raw.put(table, row); },
       removeKey: (table, key) => raw.remove(table, (r) => Object.entries(key).every(([k, v]) => r[k] === v)),
+      removeWhere: (table, match) => raw.remove(table, matching(match)),
+      updateWhere: (table, match, patch) => raw.all(table).filter(matching(match))
+        .reduce((n, r) => n + raw.update(table, r.id, patch), 0),
       tx: (fn) => raw.tx(fn),
       getMeta: (key, fallback = null) => { const r = raw.get('meta', key); return r ? r.value : fallback; },
       setMeta: (key, value) => { raw.put('meta', { key, value: String(value) }); },
@@ -613,6 +465,45 @@
       reconcile: () => reconcile(),
       coverage: (opts) => coverage(opts),
       holdingsValued: (asOf) => holdingsValued(asOf),
+      accountsWithBalances: (asOf) => accountsWithBalances(asOf),
+
+      // As server/money.js's accountSeries: the net worth walk over a book of
+      // one, starting on the opening date. null for no such account.
+      accountSeries: (id, to) => {
+        const a = raw.get('accounts', id);
+        if (!a) return null;
+        const txns = raw.all('txns').filter((t) => t.account_id === a.id && t.date <= to).sort(by('date'));
+        const from = a.opening_date || (txns[0] && txns[0].date) || to;
+        return M.computeNetWorthSeries({ accounts: [a], txns, from, to })[a.currency] || [];
+      },
+
+      txnPage: ({ account, from, to, kind, q }, limit, offset) => {
+        const acct = accountsById();
+        const needle = q === null ? null : `%${q}%`;
+        const rows = raw.all('txns').filter((t) => (account === null || t.account_id === account)
+          && (from === null || t.date >= from) && (to === null || t.date <= to)
+          && (kind === null || t.kind === kind)
+          && (needle === null || [t.description, t.category, t.note]
+            .some((v) => v !== null && v !== undefined && like(needle, String(v)))));
+        const dates = rows.map((t) => t.date).sort();
+        return {
+          total: rows.length,
+          // Every matching row's, like the server's MIN/MAX — null when none match.
+          first: dates[0] || null,
+          last: dates[dates.length - 1] || null,
+          rows: rows.sort(by('-date', '-id')).slice(offset, offset + limit).map((t) => withAccount(t, acct)),
+        };
+      },
+
+      transferLegs: () => {
+        const acct = accountsById();
+        return raw.all('txns').filter((t) => t.transfer_group).sort(by('-date', 'transfer_group', 'id'))
+          .map((t) => ({
+            transfer_group: t.transfer_group, id: t.id, account_id: t.account_id, date: t.date,
+            amount: t.amount, description: t.description,
+            account_name: acct.get(t.account_id)?.name, currency: acct.get(t.account_id)?.currency,
+          }));
+      },
       institutions: () => raw.all('institutions').sort(by('country', 'name')),
       prices: (symbol, market) => raw.all('prices')
         .filter((r) => r.symbol === symbol && r.market === market).sort(by('-date')),
@@ -624,7 +515,7 @@
     };
 
     // Written once in shared/handlers.js, and registered by server/api.js too.
-    H.defineLedgerRoutes(on, { L: ledger, now, today });
+    H.defineLedgerRoutes(on, { L: ledger, now, today, uuid: newId });
 
     // --- import ---------------------------------------------------------------
 

@@ -15,7 +15,6 @@
 // reaches for `db` it stops being testable without a server and stops being
 // able to run in a browser, which is the whole reason for the boundary.
 
-const crypto = require('node:crypto');
 const { db, getMeta } = require('./db');
 const pure = require('../shared/money');
 const SP = require('../shared/spending');
@@ -190,24 +189,6 @@ function findTransferCandidates({ windowDays = 3, tolerancePct = 1.5 } = {}) {
   return computeTransferCandidates({ rows, fx: buildFxLookup(), windowDays, tolerancePct });
 }
 
-function applyTransferPairs(pairs) {
-  const upd = db.prepare("UPDATE txns SET transfer_group = ?, kind = 'transfer' WHERE id = ?");
-  let n = 0;
-  for (const p of pairs) {
-    const g = crypto.randomUUID();
-    upd.run(g, p.outId);
-    upd.run(g, p.inId);
-    n++;
-  }
-  return n;
-}
-
-function unlinkTransfer(groupId) {
-  return db
-    .prepare("UPDATE txns SET transfer_group = NULL, kind = 'other' WHERE transfer_group = ?")
-    .run(groupId).changes;
-}
-
 module.exports = {
   // The pure half, re-exported so `require('./money')` is still the one way in.
   ...pure,
@@ -216,7 +197,4 @@ module.exports = {
   baseCurrency, buildFxLookup, buildPriceLookup, accountsWithBalances, holdingsValued,
   netWorth, seriesStart, netWorthSeries, accountSeries, coverage, reconcile, findTransferCandidates,
   spendingRows, accountCurrencies, overview,
-
-  // Writes. Still the odd ones out; nothing needs them pure yet.
-  applyTransferPairs, unlinkTransfer,
 };
