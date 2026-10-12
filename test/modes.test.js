@@ -115,27 +115,17 @@ describe('每一組 token 的對比度', () => {
     assert.deepEqual(blocks.map(([m]) => m).sort(), ['cloud', 'default', 'local', 'none']);
   });
 
-  // Gaps that exist and are known, by name, so they are a decision rather
-  // than a surprise. The default --line-strong is 3.39:1 on --surface, which
-  // its comment states, but 2.95:1 on --surface-3, the row hover: a bordered
-  // button inside a hovered row is just under the 3:1 a control border needs.
-  // Fixing it changes the default look, so it was left out of the stylesheet
-  // split that found it. The day the token clears the bar, this fails, and
-  // the entry goes.
-  const KNOWN_GAPS = { default: { 'line-strong': ['surface-3'] } };
-
+  // Every surface, the row hover included: a bordered button sits inside a
+  // hovered row. The default --line-strong was 3.4:1 on --surface, as its
+  // comment said, and 2.95:1 on --surface-3, until this checked both.
   for (const [mode, t] of blocks) {
     it(`${mode}：文字 ≥ 4.5:1、邊框和圖表 ≥ 3:1`, () => {
       const surfaces = ['bg', 'surface', 'surface-2', 'surface-3'];
-      const gaps = (k) => (KNOWN_GAPS[mode] || {})[k] || [];
-      const worst = (k) => Math.min(...surfaces.filter((s) => !gaps(k).includes(s)).map((s) => ratio(t[k], t[s])));
+      const worst = (k) => Math.min(...surfaces.map((s) => ratio(t[k], t[s])));
       for (const k of ['ink', 'ink-2', 'ink-3', 'brand', 'up', 'down', 'warn']) {
         assert.ok(worst(k) >= 4.5, `--${k} ${worst(k).toFixed(2)}:1`);
       }
       assert.ok(worst('line-strong') >= 3, `--line-strong ${worst('line-strong').toFixed(2)}:1`);
-      for (const s of gaps('line-strong')) {
-        assert.ok(ratio(t['line-strong'], t[s]) < 3, `--line-strong 在 --${s} 上已經過了 3:1，把 KNOWN_GAPS 那一條拿掉`);
-      }
       assert.ok(ratio(t.brand, t['brand-tint']) >= 4.5, '--brand on --brand-tint');
       assert.ok(ratio(t['brand-ink'], t['brand-solid']) >= 4.5, '--brand-ink on --brand-solid');
       assert.ok(ratio(t['chart-4'], t['surface-2']) >= 3, '--chart-4 on --surface-2');
