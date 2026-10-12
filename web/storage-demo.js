@@ -722,29 +722,6 @@
       };
     });
 
-    // --- reconciliation and coverage --------------------------------------
-
-    on('GET', '/api/reconcile', () => reconcile());
-
-    on('POST', '/api/balance-checks', (_p, b) => {
-      const d = csv.parseDate(b.date, 'auto');
-      if (!d) bad(`日期無法解析：${b.date}`);
-      return {
-        id: raw.insert('balance_checks', {
-          account_id: N(b.account_id), date: d, stated: N(b.stated), note: S(b.note),
-        }).id,
-      };
-    });
-
-    on('DELETE', '/api/balance-checks/:id', (p) => ({
-      deleted: raw.remove('balance_checks', (c) => c.id === N(p.id)),
-    }));
-
-    on('GET', '/api/coverage', (_p, _b, q) => coverage({
-      months: Math.min(Math.max(N(q.months, M.COVERAGE_MONTHS), 1), 120),
-      to: q.to ? S(q.to) : today(),
-    }));
-
     // --- the shared routes -------------------------------------------------
 
     // The rows spending, recurring and budgets read over one window, and the
@@ -772,73 +749,22 @@
       insert: (table, row) => raw.insert(table, row).id,
       update: (table, id, patch) => raw.update(table, id, patch),
       remove: (table, id) => raw.remove(table, (x) => x.id === id),
+      tx: (fn) => raw.tx(fn),
       getMeta: (key, fallback = null) => { const r = raw.get('meta', key); return r ? r.value : fallback; },
       setMeta: (key, value) => { raw.put('meta', { key, value: String(value) }); },
       spendingRows,
       accountCurrencies,
       transferCandidates: () => transferCandidates(),
+      reconcile: () => reconcile(),
+      coverage: (opts) => coverage(opts),
+      txnDescriptions: () => raw.all('txns').sort(by('id'))
+        .map(({ id, description, category }) => ({ id, description, category })),
+      mappings: () => raw.all('mappings').sort(by('-used_at', 'name')),
       auditRows,
     };
 
-    // Spending, recurring, budgets and 月度審計, written once in
-    // shared/handlers.js: server/api.js registers the same handlers.
+    // Written once in shared/handlers.js, and registered by server/api.js too.
     H.defineLedgerRoutes(on, { L: ledger, now, today });
-
-    // --- rules --------------------------------------------------------------
-
-    on('GET', '/api/rules', () => listRules());
-
-    on('POST', '/api/rules', (_p, b) => {
-      const pattern = S(b.pattern).trim();
-      const category = S(b.category).trim();
-      if (!pattern) bad('比對字串必填');
-      if (!category) bad('分類必填');
-      if (!R.normalise(pattern)) bad('比對字串至少要有一個文字或數字');
-      return { id: raw.insert('rules', { pattern, category, priority: N(b.priority), created_at: now() }).id };
-    });
-
-    on('PUT', '/api/rules/:id', (p, b) => {
-      const cur = raw.get('rules', N(p.id));
-      if (!cur) missing('規則不存在');
-      const pattern = b.pattern === undefined ? cur.pattern : S(b.pattern).trim();
-      if (!R.normalise(pattern)) bad('比對字串至少要有一個文字或數字');
-      raw.update('rules', cur.id, {
-        pattern,
-        category: b.category === undefined ? cur.category : S(b.category).trim(),
-        priority: b.priority === undefined ? cur.priority : N(b.priority),
-      });
-      return { ok: true };
-    });
-
-    on('DELETE', '/api/rules/:id', (p) => ({ deleted: raw.remove('rules', (r) => r.id === N(p.id)) }));
-
-    on('POST', '/api/rules/apply', (_p, b) => {
-      const overwrite = !!b.overwrite;
-      const txns = raw.all('txns').map(({ id, description, category }) => ({ id, description, category }));
-      const changes = R.plan(txns, listRules(), { overwrite });
-      if (b.dry !== false) return { dry: true, changes: changes.slice(0, 200), total: changes.length };
-      raw.tx(() => { for (const c of changes) raw.update('txns', c.id, { category: c.to }); });
-      return { dry: false, applied: changes.length };
-    });
-
-    // --- mappings ------------------------------------------------------------
-
-    on('GET', '/api/mappings', () => raw.all('mappings').sort(by('-used_at', 'name'))
-      .map((m) => ({ ...m, config: JSON.parse(m.config) })));
-
-    on('POST', '/api/mappings', (_p, b) => {
-      const name = S(b.name).trim();
-      if (!name) bad('對應名稱必填');
-      const cfg = JSON.stringify(b.config || {});
-      const cur = raw.all('mappings').find((m) => m.name === name);
-      if (cur) raw.update('mappings', cur.id, { config: cfg });
-      else raw.insert('mappings', { name, config: cfg, created_at: now(), used_at: null });
-      return { ok: true, name };
-    });
-
-    on('DELETE', '/api/mappings/:id', (p) => ({
-      deleted: raw.remove('mappings', (m) => m.id === N(p.id)),
-    }));
 
     // --- import ---------------------------------------------------------------
 

@@ -138,6 +138,26 @@ const SCRIPT = async (s) => {
   await s.put(`/api/txns/${extra.id}`, { amount: -25.5, description: 'EDITED' });
   const doomed = await s.post('/api/txns', { account_id: 1, date: '2026-05-02', amount: -1, description: 'TO BE DELETED' });
   await s.del(`/api/txns/${doomed.id}`);
+
+  // The rest of what the rules, checks and mappings routes write: a rule
+  // edited and one deleted, the sweep previewed and then applied (the NETFLIX
+  // rows take 娛樂 on both), a second check removed, and a mapping saved,
+  // replaced under its name and another deleted. Each delete takes the newest
+  // row and nothing is added to that table after it, so the ids stay aligned.
+  const netflix = await s.post('/api/rules', { pattern: 'NETFLIX', category: '娛樂', priority: 5 });
+  await s.put(`/api/rules/${netflix.id}`, { priority: 20 });
+  const unused = await s.post('/api/rules', { pattern: 'NOTHING MATCHES THIS', category: 'x' });
+  await s.del(`/api/rules/${unused.id}`);
+  const dry = await s.post('/api/rules/apply', {});
+  const applied = await s.post('/api/rules/apply', { dry: false });
+  const second = await s.post('/api/balance-checks', { account_id: 2, date: '2026-04-30', stated: -12000 });
+  await s.del(`/api/balance-checks/${second.id}`);
+  await s.post('/api/mappings', { name: '玉山', config: { date: 0, amount: 2 } });
+  await s.post('/api/mappings', { name: 'Chase', config: { date: 1 } });
+  await s.post('/api/mappings', { name: '玉山', config: { date: 0, amount: 3 } });
+  const chase = (await s.get('/api/mappings')).find((m) => m.name === 'Chase');
+  await s.del(`/api/mappings/${chase.id}`);
+  return { dry, applied };
 };
 
 // Fields that cannot line up between a real clock and an injected one, and
@@ -168,6 +188,7 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
   let base;
   let live;
   let demo;
+  let wrote;
 
   before(async () => {
     const port = await freePort();
@@ -195,8 +216,14 @@ describe('demo adapter 跟真伺服器回同一份東西', () => {
       uuid: () => 'g1',
     });
 
-    await SCRIPT(live);
-    await SCRIPT(demo);
+    wrote = { live: await SCRIPT(live), demo: await SCRIPT(demo) };
+  });
+
+  // What the writes themselves answered, not only what reads back after them:
+  // the sweep's preview and its count have to be the same rows on both.
+  it('套用規則：預覽和實際套用，兩邊回的一樣', () => {
+    assert.ok(wrote.live.dry.total > 0, '預覽要真的有東西可以套');
+    assert.deepEqual(wrote.demo, wrote.live);
   });
 
   after(() => {
