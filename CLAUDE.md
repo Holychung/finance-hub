@@ -126,19 +126,25 @@ shared/overview.js  the whole book as one model, and the Markdown file that
                   匯出全覽 downloads
 shared/demo-seed.js  the demo book, and the sample statement — invented, built
                   fresh from a date, opened by both the seeder and the browser
+shared/handlers.js  the routes written once, for the server and the demo, over
+                  a ledger port `L` each side hands in; sync, clock injected
 server/money.js   the loaders — one query-runner per `compute*` in shared/
+server/ledger.js  the server's `L`: named reads in SQL, generic one-row writes
+                  that let no table or column into a statement the schema lacks
 server/prices.js  outbound call one — opt-in daily close fetch, off by
                   default, server-side; deps-test allows Yahoo only here
 server/ai.js      outbound call two — AI 健檢: providers, the instruction, the
                   keychain vault, the one request; deps-test allows the three
                   providers' endpoints only here
-server/api.js     JSON handlers, registered via on(method, pattern, fn)
+server/api.js     the routes not yet shared, and the ones only a server can
+                  answer, registered via on(method, pattern, fn)
 server/index.js   HTTP server, request guards, routing, static files; loads what
                   the CSV and overview exports write, and names the download
 web/index.html    the shell, and the <script> list that *is* the dependency graph
 web/html.js       the escaping html`` tag and mount() — the only way to the DOM
 web/storage-http.js  the only fetch() in the frontend, and the export URLs
-web/storage-demo.js  the same routes answered from a Map, for the hosted demo
+web/storage-demo.js  the same routes answered from a Map, for the hosted demo,
+                  and the demo's `L` for the shared ones
 web/storage.js    picks one at load, by origin, and never falls back
 web/core.js       DOM helpers, toast, modal, exportLink, captureUi, `views = {}`
 web/charts.js     lineChart + barBreakdown, hand-built SVG, no colour of its own
@@ -177,6 +183,9 @@ test/kinds.test.js   the kind list is complete, and the rules encoded in it
 test/sha1.test.js    SHA-1 against node:crypto, and shared/ loaded both ways
 test/storage.test.js the storage seam, and which adapter each origin gets
 test/demo-store.test.js  the demo adapter against a real server, route by route
+test/handlers.test.js  a shared route lives only in shared/handlers.js, both
+                     sides answer the same routes, and the server's `L` lets
+                     no unknown table or column into SQL
 test/export.test.js  the CSV bytes: BOM, CRLF, escaping, each sheet's columns
 test/overview.test.js  the overview export over plain arrays: the model, the
                      file, its escaping, and the browser path writing the same
@@ -207,7 +216,8 @@ docs/design/                  design comps, as a record — history, not spec
 
 Handlers may be `async` — the router awaits them. Keep them sync unless the
 work genuinely is not; **two are not**, and both are network waits: the price
-refresh and AI 健檢's review. The pre-import snapshot used to be async too and
+refresh and AI 健檢's review. Both stay in `server/api.js`, because the shared
+handlers are sync by construction — the hosted demo can reach no network. The pre-import snapshot used to be async too and
 stopped being so when `snapshot()` moved from the async `backup()` to a
 synchronous `VACUUM INTO`, which it had to do so the migration runner could
 take one at require time.
@@ -886,6 +896,33 @@ the browser; the server's only job is to answer when someone refreshes on one.
   monotonically on purpose, and AI 健檢's routes, which the demo cannot serve
   — no server to make the call, and a CSP that forbids the page one — so
   `/api/ai` says so and every other AI route is refused in that same sentence.
+- **A route is written once, in `shared/handlers.js`, and the two sides differ
+  only in where the rows are.** Each hands `defineLedgerRoutes` its half of
+  the ledger port: `server/ledger.js` answers in SQL, the demo's `ledger` in
+  `createDemoStorage` from its Map. Two copies of every handler is how a
+  refusal came to be worded differently on each side and `GET /api/transfers`
+  to return two different shapes with nothing noticing. The routes move over a
+  group at a time; one still written in both `server/api.js` and
+  `storage-demo.js` simply has not moved yet, and the parity test above is
+  what holds it meanwhile. The rules for a shared one:
+  - **Reads are named for what a handler needs** (`spendingRows`,
+    `auditRows`, …), so the server keeps its SQL and its indexes. A generic
+    "load the table, filter in JS" interface was measured at 50× slower on the
+    transactions page at 50,000 rows and rejected.
+  - **Writes are one table, one row, by id**, with the columns named in the
+    handler's code. The server's port refuses a table not on its list or a
+    column `PRAGMA table_info` does not report before either becomes part of a
+    statement, and binds every value; `checked()` refuses, on both sides, a
+    value node:sqlite could not bind, so the Map cannot store what the server
+    would answer with a 500.
+  - **Sync, and no clock of its own.** `now` and `today` are handed in, so the
+    demo's injected day reaches every handler. The two routes that wait on the
+    network stay server-only, with backups, settings and AI 健檢.
+  - **Both routers refuse a route registered twice**, at load. The server's
+    used to let the second replace the first, so a route moved here and left
+    behind there would have answered instead. `test/handlers.test.js` also
+    scans the three files: a shared route appears in neither of the others,
+    and both sides answer the same set.
 - **The overview export is one Markdown file, written in `shared/`.**
   `shared/overview.js` composes what the other `compute*` already returned —
   nothing is re-derived, so the file cannot disagree with the screen — and

@@ -33,10 +33,10 @@
   const csv = dep ? require('../shared/csv') : root;
   const R = dep ? require('../shared/rules') : root;
   const SP = dep ? require('../shared/spending') : root;
-  const AUDIT = dep ? require('../shared/audit') : root;
   const X = dep ? require('../shared/export') : root;
   const O = dep ? require('../shared/overview') : root;
   const I = dep ? require('../shared/import') : root;
+  const H = dep ? require('../shared/handlers') : root;
 
   // The demo's shape is shipped with the code, so this is a statement about
   // the seed rather than a version anything migrates to. It has to be the
@@ -187,9 +187,9 @@
   // The adapter
   // ---------------------------------------------------------------------
 
-  class DemoError extends Error {
-    constructor(status, message) { super(message); this.status = status; }
-  }
+  // The shared handlers' error, under the name this file has always exported,
+  // so a refusal reads the same whichever side raised it.
+  const DemoError = H.ApiError;
 
   // The same coercions api.js applies, because the views send the same things
   // and a demo that accepted a string where the server wanted a number would
@@ -225,8 +225,16 @@
   function createDemoStorage({ raw, now = () => new Date().toISOString(), uuid }) {
     const newId = uuid || (() => `demo-${Math.random().toString(16).slice(2, 10)}`);
     const today = () => now().slice(0, 10);
+    // Refused when registered twice, as server/api.js refuses it: dispatch
+    // takes the first match, so a route moved into shared/handlers.js and left
+    // behind here would answer instead of the shared one.
     const ROUTES = [];
-    const on = (method, pattern, fn) => ROUTES.push({ method, ...compile(pattern), fn });
+    const on = (method, pattern, fn) => {
+      if (ROUTES.some((r) => r.method === method && r.pattern === pattern)) {
+        throw new Error(`路由重複註冊：${method} ${pattern}`);
+      }
+      ROUTES.push({ method, pattern, ...compile(pattern), fn });
+    };
 
     // --- shared little loaders ------------------------------------------
 
@@ -737,102 +745,17 @@
       to: q.to ? S(q.to) : today(),
     }));
 
-    // --- spending ----------------------------------------------------------
+    // --- the shared routes -------------------------------------------------
 
-    const windowFrom = (q) => {
-      const to = q.to ? S(q.to) : today();
-      if (q.from) return { from: S(q.from), to };
-      return { from: SP.yearsBefore(to, N(q.years, 1)), to };
-    };
+    // The rows spending, recurring and budgets read over one window, and the
+    // ones 月度審計 reads with their ids, two years back from `to`: the queries
+    // server/money.js and server/ledger.js run, over the Map.
     const spendingRows = (from, to) => raw.all('txns')
       .filter((t) => t.date >= from && t.date <= to).sort(by('date'))
       .map(({ account_id, date, amount, description, category, kind, transfer_group }) =>
         ({ account_id, date, amount, description, category, kind, transfer_group }));
     const accountCurrencies = () => raw.all('accounts')
       .map(({ id, name, currency }) => ({ id, name, currency }));
-
-    on('GET', '/api/spending', (_p, _b, q) => {
-      const { from, to } = windowFrom(q);
-      return SP.computeSpending({ txns: spendingRows(from, to), accounts: accountCurrencies(), from, to });
-    });
-
-    on('GET', '/api/recurring', (_p, _b, q) => {
-      const { from, to } = windowFrom({ ...q, years: q.years || 2 });
-      return SP.computeRecurring({ txns: spendingRows(from, to), accounts: accountCurrencies(), to });
-    });
-
-    // --- budgets --------------------------------------------------------------
-
-    // Every refusal exactly as server/api.js words it: the views show the
-    // message, and a demo that accepted what the server refuses would teach
-    // the wrong thing.
-    const monthOf = (v) => {
-      if (v === undefined || v === null || v === '') return today().slice(0, 7);
-      const m = S(v).trim();
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) bad(`月份要寫成 YYYY-MM：${m}`);
-      return m;
-    };
-    const budgetCategoryOf = (v) => {
-      const c = S(v).trim();
-      if (!c || c === SP.UNCATEGORISED_LABEL) bad(`預算要有分類，而且不能是「${SP.UNCATEGORISED_LABEL}」`);
-      return c;
-    };
-    const budgetCurrencyOf = (v) => {
-      const c = S(v).trim().toUpperCase();
-      if (!/^[A-Z]{3}$/.test(c)) bad('幣別要是三個英文字母，例如 TWD');
-      return c;
-    };
-    const budgetAmountOf = (v) => {
-      const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
-      if (!Number.isFinite(n) || n <= 0) bad('預算金額要是大於 0 的數字');
-      return M.round2(n);
-    };
-    // UNIQUE (category, currency) in the schema.
-    const refuseDuplicateBudget = (category, currency, id) => {
-      if (raw.all('budgets').some((x) => x.category === category && x.currency === currency && x.id !== id)) {
-        bad(`「${category}」已經有 ${currency} 的預算了`);
-      }
-    };
-
-    on('GET', '/api/budgets', (_p, _b, q) => {
-      const month = monthOf(q.month);
-      return SP.computeBudgets({
-        budgets: raw.all('budgets').sort(by('id')),
-        txns: spendingRows(`${month}-01`, `${month}-31`),
-        accounts: accountCurrencies(),
-        month,
-        today: today(),
-      });
-    });
-
-    on('POST', '/api/budgets', (_p, b) => {
-      const category = budgetCategoryOf(b.category);
-      const currency = budgetCurrencyOf(b.currency);
-      const amount = budgetAmountOf(b.amount);
-      refuseDuplicateBudget(category, currency, 0);
-      return { id: raw.insert('budgets', { category, currency, amount, created_at: now() }).id };
-    });
-
-    on('PUT', '/api/budgets/:id', (p, b) => {
-      const cur = raw.get('budgets', N(p.id));
-      if (!cur) missing('預算不存在');
-      const category = b.category === undefined ? cur.category : budgetCategoryOf(b.category);
-      const currency = b.currency === undefined ? cur.currency : budgetCurrencyOf(b.currency);
-      const amount = b.amount === undefined ? cur.amount : budgetAmountOf(b.amount);
-      refuseDuplicateBudget(category, currency, cur.id);
-      raw.update('budgets', cur.id, { category, currency, amount });
-      return { ok: true };
-    });
-
-    on('DELETE', '/api/budgets/:id', (p) => ({
-      deleted: raw.remove('budgets', (x) => x.id === N(p.id)),
-    }));
-
-    // --- 月度審計 ------------------------------------------------------------
-
-    // server/api.js's routes over the Map: the same rows with their ids, the
-    // same two years back, the answers in the same two meta keys, and every
-    // refusal from the shared functions both sides call.
     const auditRows = (to) => {
       const from = `${Number(to.slice(0, 4)) - 2}${to.slice(4, 7)}-01`;
       return raw.all('txns').filter((t) => t.date >= from && t.date <= to)
@@ -840,33 +763,26 @@
         .map(({ id, account_id, date, amount, description, category, kind, transfer_group }) =>
           ({ id, account_id, date, amount, description, category, kind, transfer_group }));
     };
-    const metaValue = (key) => (raw.get('meta', key) || {}).value || '';
-    const auditAnswers = () => AUDIT.parseAnswers(metaValue('audit_ok'), metaValue('audit_cancelled'));
 
-    on('GET', '/api/audit', (_p, _b, q) => {
-      const month = monthOf(q.month);
-      const { ok, cancelled } = auditAnswers();
-      const accounts = accountCurrencies();
-      const unpaired = transferCandidates().flatMap((c) => [c.out.id, c.in.id]);
-      return {
-        ...AUDIT.computeAudit({ txns: auditRows(`${month}-31`), accounts, month, today: today(), ok, cancelled, unpaired }),
-        subscriptions: AUDIT.computeSubscriptions({ txns: auditRows(today()), accounts, today: today(), cancelled }).items,
-      };
-    });
+    // The demo's half of the ledger port shared/handlers.js runs on, the same
+    // methods server/ledger.js answers in SQL.
+    const ledger = {
+      all: (table) => raw.all(table).sort(by('id')),
+      get: (table, id) => raw.get(table, id) || null,
+      insert: (table, row) => raw.insert(table, row).id,
+      update: (table, id, patch) => raw.update(table, id, patch),
+      remove: (table, id) => raw.remove(table, (x) => x.id === id),
+      getMeta: (key, fallback = null) => { const r = raw.get('meta', key); return r ? r.value : fallback; },
+      setMeta: (key, value) => { raw.put('meta', { key, value: String(value) }); },
+      spendingRows,
+      accountCurrencies,
+      transferCandidates: () => transferCandidates(),
+      auditRows,
+    };
 
-    on('PUT', '/api/audit/ok', (_p, b) => {
-      const r = AUDIT.answerOk(auditAnswers().ok, b);
-      if (r.error) bad(r.error);
-      raw.put('meta', { key: 'audit_ok', value: JSON.stringify(r.value) });
-      return { ok: true };
-    });
-
-    on('PUT', '/api/audit/cancel', (_p, b) => {
-      const r = AUDIT.answerCancelled(auditAnswers().cancelled, b);
-      if (r.error) bad(r.error);
-      raw.put('meta', { key: 'audit_cancelled', value: JSON.stringify(r.value) });
-      return { ok: true };
-    });
+    // Spending, recurring, budgets and 月度審計, written once in
+    // shared/handlers.js: server/api.js registers the same handlers.
+    H.defineLedgerRoutes(on, { L: ledger, now, today });
 
     // --- rules --------------------------------------------------------------
 

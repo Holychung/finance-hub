@@ -95,9 +95,10 @@
   arithmetic. Order matters where one reads another off the global, because
   there is no require() to call: currency.js and kinds.js before money.js,
   sha1.js before csv.js, csv.js before import.js, money.js and spending.js
-  before overview.js, csv.js and spending.js before audit.js. All of
-  them are self-contained IIFEs, so nothing here lands in the script scope the
-  view files share.
+  before overview.js, csv.js and spending.js before audit.js, and every one a
+  route reads before handlers.js, which the demo adapter below registers. All
+  of them are self-contained IIFEs, so nothing here lands in the script scope
+  the view files share.
 -->
 <script src="/shared/currency.js"></script>
 <script src="/shared/kinds.js"></script>
@@ -110,6 +111,7 @@
 <script src="/shared/audit.js"></script>
 <script src="/shared/export.js"></script>
 <script src="/shared/overview.js"></script>
+<script src="/shared/handlers.js"></script>
 <script src="/shared/demo-seed.js"></script>
 <!--
   Both storage adapters, then the one line that picks between them. Shipping
