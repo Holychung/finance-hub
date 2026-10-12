@@ -635,6 +635,14 @@ code {
 .todo-item.warn { --icon: var(--icon-warn); --icon-tint: var(--warn); }
 .todo-item.err  .todo-label { color: var(--down); }
 .todo-item.warn .todo-label { color: var(--warn); }
+/* 月度審計 lists its findings in these rows too: `info` is one worth a look,
+   in the info notice's own icon and tint, and `ok` one somebody has answered —
+   dimmed, with the tick, because it stays listed and must read as settled. */
+.todo-item.info { --icon: var(--icon-info); --icon-tint: var(--brand); }
+.todo-item.ok   { --icon: var(--icon-ok);   --icon-tint: var(--ink-3); }
+.todo-item.ok .todo-label, .todo-item.ok .todo-text { color: var(--ink-3); }
+.todo-rows { margin-top: var(--sp-4); font-size: var(--fs-xs); color: var(--ink-3); }
+.todo-item > button { flex: 0 0 auto; }
 
 /* ---------- chart ---------- */
 

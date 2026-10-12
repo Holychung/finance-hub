@@ -202,6 +202,10 @@
       const last = rows[rows.length - 1].date;
       found.push({
         account_id: g.account_id,
+        // The normalised description the series is grouped by. With the
+        // account it names the series across a change of spelling, which is
+        // what lets 月度審計 remember one as cancelled.
+        key: g.key,
         account_name: nameOf.get(g.account_id) || '',
         currency: currencyOf.get(g.account_id) || 'TWD',
         // The most recent spelling, not the first: banks rewrite merchant
@@ -336,8 +340,10 @@
   // Dual-environment, the same three lines `web/html.js` ends with: onto
   // the global for the browser's classic scripts, onto module.exports for
   // Node. Everything above stays inside the closure.
+  // `notSpending` is exported so shared/audit.js filters with this one rule
+  // rather than a copy of it.
   const api = {
-    computeSpending, computeRecurring, computeBudgets, monthsBetween, yearsBefore,
+    computeSpending, computeRecurring, computeBudgets, monthsBetween, yearsBefore, notSpending,
     CADENCES, MIN_OCCURRENCES, UNCATEGORISED, UNCATEGORISED_LABEL,
   };
   Object.assign(root, api);

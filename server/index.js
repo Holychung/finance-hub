@@ -160,7 +160,7 @@ function serveStatic(res, pathname) {
 // Kept in step with `views` in web/app.js by test/html.test.js.
 const APP_ROUTES = new Set([
   'overview', 'accounts', 'account', 'transactions', 'import', 'holdings',
-  'spending', 'coverage', 'ai', 'settings',
+  'spending', 'audit', 'coverage', 'ai', 'settings',
 ]);
 
 function notFound(res, file, pathname) {

@@ -33,6 +33,7 @@
   const csv = dep ? require('../shared/csv') : root;
   const R = dep ? require('../shared/rules') : root;
   const SP = dep ? require('../shared/spending') : root;
+  const AUDIT = dep ? require('../shared/audit') : root;
   const X = dep ? require('../shared/export') : root;
   const O = dep ? require('../shared/overview') : root;
   const I = dep ? require('../shared/import') : root;
@@ -826,6 +827,46 @@
     on('DELETE', '/api/budgets/:id', (p) => ({
       deleted: raw.remove('budgets', (x) => x.id === N(p.id)),
     }));
+
+    // --- 月度審計 ------------------------------------------------------------
+
+    // server/api.js's routes over the Map: the same rows with their ids, the
+    // same two years back, the answers in the same two meta keys, and every
+    // refusal from the shared functions both sides call.
+    const auditRows = (to) => {
+      const from = `${Number(to.slice(0, 4)) - 2}${to.slice(4, 7)}-01`;
+      return raw.all('txns').filter((t) => t.date >= from && t.date <= to)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)
+        .map(({ id, account_id, date, amount, description, category, kind, transfer_group }) =>
+          ({ id, account_id, date, amount, description, category, kind, transfer_group }));
+    };
+    const metaValue = (key) => (raw.get('meta', key) || {}).value || '';
+    const auditAnswers = () => AUDIT.parseAnswers(metaValue('audit_ok'), metaValue('audit_cancelled'));
+
+    on('GET', '/api/audit', (_p, _b, q) => {
+      const month = monthOf(q.month);
+      const { ok, cancelled } = auditAnswers();
+      const accounts = accountCurrencies();
+      const unpaired = transferCandidates().flatMap((c) => [c.out.id, c.in.id]);
+      return {
+        ...AUDIT.computeAudit({ txns: auditRows(`${month}-31`), accounts, month, today: today(), ok, cancelled, unpaired }),
+        subscriptions: AUDIT.computeSubscriptions({ txns: auditRows(today()), accounts, today: today(), cancelled }).items,
+      };
+    });
+
+    on('PUT', '/api/audit/ok', (_p, b) => {
+      const r = AUDIT.answerOk(auditAnswers().ok, b);
+      if (r.error) bad(r.error);
+      raw.put('meta', { key: 'audit_ok', value: JSON.stringify(r.value) });
+      return { ok: true };
+    });
+
+    on('PUT', '/api/audit/cancel', (_p, b) => {
+      const r = AUDIT.answerCancelled(auditAnswers().cancelled, b);
+      if (r.error) bad(r.error);
+      raw.put('meta', { key: 'audit_cancelled', value: JSON.stringify(r.value) });
+      return { ok: true };
+    });
 
     // --- rules --------------------------------------------------------------
 

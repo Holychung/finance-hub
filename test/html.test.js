@@ -238,7 +238,7 @@ describe('前端靜態防線', () => {
     // to have registered itself by then.
     const registered = vm.runInContext('Object.keys(views).sort()', ctx);
     assert.deepEqual([...registered].sort(),
-      ['account', 'accounts', 'ai', 'coverage', 'holdings', 'import', 'overview', 'settings', 'spending', 'transactions'],
+      ['account', 'accounts', 'ai', 'audit', 'coverage', 'holdings', 'import', 'overview', 'settings', 'spending', 'transactions'],
       '載入後 views 裡缺了東西，路由會默默退回總覽');
   });
 
